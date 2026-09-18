@@ -1,0 +1,21 @@
+[Unit]
+Description=Herts private tasks and reading
+After=network-online.target@AFTER@
+Wants=network-online.target
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=@ROOT@
+EnvironmentFile=@ENV@
+Environment=NODE_ENV=production
+ExecStart=@NODE@ --import tsx server/index.ts
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

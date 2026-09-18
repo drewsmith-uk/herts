@@ -1,0 +1,43 @@
+# Behaviour and data ownership
+
+Herts is a personal app with manual priorities and deliberate agent execution.
+
+## Tasks and spaces
+
+Each task space has Inbox, Next, Waiting, Parked, Snoozed and Done. Create and rename spaces from Settings or the **+** at the end of the space tabs. Tabs share available width on phones and scroll when they no longer fit. Conversations and Reading are global.
+
+Capture requires only a title. A task has no Hermes conversation until its first deliberate send. List order expresses priority. Moves normally put tasks at the top of the destination; Done is sorted by completion time and Snoozed by reminder time. Moving between spaces puts the same task in the destination Inbox, retaining its conversation and ongoing work. Settings selects the default space for conversation conversion and the voice shortcut.
+
+Hold an item still to begin dragging. Drop it between items, onto another list, or onto a space tab (that space's Inbox). Edit list provides accessible reorder buttons and inline title editing. Otherwise edit titles on the detail page. Completing/reopening a task never stops Hermes or deletes history.
+
+Snooze an Inbox task from its page or by swiping its row. At the chosen time the server returns it to Inbox and creates a reminder. The schedule is persisted and catches up after downtime. Moving/completing the task cancels its snooze. Notifications require browser permission and a working push subscription; delivery is not guaranteed at an exact instant.
+
+## Conversations
+
+Browse/search personal Hermes history before deciding what belongs in Tasks. Herts filters worker, test and internal conversations. There is no automatic backlog import. A conversation can become a new task; an unrelated existing task cannot be attached to it. Each task has at most one conversation and each conversation at most one task, including across spaces.
+
+Already linked conversations are hidden from the general list by default, with an option to include them. Swipe a conversation to create a task or the other way to hide it. Hidden status belongs only to Herts; Show hidden reveals it again. Accessible actions are on the conversation detail page, keeping list rows uncluttered.
+
+Opening a conversation reads available history and observes status; it never resumes work. Sending a message prepares/resumes the same conversation when necessary, then submits the message. Existing model and project-directory settings are left to Hermes's resume behaviour, as in Desktop. There is no separate Continue button.
+
+History starts at its most recent messages, with the detail header initially visible. Adjacent tool-only rounds are grouped under one expandable activity section. Expanding preserves the top of that section so it is easy to collapse. Available original message times are displayed; missing timestamps are not invented. Compaction/session rotation can limit older history.
+
+## Reading
+
+Reading items are separate from tasks. Adding a new URL creates a reading context and deliberately sends the URL to Hermes. Sharing a URL into the app uses this flow, with a title review. Bookmark a link in an existing conversation to create a reading item without another agent message. The selected link is its reading target; the same conversation may have several different reading links, but the same conversation/link pair is deduplicated. A bookmark already saved opens its existing reading item.
+
+A reading association does not count as a task link and does not hide the conversation from browsing. A reading conversation can still become a task. Both views continue the same conversation and share execution controls. Marking a reading item read is independent of task completion.
+
+Open the original link, use the in-app article reader, or open the system browser. Arbitrary sites may refuse embedding; a readable article is extracted and sanitised where possible. Extraction may only provide an excerpt and does not bypass login/paywalls. Unread articles can download automatically; copies are removed after marking read, including on other devices when they next sync. Herts restricts article fetches to public HTTP(S) addresses with redirect/DNS checks.
+
+## Execution, recovery and privacy
+
+Task changes, viewing history, bookmarking existing links and completing items never invoke an agent. Sending, answering an approval/clarification, and requesting a stop are explicit actions. A stop is a request, not a guarantee of rollback. Accepted work can continue when the browser closes because the server keeps the Hermes connection independently.
+
+Server SQLite stores task/space/reading data, conversation links, uploads, action receipts, notifications and article copies. Browser IndexedDB stores offline edits, drafts, recordings, attachments, viewed history and article copies. The server is authoritative across devices; conflicts are surfaced rather than silently overwriting a concurrent edit.
+
+Submitted messages have durable IDs/receipts. If acceptance cannot be confirmed, Herts retains the submission and distinguishes uncertainty from rejection. It does not automatically repeat an uncertain agent action. Browser drafts are not server backups. Device security protects cached data; clearing browser storage loses unsynced work.
+
+Microphone capture and read-aloud are explicit. Title dictation fills a capture field for review/save. Conversation dictation can send after a cancellable countdown. Read-aloud applies to backend assistant responses, with playback controls. Audio is processed through the selected Hermes profile; OS/browser dictation is not substituted.
+
+Production access requires the configured Tailscale user and app origin. Secrets stay on the server. Notifications intentionally include task titles. Herts supports one user per deployment; spaces are organisational groups, not security boundaries. The backend token may grant broad access to Hermes, so keep it private and bind the backend to loopback or protect its HTTPS endpoint.

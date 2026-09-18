@@ -1,0 +1,50 @@
+{
+  "id": "/",
+  "name": "Herts",
+  "short_name": "Herts",
+  "description": "Personal tasks and Hermes conversations",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f6f7f9",
+  "theme_color": "#18212b",
+  "shortcuts": [
+    {
+      "name": "New voice task",
+      "short_name": "Voice task",
+      "description": "Record a task title, then review and add it to Inbox",
+      "url": "/#/tasks/inbox/record",
+      "icons": [
+        {
+          "src": "/voice-shortcut-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
+  ],
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "share_target": {
+    "action": "/share",
+    "method": "GET",
+    "enctype": "application/x-www-form-urlencoded",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  }
+}
