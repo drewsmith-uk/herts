@@ -6,6 +6,7 @@ data/
 .env.*
 !.env.example
 *.env
+backend-token
 *.sqlite
 *.sqlite-*
 .agents/
