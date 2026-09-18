@@ -10,6 +10,7 @@ import { emptyReading, normalizeUrl, sharedUrls, type ReadingItem, type Article 
 import { useApp, addReading, readingChange, db, sync, sendReadingLink, publish, createTaskFromConversation, getArticle } from './data';
 import { ConversationPanel } from './App';
 import { ConversationHeader } from './ConversationHeader';
+import { useDraftPersistence, useUpdatePreparation, useUpdateWork } from './updateSafety';
 
 const navigate = (path: string) => { location.hash = path; };
 const date = (at: number) => new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(at);
@@ -52,8 +53,12 @@ export function ReadingCapture() {
   const [candidates] = useState(() => shared ? sharedUrls(params.get('url') || '', params.get('text') || '', params.get('title') || '') : []);
   const [url, setUrl] = useState(() => candidates.length === 1 ? candidates[0] : ''), [title, setTitle] = useState(() => shared && !sharedUrls(params.get('title') || '').length ? (params.get('title') || '').slice(0, 2000) : ''), [loaded, setLoaded] = useState(shared);
   const submitting = useRef(false);
+  const saveDraft = useDraftPersistence();
+  useUpdatePreparation({
+    blocked: () => submitting.current || shared ? 'Save or cancel this link before updating.' : undefined,
+  });
   useEffect(() => { if (!shared) void db.drafts.get('reading-capture').then(d => { if (d) { try { const v = JSON.parse(d.text); setUrl(v.url); setTitle(v.title); } catch { setUrl(d.text); } } setLoaded(true); }).catch(() => setError('Your draft could not be opened. Reload to try again.')); }, []);
-  function update(nextUrl: string, nextTitle: string) { setUrl(nextUrl); setTitle(nextTitle); void db.drafts.put({ id: 'reading-capture', text: JSON.stringify({ url: nextUrl, title: nextTitle }), files: [] }).catch(() => setError('The draft could not be saved on this device.')); }
+  function update(nextUrl: string, nextTitle: string) { setUrl(nextUrl); setTitle(nextTitle); void saveDraft({ id: 'reading-capture', text: JSON.stringify({ url: nextUrl, title: nextTitle }), files: [] }).catch(() => setError('The draft could not be saved on this device.')); }
   async function capture(e: FormEvent) {
     e.preventDefault(); if (submitting.current) return; submitting.current = true; setBusy(true); setError('');
     try {
@@ -77,6 +82,7 @@ export function ReadingCapture() {
 export function ReadingDetail({ id }: { id: string }) {
   const state = useApp(), item = state.snapshot.reading?.items.find(i => i.id === id), { run, error } = useReadingAction();
   const [showTask, setShowTask] = useState(false), [title, setTitle] = useState(''), [busy, setBusy] = useState(false);
+  useUpdatePreparation({ blocked: () => showTask || busy ? 'Finish or cancel creating the task before updating.' : undefined });
   useEffect(() => { if (!item) void db.kv.get(`reading-alias:${id}`).then(row => { if (row) navigate(`/reading-item/${row.value}`); }); }, [id, item, state.snapshot.revision]);
   const context = state.snapshot.contexts?.find(c => c.id === item?.contextId);
   const destination = useTaskDestination(context?.link?.key);
@@ -97,12 +103,14 @@ export function ReadingDetail({ id }: { id: string }) {
 }
 function useReadingTitle(item: ReadingItem) {
   const [draft, setDraft] = useState<{ text: string; baseTitle: string } | null>(null), [error, setError] = useState('');
+  const savingTitle = useUpdateWork();
+  useUpdatePreparation({ blocked: () => draft && draft.text.trim() !== draft.baseTitle ? 'The reading title is still being saved. Please try updating again after it is saved.' : undefined });
   async function save() {
     if (!draft) return;
     const title = draft.text.trim(); setError('');
     if (!title || title === draft.baseTitle) { setDraft(null); return; }
     try {
-      await readingChange(item.id, { kind: 'title', title, baseTitle: draft.baseTitle });
+      await savingTitle(readingChange(item.id, { kind: 'title', title, baseTitle: draft.baseTitle }));
       setDraft(current => current === draft ? null : current && current.baseTitle === draft.baseTitle ? { ...current, baseTitle: title } : current);
     } catch { setError('The title could not be saved. Your edit is still here; tap the title and leave the field to try again.'); }
   }

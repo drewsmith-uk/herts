@@ -1,6 +1,16 @@
 
 /* Persistent workspace navigation; conversation controls hide beneath it. */
 :root { --topbar-height: 65px; }
+.update-toast { position: fixed; z-index: 60; right: 24px; bottom: 24px; width: min(380px, calc(100vw - 32px)); padding: 18px; border: 1px solid #c6d7f0; border-radius: 12px; background: #fff; color: #27384d; box-shadow: 0 8px 30px #172b4d26; }
+.update-toast-message { display: flex; align-items: flex-start; gap: 12px; }
+.update-toast-message>svg { flex-shrink: 0; margin-top: 2px; color: #285db0; }
+.update-toast strong { font-size: .94rem; }
+.update-toast p { font-size: .83rem; line-height: 1.5; margin-top: 5px; }
+.update-toast .button-row { justify-content: flex-end; margin-top: 14px; }
+.update-toast button { min-height: 44px; }
+.update-toast-error { color: #9b3c32; }
+@media (max-width: 700px) { .update-toast { right: 16px; bottom: calc(82px + env(safe-area-inset-bottom)); } }
+@media (prefers-reduced-motion: reduce) { .update-toast .spin { animation: none; } }
 .topbar { position: sticky; top: 0; z-index: 12; height: var(--topbar-height); gap: 12px; background: #fff; }
 .topbar .save-state { margin-left: auto; }
 .settings-link { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 38px; height: 44px; color: #718398; }

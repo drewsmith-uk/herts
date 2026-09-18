@@ -5,6 +5,7 @@ import { CSS } from '@dnd-kit/utilities';
 import type { Task } from '../shared/model';
 import { moveTask, renameTask, useApp } from './data';
 import { holdListeners, useTaskInteractions } from './TaskDragging';
+import { useUpdatePreparation, useUpdateWork } from './updateSafety';
 
 const time = (at: number) => new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(at);
 export function TaskRow({ task, edit, index, tasks }: { task: Task; edit: boolean; index: number; tasks: Task[] }) {
@@ -12,6 +13,8 @@ export function TaskRow({ task, edit, index, tasks }: { task: Task; edit: boolea
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id, disabled: { droppable: !ordered } });
   const { activeTask, snooze } = useTaskInteractions();
   const [text, setText] = useState(task.title), [offset, setOffset] = useState(0); const state = useApp();
+  const savingTitle = useUpdateWork();
+  useUpdatePreparation({ blocked: () => edit && text.trim() !== task.title ? 'The task title is still being saved. Please try updating again after it is saved.' : undefined });
   const action = state.actions.find(a => !a.cancelled && a.taskId === (task.contextId || task.id) && ['send','continue'].includes(a.kind));
   const gesture = useRef<{ id: number; x: number; y: number; dx: number; horizontal: boolean; threshold: number } | undefined>(undefined);
   const suppressClickUntil = useRef(0);
@@ -51,7 +54,7 @@ export function TaskRow({ task, edit, index, tasks }: { task: Task; edit: boolea
     <div className={`task-swipe-action ${offset<0?'swipe-left':''}`} aria-hidden="true"><AlarmClock size={20}/>Snooze</div>
     <div className={`task-row ${task.status==='done'?'completed':''} ${offset?'swiping':''}`} style={{transform:`translateX(${offset}px)`}}>
       <button className="completion-button" aria-label={task.status==='done'?`Reopen ${task.title}`:`Complete ${task.title}`} onClick={()=>void moveTask(task.id,task.status==='done'?['done','snoozed'].includes(task.previousStatus)?'inbox':task.previousStatus:'done')}>{task.status==='done'?<Check size={18}/>:<Circle size={21}/>}</button>
-      <div className="task-row-body">{edit?<input className="inline-title" aria-label="Edit task title" value={text} onChange={e=>setText(e.target.value)} onBlur={()=>{if(text.trim()&&text.trim()!==task.title)void renameTask(task.id,text);else setText(task.title);}} onKeyDown={e=>{if(e.key==='Enter')e.currentTarget.blur();}}/>:<a href={`#/task/${task.id}`} className="task-title" draggable={false}>{task.title}</a>}
+      <div className="task-row-body">{edit?<input className="inline-title" aria-label="Edit task title" value={text} onChange={e=>setText(e.target.value)} onBlur={()=>{if(text.trim()&&text.trim()!==task.title)void savingTitle(renameTask(task.id,text));else setText(task.title);}} onKeyDown={e=>{if(e.key==='Enter')e.currentTarget.blur();}}/>:<a href={`#/task/${task.id}`} className="task-title" draggable={false}>{task.title}</a>}
         {(pending||task.completedAt||task.snoozedUntil)&&<div className="task-meta">{pending&&<span>Saved on device</span>}{task.completedAt&&<span>{time(task.completedAt)}</span>}{task.snoozedUntil&&<span><AlarmClock size={12}/> {time(task.snoozedUntil)}</span>}</div>}
       </div>
       {action&&!['finished','failed','ready','unknown'].includes(action.state)&&<span className={`activity-chip ${action.state==='awaiting_input'?'attention':''}`}>{action.state==='awaiting_input'?'Needs you':'Working'}</span>}

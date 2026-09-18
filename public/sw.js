@@ -3,6 +3,7 @@ const CACHE='tasks-shell-dev';
 const PRECACHE=['/index.html','/icon.svg','/manifest.webmanifest'];
 self.addEventListener('install',event=>{event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(PRECACHE)));});
 self.addEventListener('message',event=>{if(event.data?.type==='ACTIVATE_UPDATE')event.waitUntil(self.skipWaiting());});
+self.addEventListener('message',event=>{if(event.data?.type==='GET_VERSION')event.ports[0]?.postMessage({version:CACHE});});
 self.addEventListener('activate',event=>{event.waitUntil((async()=>{const keys=(await caches.keys()).filter(k=>k.startsWith('tasks-shell-'));for(const k of keys.slice(0,-2))if(k!==CACHE)await caches.delete(k);await self.clients.claim();})());});
 self.addEventListener('fetch',event=>{
  const url=new URL(event.request.url);if(url.origin!==self.location.origin||event.request.method!=='GET'||url.pathname.startsWith('/api/'))return;

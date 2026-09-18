@@ -115,6 +115,7 @@ In Android Chrome, open the HTTPS URL and choose **Install app** / **Add to Home
 
 - Enable notifications in Settings on each device, then deliberately send a test. Settings distinguishes push-service acceptance from the device confirming display. Repair is shown only when needed. Notifications contain task titles, which may appear on the lock screen.
 - Long-press the installed Android icon for **New voice task**. The shortcut records after microphone permission, then lets you stop, review and save the title. Opening the app normally never records. Existing Android shortcuts/app names can take time to refresh after an update.
+- When a new deployed version is ready, an **Update available** toast offers **Update now** or **Later**. Updating saves local drafts and reloads the current screen; pending changes remain on the device and accepted Hermes work keeps running. Finish recording or unsaved forms first. Later dismisses that version for the current page session. The app checks on launch, when returning to the foreground, and periodically while open. This updates the web app; Chrome separately manages Android's launcher name, icon and shortcuts.
 - Share a link from another app to Herts to add it to Reading and send it to Hermes. Reading titles can be edited on the item page or inline in Edit list, just like task titles.
 - Inbox tasks can be snoozed from their page or by swiping the row. The server returns them to Inbox at the chosen time, even when Hermes is offline; notification delivery also depends on browser/OS push support.
 

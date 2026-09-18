@@ -1,6 +1,6 @@
 import webpush from 'web-push';
 import { createServer } from 'node:http';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, readFile } from 'node:fs/promises';
 import { WebSocketServer } from 'ws';
 import { createApp } from '../server/app';
 const browserRoot = process.env.HERTS_BROWSER_ROOT || process.env.TASKS_BROWSER_ROOT;
@@ -104,7 +104,18 @@ webpush.sendNotification=async(_subscription,payload)=>{
   return {statusCode:201,headers:{},body:''};
 };
 const { app, articles, store } = await createApp({ dataDir: await mkdtemp('/tmp/herts-browser-'), origin: 'http://127.0.0.1:8790', identity: 'fixture', dev: true, hermesBase: 'http://127.0.0.1:8791', hermesToken: 'fixture-token' });
+// Simulate a client on a previous release without intercepting browser traffic
+// while real service workers install and take control. Their cached index stays new.
+app.get('/', async (req, reply) => {
+  let html = await readFile('dist/index.html', 'utf8');
+  if (req.headers.cookie?.split(';').some(c => c.trim() === 'fixture-old-page=1')) {
+    html = html.replace(/(<meta name="herts-build" content=")[^"]+/, '$1tasks-shell-fixture-previous');
+    reply.header('Set-Cookie', 'fixture-old-page=; Max-Age=0; Path=/');
+  }
+  return reply.header('Cache-Control', 'no-store').type('text/html').send(html);
+});
 app.get('/__test/old-sw.js',async(_req,reply)=>reply.type('application/javascript').header('Service-Worker-Allowed','/').send("self.addEventListener('install',event=>event.waitUntil(self.skipWaiting()));self.addEventListener('activate',event=>event.waitUntil(self.clients.claim()));"));
+app.get('/__test/failed-sw.js',async(_req,reply)=>reply.type('application/javascript').header('Service-Worker-Allowed','/').send("self.addEventListener('install',event=>event.waitUntil(Promise.reject(new Error('Fixture install failure'))));"));
 app.post('/__test/push-status',async req=>{pushStatus=(req.body as {status:number}).status;return{ok:true};});
 app.get('/__test/push-calls',async()=>pushCalls);
 // Isolated browser-fixture clock control; this route is never in the app server.

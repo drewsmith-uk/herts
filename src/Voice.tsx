@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { Mic, Square, RotateCcw, X } from 'lucide-react';
 import { db, addFile, uploadFile, api } from './data';
+import { useUpdatePreparation } from './updateSafety';
 type Mode = 'idle' | 'starting' | 'recording' | 'transcribing';
 export function Voice({ owner, onTranscript, startRequest }: { owner: string; onTranscript: (text: string, fresh: boolean) => void | Promise<void>; startRequest?: string }) {
   const [mode, setMode] = useState<Mode>('idle'); const [error, setError] = useState(''); const [saved, setSaved] = useState<string[]>([]);
   const generation = useRef(0); const recorder = useRef<MediaRecorder | null>(null); const chain = useRef(Promise.resolve()); const cancelled = useRef(false); const mounted = useRef(true);
   const currentMode = useRef<Mode>('idle'), handledRequest = useRef<string | undefined>(undefined);
+  useUpdatePreparation({ blocked: () => currentMode.current !== 'idle' ? 'Finish or cancel dictation before updating.' : undefined });
   const transcriptHandler = useRef(onTranscript); transcriptHandler.current = onTranscript;
   function changeMode(next: Mode) { currentMode.current = next; setMode(next); }
   function cancel() { cancelled.current = true; if (recorder.current?.state === 'recording') recorder.current.stop(); else changeMode('idle'); }

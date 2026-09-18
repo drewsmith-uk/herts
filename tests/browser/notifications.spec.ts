@@ -15,7 +15,7 @@ async function browserPush(page:Page, existing=false, permission='granted', real
         toJSON:()=>({endpoint:saved.endpoint,keys:{p256dh:'fixture',auth:'fixture'}}),
         unsubscribe:async()=>{localStorage.removeItem(key);return true;}};
     }
-    const registration={update:async()=>{},pushManager:{getSubscription:async()=>sub(),subscribe:async(options:any)=>{
+    const registration={addEventListener:()=>{},removeEventListener:()=>{},update:async()=>{},pushManager:{getSubscription:async()=>sub(),subscribe:async(options:any)=>{
       localStorage.setItem(key,JSON.stringify({endpoint:`https://fcm.googleapis.com/fcm/send/${crypto.randomUUID()}`,key:Array.from(options.applicationServerKey)}));return sub();
     }}};
     if(realWorker){PushManager.prototype.getSubscription=registration.pushManager.getSubscription as any;PushManager.prototype.subscribe=registration.pushManager.subscribe as any;}

@@ -5,6 +5,7 @@ import { useDroppable } from '@dnd-kit/core';
 import { originalSpaceId, spaceName, spacePath, type Space } from '../shared/model';
 import { db, useApp, createSpace, renameSpace, setDefaultSpace, rememberSpace, resolveSpaceConflict, type PendingSpace } from './data';
 import { TaskDropLink, useTaskInteractions } from './TaskDragging';
+import { useUpdatePreparation } from './updateSafety';
 
 export function useTaskDestination(conversationId?: string) {
   const state = useApp(), [saved, setSaved] = useState<{ conversationId: string; spaceId?: string }>();
@@ -63,6 +64,7 @@ function CreateSpaceDialog({ close }: { close: () => void }) {
 }
 export function SpaceSettings() {
   const state = useApp(), [name, setName] = useState(''), [error, setError] = useState(''), [busy, setBusy] = useState(false);
+  useUpdatePreparation({ blocked: () => name || busy ? 'Save or clear the new space name before updating.' : undefined });
   async function add(e: FormEvent) {
     e.preventDefault(); setBusy(true); setError('');
     try { await createSpace(name); setName(''); } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
@@ -76,12 +78,14 @@ export function SpaceSettings() {
 }
 function SpaceName({ space }: { space: Space }) {
   const [name, setName] = useState(space.name), [error, setError] = useState(''), [busy, setBusy] = useState(false);
+  useUpdatePreparation({ blocked: () => name !== space.name || busy ? 'Save the space name before updating.' : undefined });
   useEffect(() => setName(space.name), [space.name]);
   async function save(e: FormEvent) { e.preventDefault(); setBusy(true); setError(''); try { await renameSpace(space.id, name); } catch(e) { setError((e as Error).message); } finally { setBusy(false); } }
   return <div><form className="space-name-form" onSubmit={save}><input aria-label={`Name of ${space.name} space`} value={name} onChange={e => setName(e.target.value)} maxLength={80}/><button disabled={busy || !name.trim() || name.trim() === space.name}>Rename</button><a className="text-link" href={`#${spacePath(space.id)}`}>Open</a></form>{error && <p role="alert" className="inline-error">{error}</p>}</div>;
 }
 export function SpaceConflict({ pending }: { pending: PendingSpace }) {
   const state = useApp(), [name, setName] = useState(pending.op.name || ''), [error, setError] = useState('');
+  useUpdatePreparation({ blocked: () => name !== (pending.op.name || '') ? 'Save your choice of space name before updating.' : undefined });
   const creating = pending.op.kind === 'create';
   const resolve = (keep: boolean) => { setError(''); void resolveSpaceConflict(pending.id, keep, pending.op.kind === 'default' ? undefined : name).catch(e => setError(e.message)); };
   return <div className="conflict-banner"><strong>A space change needs your choice</strong><p>{pending.conflict}</p>

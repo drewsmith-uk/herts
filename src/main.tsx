@@ -1,11 +1,11 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
+import { AppUpdates } from './AppUpdates';
 import { initialise } from './data';
 import { installNotificationNavigation } from './notificationNavigation';
 import './style.css';
 import './styles.css';
 installNotificationNavigation();
-createRoot(document.getElementById('root')!).render(<App/>);
+createRoot(document.getElementById('root')!).render(<><App/><AppUpdates/></>);
 void initialise();
-if ('serviceWorker' in navigator && import.meta.env.PROD) window.addEventListener('load', () => { void navigator.serviceWorker.register('/sw.js').catch(() => {}); });
