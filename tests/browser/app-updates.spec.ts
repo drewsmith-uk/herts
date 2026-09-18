@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 
-const toast = (page: Page) => page.getByRole('region', { name: 'App update' });
+const toast = (page: Page) => page.getByRole('region', { name: 'App update', exact: true });
+const settings = (page: Page) => page.getByRole('region', { name: 'App updates', exact: true });
 const version = (page: Page) => page.locator('meta[name="herts-build"]').getAttribute('content');
 const calls = async (page: Page) => (await (await page.request.get('http://127.0.0.1:8791/calls')).json()).filter((m: string) => ['session.create', 'session.resume', 'prompt.submit', 'session.interrupt'].includes(m));
 
@@ -33,6 +34,76 @@ test('a first installation and an already-current page never offer or force an u
   await page.reload();
   await expect(page.getByRole('textbox', { name: 'New task title' })).toHaveValue('Keep writing on this release');
   await expect(toast(page)).toHaveCount(0);
+});
+
+test('Settings checks the deployed version on demand and confirms when it is current', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const before = await calls(page);
+  await page.goto('/#/settings');
+  await expect(settings(page)).toContainText('App version:');
+  await settings(page).getByRole('button', { name: 'Check for updates', exact: true }).click();
+  await expect(settings(page).getByRole('status')).toHaveText('Herts is up to date.');
+  await expect(settings(page).getByRole('button', { name: 'Update now' })).toHaveCount(0);
+  await expect(toast(page)).toHaveCount(0);
+  await page.screenshot({ path: 'test-results/phone-update-settings.png' });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(await calls(page)).toEqual(before);
+});
+
+test('a dismissed update remains available in Settings and a manual check restores the toast', async ({ page }) => {
+  await oldPage(page, '/#/settings');
+  await toast(page).getByRole('button', { name: 'Later' }).click();
+  await expect(toast(page)).toHaveCount(0);
+  await expect(settings(page).getByRole('button', { name: 'Update now' })).toBeVisible();
+  await settings(page).getByRole('button', { name: 'Check for updates' }).click();
+  await expect(settings(page).getByRole('status')).toHaveText('An update is ready to install.');
+  await expect(toast(page)).toBeVisible();
+  await toast(page).getByRole('button', { name: 'Later' }).click();
+  await settings(page).getByRole('button', { name: 'Update now' }).click();
+  await expect.poll(() => version(page)).not.toBe('tasks-shell-fixture-previous');
+  await expect(settings(page)).toBeVisible();
+  await expect(toast(page)).toHaveCount(0);
+});
+
+test('an offline update check is unconfirmed and can be retried after reconnecting', async ({ page, context }) => {
+  await page.goto('/#/settings');
+  await settings(page).getByRole('button', { name: 'Check for updates' }).click();
+  await expect(settings(page).getByRole('status')).toHaveText('Herts is up to date.');
+  await context.setOffline(true);
+  await settings(page).getByRole('button', { name: 'Check for updates' }).click();
+  await expect(settings(page).getByRole('alert')).toHaveText('You are offline. Connect to check for updates.');
+  await expect(settings(page)).not.toContainText('Herts is up to date.');
+  await expect(toast(page)).toHaveCount(0);
+  await context.setOffline(false);
+  await settings(page).getByRole('button', { name: 'Check for updates' }).click();
+  await expect(settings(page).getByRole('status')).toHaveText('Herts is up to date.');
+  await expect(settings(page).getByRole('alert')).toHaveCount(0);
+});
+
+test('manual checks wait for installation and report a failed download without claiming to be current', async ({ page }) => {
+  await page.goto('/#/settings');
+  await settings(page).getByRole('button', { name: 'Check for updates' }).click();
+  await expect(settings(page).getByRole('status')).toHaveText('Herts is up to date.');
+  await page.evaluate(() => {
+    const original = ServiceWorkerRegistration.prototype.update;
+    (window as any).restoreUpdate = () => { ServiceWorkerRegistration.prototype.update = original; };
+    ServiceWorkerRegistration.prototype.update = async function () {
+      const worker = Object.assign(new EventTarget(), { state: 'installing' });
+      Object.defineProperty(this, 'installing', { configurable: true, get: () => worker.state === 'redundant' ? null : worker });
+      (window as any).failDownload = () => { worker.state = 'redundant'; worker.dispatchEvent(new Event('statechange')); };
+      return this;
+    };
+  });
+  await settings(page).getByRole('button', { name: 'Check for updates' }).click();
+  await expect(settings(page).getByRole('status')).toHaveText('Checking for updates…');
+  await expect(settings(page).getByRole('button', { name: 'Check for updates' })).toBeDisabled();
+  await page.evaluate(() => (window as any).failDownload());
+  await expect(settings(page).getByRole('alert')).toContainText('could not be downloaded');
+  await expect(settings(page)).not.toContainText('Herts is up to date.');
+  await expect(toast(page)).toHaveCount(0);
+  await page.evaluate(() => (window as any).restoreUpdate());
+  await settings(page).getByRole('button', { name: 'Check for updates' }).click();
+  await expect(settings(page).getByRole('status')).toHaveText('Herts is up to date.');
 });
 
 test('Later leaves the app, draft and agent untouched and stays dismissed while browsing', async ({ page }) => {

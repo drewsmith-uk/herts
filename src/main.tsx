@@ -7,5 +7,5 @@ import { installNotificationNavigation } from './notificationNavigation';
 import './style.css';
 import './styles.css';
 installNotificationNavigation();
-createRoot(document.getElementById('root')!).render(<><App/><AppUpdates/></>);
+createRoot(document.getElementById('root')!).render(<AppUpdates><App/></AppUpdates>);
 void initialise();
