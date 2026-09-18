@@ -11,7 +11,7 @@ npm run test:browser
 
 Unit/API tests cover task ordering, spaces, snoozes, reading deduplication and title edits, authenticated access, upload recovery, uncertain action receipts, profile selection/identity checks, reconnects, approvals, event replay and notifications. Installer tests use temporary paths and mocked systemd and check both modes, dry runs, idempotent reruns, conflicting files, occupied ports, named profiles and quoting.
 
-Browser tests launch a temporary app and fake Hermes (8790/8791). They exercise phone/desktop layouts, drag/drop, accessible controls, offline sync/conflicts, shared reading conversations, recording recovery, message activity, history, notification navigation and existing browser storage. They do not send production prompts or real push notifications. `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` optionally overrides Playwright's normal browser location.
+Browser tests launch a temporary app and fake Hermes (8790/8791). They exercise phone/desktop layouts, drag/drop, accessible controls, offline sync/conflicts, shared reading conversations, recording recovery, message activity, history, notification navigation and existing browser storage. They do not send production prompts or real push notifications. `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` optionally overrides Playwright's normal browser location. The full Chromium channel runs headlessly so service-worker push tests use the browser runtime.
 
 For a release:
 
