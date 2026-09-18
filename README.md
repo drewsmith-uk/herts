@@ -1,6 +1,6 @@
 # Herts
 
-**Hermes Tasks:** a private task, reading and conversation app for one person. Use it in a browser or install it as a PWA on Android or Mac. Herts connects to the same Desktop-compatible backend as [Hermes Desktop](https://github.com/NousResearch/hermes-desktop).
+**Hermes Tasks:** a private task, reading and conversation app for one person. Use it in a browser or install it as a PWA on Android or Mac. Herts connects to the same Desktop-compatible backend as [Hermes Desktop](https://hermes-agent.nousresearch.com/docs/user-guide/features/web-dashboard#connecting-hermes-desktop-to-a-remote-backend).
 
 Capture tasks without calling an agent; organise them manually into spaces with Inbox, Next, Waiting, Parked, Snoozed and Done. Browse your existing Hermes conversations and deliberately turn one into a task. Save links to a separate reading list, continue their conversations, and keep article text offline. Conversations and Reading are shared across spaces.
 
@@ -10,7 +10,7 @@ Herts runs on your Linux server behind **Tailscale Serve**. It is a **single-use
 
 - Linux with a user systemd session, Python 3, Git, and **Node.js 24 or later** with npm. Native dependencies may need a C/C++ build toolchain if a prebuilt binary is unavailable.
 - Tailscale on the server and your devices, with HTTPS certificates/Serve enabled for your tailnet.
-- A configured [Hermes Agent](https://hermes-agent.nousresearch.com/docs/) installation for conversation, transcription and speech features. Tasks remain usable without Hermes. Hermes owns model credentials, model selection, project folders and tools.
+- A configured [Hermes Agent](https://hermes-agent.nousresearch.com/docs/) installation for conversation, transcription and speech features, including its web/backend dependencies. Follow the [upstream prerequisites](https://hermes-agent.nousresearch.com/docs/user-guide/features/web-dashboard#prerequisites); for a source installation, run `uv pip install -e ".[web]"` from the Hermes checkout in its environment. Tasks remain usable without Hermes. Hermes owns model credentials, model selection, project folders and tools.
 - A recent browser with IndexedDB and service workers. Android Chrome supports the installable app, share target, voice shortcut and web push. Browser/OS support for these features varies.
 
 The integration has been checked against Hermes Agent **0.21.2** source and an existing Desktop-compatible backend. It depends on session history/profile identity, WebSocket JSON-RPC and event replay; an arbitrary OpenAI-compatible API is not sufficient. See [backend compatibility](docs/hermes-compatibility.md) before connecting another version.
