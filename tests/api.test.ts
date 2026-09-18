@@ -10,6 +10,54 @@ const closes: (()=>Promise<void>)[] = [];
 afterEach(async () => { for (const close of closes.splice(0)) await close(); });
 async function fixture(dev = true) { const dir = await mkdtemp(join(tmpdir(), 'tasks-test-')); const result = await createApp({ dataDir: dir, origin: 'https://tasks.example:8443', identity: 'owner@example.com', dev, hermesBase: '', hermesToken: '' }); closes.push(async () => { await result.app.close(); await rm(dir, { recursive: true, force: true }); }); return result; }
 describe('private API and upload recovery', () => {
+  it('opens one shared conversation reference without agent work or a task, and reuses it after linking', async () => {
+    const { app, store, gateway, articles } = await fixture();
+    articles.fetchHtml = async () => { throw new Error('Article unavailable'); };
+    const conversation: Conversation = { id: 'latest', key: 'root/with space', aliases: ['older', 'latest', 'root/with space'], title: 'Standalone conversation', preview: '', source: 'telegram', updatedAt: 1 };
+    gateway.http = async () => ({ sessions: [ { id: conversation.id, _lineage_root_id: conversation.key, _lineage_ids: conversation.aliases, title: conversation.title, source: conversation.source } ], total: 1 });
+    const rpc = vi.spyOn(gateway, 'rpc');
+    const headers = { 'x-herts-request': '1' };
+    const open = (id: string) => app.inject({ method: 'POST', url: `/api/v1/conversations/${encodeURIComponent(id)}/context`, headers, payload: {} });
+    expect((await app.inject('/api/v1/conversations')).json().total).toBe(1);
+    expect(store.contexts()).toEqual([]);
+    const responses = await Promise.all([open(conversation.key), open('older')]);
+    for (const response of responses) expect(response.statusCode).toBe(200);
+    const contextId = responses[0].json().context.id;
+    expect(responses[1].json().context.id).toBe(contextId);
+    expect(store.contexts()).toHaveLength(1); expect(store.snapshot().revision).toBe(1);
+    expect(store.snapshot().tasks).toEqual([]); expect(store.reading().items).toEqual([]);
+    expect(store.actions()).toEqual([]); expect(store.bindings()).toEqual([]); expect(rpc).not.toHaveBeenCalled();
+    expect((await app.inject('/api/v1/conversations')).json().conversations[0].linkedTaskId).toBeUndefined();
+    store.notify('standalone-notice', contextId, 'complete');
+    expect((await app.inject('/api/v1/notifications/standalone-notice')).json().route).toBe('/conversation/root%2Fwith%20space');
+    const itemId = randomUUID();
+    const reading = await app.inject({ method: 'POST', url: '/api/v1/reading/sync', headers, payload: { id: randomUUID(), itemId, contextId: randomUUID(), conversationId: 'older', kind: 'create', url: 'https://example.com/standalone', at: 1 } });
+    expect(reading.statusCode).toBe(200); expect(store.reading().items[0].contextId).toBe(contextId);
+    expect(store.notificationRoute(contextId)).toBe(`/reading-item/${itemId}`);
+    expect((await app.inject('/api/v1/conversations')).json().total).toBe(1);
+    const taskId = randomUUID();
+    expect((await app.inject({ method: 'POST', url: '/api/v1/conversations/latest/task', headers, payload: { id: randomUUID(), taskId, title: 'Related task', at: 2 } })).statusCode).toBe(200);
+    expect(store.task(taskId)?.contextId).toBe(contextId);
+    expect((await open('older')).json().context.id).toBe(contextId);
+    expect(store.contexts()).toHaveLength(1); expect(store.notificationRoute(contextId)).toBe(`/task/${taskId}`);
+    expect((await app.inject('/api/v1/conversations')).json().total).toBe(0);
+    expect(store.actions()).toEqual([]); expect(rpc).not.toHaveBeenCalled();
+  });
+  it('requires private access and a personal conversation before saving a standalone reference', async () => {
+    const { app, store, gateway } = await fixture(false);
+    const headers = { host: 'tasks.example:8443', 'tailscale-user-login': 'owner@example.com', origin: 'https://tasks.example:8443', 'x-herts-request': '1' };
+    const http = vi.spyOn(gateway, 'http').mockResolvedValue({ sessions: [
+      { id: 'worker', source: 'worker', title: 'Internal worker' },
+      { id: 'test', source: 'desktop', title: 'Test conversation' },
+      { id: 'hidden', source: 'telegram', title: 'Hidden internally', hidden: true },
+    ], total: 3 });
+    const open = (id: string, requestHeaders = headers) => app.inject({ method: 'POST', url: `/api/v1/conversations/${id}/context`, headers: requestHeaders, payload: {} });
+    expect((await open('worker', {} as typeof headers)).statusCode).toBe(403);
+    expect((await open('worker', { ...headers, origin: 'https://attacker.example' })).statusCode).toBe(403);
+    expect(http).not.toHaveBeenCalled();
+    for (const id of ['worker', 'test', 'hidden', 'missing']) expect((await open(id)).statusCode).toBe(404);
+    expect(store.contexts()).toEqual([]); expect(store.actions()).toEqual([]);
+  });
   it('verifies device registration and sends an idempotent test through the private API', async () => {
     const {app,store}=await fixture(),headers={'x-tasks-request':'1'},id=randomUUID();
     const subscription={endpoint:'https://fcm.googleapis.com/fcm/send/api-fixture',keys:{p256dh:'fixture',auth:'fixture'}};

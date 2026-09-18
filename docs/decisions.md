@@ -20,6 +20,8 @@ Already linked conversations are hidden from the general list by default, with a
 
 Opening a conversation reads available history and observes status; it never resumes work. Sending a message prepares/resumes the same conversation when necessary, then submits the message. Existing model and project-directory settings are left to Hermes's resume behaviour, as in Desktop. There is no separate Continue button.
 
+The conversation detail page, task page and reading item page use the same conversation panel. You can reply directly from Conversations without creating either kind of item. Opening an individual conversation saves its reference in Herts; listing/searching does not import references for the backlog. This reference does not count as a task link or hide the conversation. If you later create a task or bookmark a link, it reuses the same reference, device draft, submissions and execution controls. Notifications for a conversation without either item open its conversation page.
+
 History starts at its most recent messages, with the detail header initially visible. Adjacent tool-only rounds are grouped under one expandable activity section. Expanding preserves the top of that section so it is easy to collapse. Available original message times are displayed; missing timestamps are not invented. Compaction/session rotation can limit older history.
 
 ## Reading

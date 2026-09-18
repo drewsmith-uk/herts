@@ -11,7 +11,7 @@ export function useConversationHistory(conversationId: string, version: string |
   const currentPages = useRef(pages); currentPages.current = pages;
   const request = useRef(0), pendingScroll = useRef<ScrollTarget | null>(null), following = useRef(true), loading = useRef(false);
   const buffered = useRef<{ value: History; cached: boolean } | undefined>(undefined), gestureUntil = useRef(0), seenVersion = useRef(version);
-  const bottomTarget = () => root.current?.closest('.task-detail, .reading-detail')?.querySelector('.composer-wrap') || end.current;
+  const bottomTarget = () => root.current?.closest('.task-detail, .reading-detail, .conversation-detail')?.querySelector('.composer-wrap') || end.current;
   const bottomGap = () => (document.querySelector('.mobile-nav')?.getBoundingClientRect().height || 0) + 24;
   function anchor(): ScrollTarget {
     const message = [...(root.current?.querySelectorAll<HTMLElement>('[data-history-message]') || [])].find(el => el.getBoundingClientRect().bottom > 0);

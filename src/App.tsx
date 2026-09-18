@@ -14,7 +14,7 @@ import { TaskRow } from './TaskRow';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { labels, statuses, originalSpaceId, taskSpaceId, spaceLists, spaceName, spacePath, messageText, conversationTaskId, conversationHidden, type Status, type Task, type Conversation, type History, type Action, type Snapshot } from '../shared/model';
-import { db, useApp, rememberSpace, contextForTask, resolveReadingConflict, api, cacheRead, createTask, createTaskFromConversation, setConversationHidden, renameTask, moveTask, refresh, resolveConflict, resolveSubmission, addFile, submit, type Draft, type LocalFile } from './data';
+import { db, useApp, rememberSpace, contextForTask, contextForConversation, openConversation, resolveReadingConflict, api, cacheRead, createTask, createTaskFromConversation, setConversationHidden, renameTask, moveTask, refresh, resolveConflict, resolveSubmission, addFile, submit, type Draft, type LocalFile } from './data';
 import { Voice } from './Voice';
 import { MessageMedia } from './Media';
 import { useConversationHistory } from './useConversationHistory';
@@ -237,17 +237,32 @@ function ConversationResults({ query, includeLinked, includeHidden, snapshot, li
 function ConversationView({ id }: { id: string }) {
   const destination = useTaskDestination(id);
   const state = useApp(); const [conversation, setConversation] = useState<Conversation>(), [title, setTitle] = useState(''), [creating, setCreating] = useState(false), [showCreate, setShowCreate] = useState(false), [error, setError] = useState(''), [hiding, setHiding] = useState(false);
+  const [contextError, setContextError] = useState(''), [attempt, setAttempt] = useState(0);
+  const context = contextForConversation(id, conversation ? [conversation.id, ...conversation.aliases] : []);
   useUpdatePreparation({ blocked: () => showCreate || creating ? 'Finish or cancel creating the task before updating.' : undefined });
-  const currentConversation = conversation || { id, key: id, aliases: [id], title: '', preview: '', source: '', updatedAt: 0 };
+  const currentConversation = conversation || { id: context?.link?.storedId || id, key: context?.link?.key || id, aliases: context?.aliases || [id], title: context?.link?.title || 'Conversation', preview: '', source: context?.link?.source || '', updatedAt: 0 };
   const hidden = conversationHidden(currentConversation, state.snapshot.hiddenConversations || []);
-  const linked = state.snapshot.tasks.find(t => t.link?.key === id || t.link?.storedId === id);
-  useEffect(() => { void db.kv.toArray().then(rows => { const found = rows.filter(r => r.key.startsWith('conversations:')).flatMap(r => r.value.conversations || []).find(c => c.key === id); if (found) { setConversation(found); setTitle(found.title); } }); }, [id]);
+  const linkedTaskId = conversationTaskId(currentConversation, state.snapshot.tasks);
+  const linked = state.snapshot.tasks.find(t => (context && t.contextId === context.id) || t.id === linkedTaskId);
+  useEffect(() => { let active = true; void db.kv.toArray().then(rows => { const found = rows.filter(r => r.key.startsWith('conversations:')).flatMap(r => r.value.conversations || []).find(c => c.key === id || c.id === id || c.aliases.includes(id)); if (active && found) setConversation(found); }).catch(() => {}); return () => { active = false; }; }, [id]);
+  useEffect(() => {
+    if (context || !state.online) return;
+    let active = true; setContextError('');
+    void openConversation(id).catch(e => { if (active) setContextError((e as Error).message); });
+    return () => { active = false; };
+  }, [id, !!context, state.online, attempt]);
   async function makeTask(e: FormEvent) { e.preventDefault(); setCreating(true); setError(''); try { navigate(`/task/${await createTaskFromConversation(id, title, destination)}`); } catch(e) { setError((e as Error).message); } finally { setCreating(false); } }
   async function toggleHidden() { setHiding(true); setError(''); try { await setConversationHidden(currentConversation, !hidden); } catch(e) { setError((e as Error).message); } finally { setHiding(false); } }
-  return <><ConversationHeader><a className="back-link" href="#/conversations"><ChevronLeft size={17}/> Conversations</a><div className="page-heading conversation-detail-heading"><div><div className="eyebrow">{conversation?.source || 'HERMES'}</div><h1>{conversation?.title || 'Conversation'}</h1></div><div className="conversation-detail-actions">{linked ? <button className="primary-button" onClick={() => navigate(`/task/${linked.id}`)}>Open task <ArrowRight size={15}/></button> : <button className="primary-button" disabled={!state.online} onClick={() => setShowCreate(!showCreate)}><Plus size={16}/> Make a task</button>}<button disabled={hiding} onClick={() => void toggleHidden()}>{hiding ? <LoaderCircle size={16} className="spin"/> : hidden ? <Eye size={16}/> : <EyeOff size={16}/>} {hidden ? 'Unhide conversation' : 'Hide conversation'}</button></div></div>
+  return <div className="conversation-detail"><ConversationHeader><a className="back-link" href="#/conversations"><ChevronLeft size={17}/> Conversations</a><div className="page-heading conversation-detail-heading"><div><div className="eyebrow">{currentConversation.source || 'HERMES'}</div><h1>{currentConversation.title}</h1></div><div className="conversation-detail-actions">{linked ? <button className="primary-button" onClick={() => navigate(`/task/${linked.id}`)}>Open task <ArrowRight size={15}/></button> : <button className="primary-button" disabled={!state.online} onClick={() => { setTitle(currentConversation.title); setShowCreate(!showCreate); }}><Plus size={16}/> Make a task</button>}<button disabled={hiding} onClick={() => void toggleHidden()}>{hiding ? <LoaderCircle size={16} className="spin"/> : hidden ? <Eye size={16}/> : <EyeOff size={16}/>} {hidden ? 'Unhide conversation' : 'Hide conversation'}</button></div></div>
     {showCreate && !linked && <form className="create-from-chat" onSubmit={makeTask}><label>New task in {spaceName(state.snapshot, destination)} Inbox<input autoFocus aria-label="New task from conversation title" value={title} onChange={e => setTitle(e.target.value)}/></label><div className="button-row"><button className="primary-button" disabled={creating || !title.trim()}>Create task</button><button type="button" onClick={() => setShowCreate(false)}>Cancel</button></div><p>This saves a task. It does not start Hermes.</p></form>}{error && <p className="inline-error" role="alert">{error}</p>}</ConversationHeader>
-    <HistoryView conversationId={id}/>
-  </>;
+    {context ? <ConversationPanel key={context.id} context={context}/> : <>
+      {state.online && !contextError ? <p className="loading" role="status"><LoaderCircle size={17} className="spin"/> Opening conversation…</p> : <>
+        <HistoryView conversationId={id}/>
+        <p className="subtle-note" role="status">{state.online ? contextError : 'Connect once to enable messaging for this conversation.'}</p>
+        {state.online && <button onClick={() => setAttempt(n => n + 1)}>Try again</button>}
+      </>}
+    </>}
+  </div>;
 }
 export function HistoryView({ conversationId, version = 0, liveText, working = false, phase, outgoing, outgoingAction, sendVersion = 0 }: { conversationId: string; version?: number | string; liveText?: string; working?: boolean; phase?: string; outgoing?: OutgoingMessage; outgoingAction?: Action; sendVersion?: number }) {
   const feedback = `${outgoing?.id}:${outgoingStatus(outgoingAction)}:${working}`;

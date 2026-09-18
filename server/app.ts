@@ -98,6 +98,14 @@ export async function createApp(config: Config) {
     return { ...receipt, snapshot: store.snapshot() };
   });
   app.get('/api/v1/conversations/:id/history', async req => { const { id } = req.params as any; const { offset = 0, order } = z.object({ offset: z.coerce.number().int().nonnegative().optional(), order: historyOrder }).parse(req.query); return gateway.history(id, offset, order); });
+  app.post('/api/v1/conversations/:id/context', async req => {
+    const id = z.string().min(1).max(300).parse((req.params as any).id);
+    // Save only the selected conversation's identity. Browsing never resumes a
+    // session, submits a prompt, or creates a task or reading item.
+    const c = await gateway.conversation(id);
+    const context = store.openConversation({ key: c.key, storedId: c.id, title: c.title, source: c.source }, c.aliases);
+    return { context, snapshot: store.snapshot() };
+  });
   app.post('/api/v1/media', async req => {
     const p = z.object({ conversationId: z.string().min(1).max(300), order: historyOrder, offset: z.number().int().nonnegative(), index: z.number().int().min(0).max(199), path: z.string().min(1).max(4096) }).strict().parse(req.body);
     const history = await gateway.history(p.conversationId, p.offset, p.order), message = history.messages[p.index];

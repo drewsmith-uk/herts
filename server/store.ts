@@ -156,6 +156,19 @@ export class Store extends EventEmitter {
     const existing = matches[0] && this.context(matches[0]);
     return this.saveContext(existing ? { ...existing, link, aliases: [...new Set([...existing.aliases, ...ids])] } : { id: preferred, title: link.title, link, aliases: ids });
   }
+  openConversation(link: Link, aliases: string[] = []): ConversationContext {
+    let changed = false;
+    const context = this.db.transaction(() => {
+      const ids = [link.key, link.storedId, ...aliases];
+      const previous = this.contexts().find(c => c.aliases.some(alias => ids.includes(alias)));
+      const context = this.ensureContext(link, aliases);
+      changed = JSON.stringify(previous) !== JSON.stringify(context);
+      if (changed) this.bumpRevision();
+      return context;
+    })();
+    if (changed) this.emit('change', { type: 'contexts' });
+    return context;
+  }
   linkNew(contextId: string, link: Link) {
     this.db.transaction(() => {
       const context = this.context(contextId); if (!context) throw new Conflict('Conversation reference not found.');
@@ -206,10 +219,10 @@ export class Store extends EventEmitter {
     this.emit('change', { type: 'article' }); return true;
   }
   notificationRoute(id: string) {
-    const contextId = this.context(id)?.id || id;
+    const context = this.context(id), contextId = context?.id || id;
     const task = this.snapshot().tasks.find(t => t.contextId === contextId);
     const item = this.reading().items.find(i => i.contextId === contextId);
-    return task ? `/task/${task.id}` : item ? `/reading-item/${item.id}` : '/reading';
+    return task ? `/task/${task.id}` : item ? `/reading-item/${item.id}` : context?.link ? `/conversation/${encodeURIComponent(context.link.key)}` : '/reading';
   }
   actions(taskId?: string): Action[] { return (taskId ? this.db.prepare('SELECT data FROM actions WHERE task_id=? ORDER BY rowid DESC').all(this.context(taskId)?.id || taskId) : this.db.prepare('SELECT data FROM actions ORDER BY rowid DESC').all()).map((r: any) => JSON.parse(r.data)); }
   action(id: string): Action | undefined { const r = this.db.prepare('SELECT data FROM actions WHERE id=?').get(id) as any; return r && JSON.parse(r.data); }

@@ -293,6 +293,14 @@ export function contextForTask(taskId: string): ConversationContext | undefined 
   if (!task) return undefined;
   return state.snapshot.contexts?.find(c => c.id === task.contextId) || { id: task.id, title: task.title, link: task.link, aliases: task.link ? [task.link.key, task.link.storedId] : [] };
 }
+export function contextForConversation(id: string, aliases: string[] = []): ConversationContext | undefined {
+  const ids = [id, ...aliases];
+  return state.snapshot.contexts?.find(c => c.link && (ids.includes(c.link.key) || ids.includes(c.link.storedId) || c.aliases.some(alias => ids.includes(alias))));
+}
+export async function openConversation(id: string) {
+  const result = await api(`/conversations/${encodeURIComponent(id)}/context`, {}, 'POST', 30_000);
+  await acceptSnapshot(result.snapshot); await rebuild();
+}
 export async function mutateReading(op: ReadingOp) {
   lastOrder = Math.max(Date.now(), lastOrder + 1);
   await db.readingPending.add({ op, order: lastOrder }); await rebuild(); void sync();

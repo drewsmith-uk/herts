@@ -10,7 +10,9 @@ const rows = new Map<string, any>([['existing', { id: 'existing', title: 'Plan t
 rows.set('long-history', { id: 'long-history', title: 'Long conversation', source: 'desktop', started_at: Date.now()/1000, messages: Array.from({length:450}, (_, i) => ({id:i+1,role:i%2 ? 'assistant' : 'user',content:`History message ${i+1}. ${'Conversation detail. '.repeat(8)}`})) });
 for (const width of [390,1280]) rows.set(`live-history-${width}`, { ...rows.get('long-history'), id: `live-history-${width}`, title: `Live history ${width}`, messages: structuredClone(rows.get('long-history').messages) });
 rows.set('header-history', { ...rows.get('long-history'), id: 'header-history', title: 'Header conversation' });
+rows.set('standalone-unavailable', { ...rows.get('long-history'), id: 'standalone-unavailable', title: 'Conversation retry' });
 for (const width of [390,1280]) rows.set(`filter-${width}`, { id: `filter-${width}`, title: `Filter conversation ${width}`, source: 'desktop', started_at: Date.now()/1000, messages: [{ id: 1, role: 'assistant', content: `Saved filter response ${width}` }] });
+for (const id of ['standalone-390', 'standalone-1280', 'standalone-shared', 'standalone-recovery']) rows.set(id, { id, title: `Direct conversation ${id}`, source: 'telegram', started_at: Date.now()/1000, messages: [{ id: 1, role: 'assistant', content: `Continue this conversation or bookmark [this article](https://example.com/${id}).` }] });
 for (const [id, title] of [['swipe-first', 'Swipe conversation one'], ['swipe-second', 'Swipe conversation two'], ['swipe-third', 'Swipe conversation three'], ['hidden-offline', 'Offline triage conversation'], ['triage-receipt', 'Receipt triage conversation']]) rows.set(id, { id, title, source: 'desktop', started_at: Date.now()/1000, messages: [{ id: 1, role: 'assistant', content: `History for ${title}.` }] });
 for (const id of ['resume-busy','resume-failure']) rows.set(id,{id,title:id==='resume-busy'?'Interrupted conversation':'Unavailable conversation',source:'desktop',started_at:Date.now()/1000,messages:[{id:1,role:'user',content:'The earlier request.'}]});
 rows.set('tool-activity', { id: 'tool-activity', title: 'Conversation with tool activity', source: 'desktop', started_at: Date.now()/1000, messages: [
@@ -87,7 +89,7 @@ wss.on('connection', ws => {
       }
       r.running = true; rows.get(r.stored).messages.push({ id: Date.now(), role: 'user', content: p.text, timestamp: Date.now()/1000 }); emit('message.start', p.session_id); emit('message.delta', p.session_id, { text: 'Here is your answer.' });
       if (p.text.includes('ask approval')) { r.approvals = [{ request_id: `approval-${id}`, command: 'echo approved', description: 'Allow this command?' }]; emit('approval.request', p.session_id, r.approvals[0]); }
-      else setTimeout(() => finish(p.session_id), 1800);
+      else if (p.text !== 'Standalone wait for stop') setTimeout(() => finish(p.session_id), 1800);
       result = { status: 'streaming' };
     } else if (method === 'approval.respond') { r.approvals = []; result = { resolved: 1 }; setTimeout(() => finish(p.session_id), 100); }
     else if (method === 'session.interrupt') { result = { status: 'interrupted' }; setTimeout(() => { r.running = false; emit('message.complete', p.session_id, { status: 'interrupted' }); emit('session.info', p.session_id); }, 300); }
