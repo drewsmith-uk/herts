@@ -35,8 +35,12 @@ test('phone snooze, change time, unsnooze and due reminders persist across devic
 
 test('offline snooze survives reload; a lost receipt and a conflicting device cannot silently reschedule it',async({page,context,browser,request})=>{
   const {ids,path}=await seed(request,'Offline snooze');await page.goto(path);await row(page,ids[0]).getByRole('link').click();const url=page.url();await page.evaluate(()=>navigator.serviceWorker.ready);await page.reload();await expect(page.locator('.save-state')).toContainText('All changes saved');
-  await context.setOffline(true);await page.getByRole('button',{name:'Snooze',exact:true}).click();await expect(page.getByText('The reminder will be scheduled when this change syncs.',{exact:false})).toBeVisible();const at=await chooseTime(page,Date.now()+7200_000);await page.getByRole('dialog').getByRole('button',{name:'Snooze',exact:true}).click();await page.reload();await expect(page.getByLabel('Task list',{exact:true})).toHaveValue('snoozed');
-  let dropped=false;await page.route('**/api/v1/sync',async route=>{if(!dropped&&route.request().postDataJSON().kind==='snooze'){dropped=true;await route.fetch();await route.abort();}else await route.continue();});
+  await context.setOffline(true);await page.getByRole('button',{name:'Snooze',exact:true}).click();await expect(page.getByText('The reminder will be scheduled when this change syncs.',{exact:false})).toBeVisible();const at=await chooseTime(page,Date.now()+7200_000);await page.getByRole('dialog').getByRole('button',{name:'Snooze',exact:true}).click();
+  // The dialog closes after the device save completes. Reloading on click can
+  // unload the page while that IndexedDB transaction is still in progress.
+  await expect(page.getByRole('dialog')).toHaveCount(0);await expect(page.getByLabel('Task list',{exact:true})).toHaveValue('snoozed');
+  await page.reload();await expect(page.getByLabel('Task list',{exact:true})).toHaveValue('snoozed');
+  let dropping=false,dropped=false;await page.route('**/api/v1/sync',async route=>{if(!dropping&&route.request().postDataJSON().kind==='snooze'){dropping=true;await route.fetch();await route.abort();dropped=true;}else await route.continue();});
   await context.setOffline(false);await expect.poll(()=>dropped).toBe(true);await page.unroute('**/api/v1/sync');await page.reload();await expect(page.locator('.save-state')).toContainText('All changes saved');
   const second=await browser.newContext(),other=await second.newPage();
   try{
