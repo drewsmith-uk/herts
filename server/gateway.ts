@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import WebSocket from 'ws';
-import type { Conversation, History, HistoryOrder } from '../shared/model.js';
+import type { Conversation, History, HistoryOrder } from '../shared/core.js';
 
 export class GatewayError extends Error {
   constructor(message: string, public uncertain = false, public code?: number) { super(message); }

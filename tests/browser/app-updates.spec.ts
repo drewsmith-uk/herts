@@ -127,12 +127,12 @@ test('Later leaves the app, draft and agent untouched and stays dismissed while 
 test('Update now reloads once, keeps the current screen, offline task changes and capture draft', async ({ page, context }) => {
   const before = await calls(page);
   await oldPage(page);
-  await page.route('**/api/v1/sync', route => route.abort());
+  await page.route('**/api/v1/plugins/tasks/commands', route => route.abort());
   await page.getByRole('textbox', { name: 'New task title' }).fill('Pending update fixture');
   await page.getByRole('button', { name: 'Add task', exact: true }).click();
   await expect(page.getByRole('link', { name: 'Pending update fixture', exact: true })).toBeVisible();
   await page.getByRole('textbox', { name: 'New task title' }).fill('Unfinished capture');
-  const pending = await stored(page, 'pending'), url = page.url();
+  const pending = await stored(page, 'pluginPending'), url = page.url();
   expect(pending).toHaveLength(1);
   await context.setOffline(true);
   let loads = 0; page.on('load', () => loads++);
@@ -140,12 +140,12 @@ test('Update now reloads once, keeps the current screen, offline task changes an
   await expect.poll(() => version(page)).not.toBe('tasks-shell-fixture-previous');
   await expect(page.getByRole('textbox', { name: 'New task title' })).toHaveValue('Unfinished capture');
   await expect(page.getByRole('link', { name: 'Pending update fixture', exact: true })).toBeVisible();
-  expect(await stored(page, 'pending')).toEqual(pending);
+  expect(await stored(page, 'pluginPending')).toEqual(pending);
   expect(page.url()).toBe(url);
   expect(loads).toBe(1);
   await expect(toast(page)).toHaveCount(0);
   await context.setOffline(false);
-  await page.unroute('**/api/v1/sync');
+  await page.unroute('**/api/v1/plugins/tasks/commands');
   expect(await calls(page)).toEqual(before);
 });
 
@@ -200,7 +200,7 @@ test('storage failure leaves the draft and current release usable, with a retry'
   await page.evaluate(() => {
     const put = IDBObjectStore.prototype.put;
     IDBObjectStore.prototype.put = function (...args: Parameters<typeof put>) {
-      if (this.name === 'drafts') throw new DOMException('Fixture storage failure', 'QuotaExceededError');
+      if (this.name === 'pluginLocal' && String(args[0]?.key).includes(':draft:')) throw new DOMException('Fixture storage failure', 'QuotaExceededError');
       return put.apply(this, args);
     };
     (window as any).restoreStorage = () => { IDBObjectStore.prototype.put = put; };

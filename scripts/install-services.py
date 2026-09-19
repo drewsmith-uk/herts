@@ -86,6 +86,7 @@ def parser():
     p.add_argument('--origin', required=True, help='Your app’s Tailscale HTTPS origin, without a trailing slash')
     p.add_argument('--identity', required=True, help='Exact Tailscale user login (not display name)')
     p.add_argument('--profile', default='default', help='Existing Hermes profile name')
+    p.add_argument('--plugins-dir', type=Path, help='Prepared plugin directory; defaults to CHECKOUT/plugins')
     p.add_argument('--data-dir', type=Path, help='Private persistent storage; defaults to CHECKOUT/data')
     p.add_argument('--app-port', type=int, default=8787)
     p.add_argument('--backend-port', type=int, default=8788, help='Managed mode only')
@@ -159,7 +160,7 @@ def plan(args, root, units):
         if re.search(r'\s', token_file.read_text().strip()):
             fail('The backend token must be a single value.')
     files[data / 'app.env'] = ''.join(f'{key}={env_quote(value)}\n' for key, value in {
-        'HERTS_DATA_DIR': data, 'HERTS_ORIGIN': app_origin, 'HERTS_IDENTITY': args.identity,
+        'HERTS_PLUGINS_DIR': (args.plugins_dir or root / 'plugins').expanduser().resolve(), 'HERTS_DATA_DIR': data, 'HERTS_ORIGIN': app_origin, 'HERTS_IDENTITY': args.identity,
         'HERTS_PORT': args.app_port, 'HERMES_BASE_URL': backend_url,
         'HERMES_TOKEN_FILE': token_file, 'HERMES_PROFILE': args.profile,
     }.items())

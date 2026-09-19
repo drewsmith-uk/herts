@@ -1,0 +1,10 @@
+{
+  "id": "notes",
+  "name": "Notes",
+  "description": "An example plugin: keep notes and continue their Hermes conversations.",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "schemaVersion": 1,
+  "client": "client.js",
+  "server": "server.mjs"
+}

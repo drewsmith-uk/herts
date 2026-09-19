@@ -1,4 +1,4 @@
-import { messageText, type ChatMessage } from './model';
+import { messageText, type ChatMessage } from './core';
 
 export interface MediaRef { path: string; name: string; image: boolean }
 export function localMediaPath(value: string): string | undefined {

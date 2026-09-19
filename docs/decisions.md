@@ -2,6 +2,8 @@
 
 Herts is a personal app with manual priorities and deliberate agent execution.
 
+Conversations is always available. Tasks and Reading are optional plugins, enabled through **Settings → Plugins**. New installations start with Conversations only; existing installations retain both plugins and their data. Disabling or removing a plugin pauses its jobs and hides its screens and contributions, while retaining its data and core conversations. Reset is a separate, explicitly confirmed deletion. See [plugin lifecycle and data retention](plugins.md).
+
 ## Tasks and spaces
 
 Each task space has Inbox, Next, Waiting, Parked, Snoozed and Done. Create and rename spaces from Settings or the **+** at the end of the space tabs. Tabs share available width on phones and scroll when they no longer fit. Conversations and Reading are global.
@@ -16,7 +18,7 @@ Snooze an Inbox task from its page or by swiping its row. At the chosen time the
 
 Browse/search personal Hermes history before deciding what belongs in Tasks. Herts filters worker, test and internal conversations. There is no automatic backlog import. A conversation can become a new task; an unrelated existing task cannot be attached to it. Each task has at most one conversation and each conversation at most one task, including across spaces.
 
-Already linked conversations are hidden from the general list by default, with an option to include them. Swipe a conversation to create a task or the other way to hide it. Hidden status belongs only to Herts; Show hidden reveals it again. Accessible actions are on the conversation detail page, keeping list rows uncluttered.
+While Tasks is enabled, task-linked conversations are hidden from the general list by default, with an option to include them. Swipe a conversation right for an enabled plugin action or left to hide it. Multiple plugin actions open a chooser. Hidden status belongs only to Herts; Show hidden reveals it again. Accessible actions are on the conversation detail page, keeping list rows uncluttered.
 
 Opening a conversation reads available history and observes status; it never resumes work. Sending a message prepares/resumes the same conversation when necessary, then submits the message. Existing model and project-directory settings are left to Hermes's resume behaviour, as in Desktop. There is no separate Continue button.
 

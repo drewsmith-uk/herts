@@ -120,8 +120,8 @@ export function NotificationSettings() {
   };
   const disabled = !online || !pushKey || busy || view.kind === 'checking';
   return <section className="settings-card"><div className="settings-icon"><Bell size={22}/></div><div>
-    <h2>Notifications on this device</h2><p>Snoozed task reminders, plus approval requests, completed work and failures for conversations you send messages to in Herts.</p>
-    <p className="subtle-note">Task alerts show the task title. Open the app to view the conversation.</p>
+    <h2>Notifications on this device</h2><p>Approval requests, completed work and failures for conversations you send messages to in Herts, plus reminders from enabled plugins.</p>
+    <p className="subtle-note">Alerts include the conversation or item title. Open the app to view the details.</p>
     <p role="status">{descriptions[view.kind]}{view.error && <span> {view.error}</span>}</p>
     <div className="notification-actions">
       {['off', 'repair'].includes(view.kind) && <button disabled={disabled} onClick={() => void run(enable)}>{view.kind === 'repair' ? 'Repair notifications' : 'Enable notifications'}</button>}

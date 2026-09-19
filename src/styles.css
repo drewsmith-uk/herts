@@ -135,3 +135,10 @@ a.quiet-button { border: 1px solid var(--border); }
 .space-dialog .inline-error { color: #a04b3c; }
 
 .space-scroll-surface { position: absolute; width: 1px; height: 1px; pointer-events: none; }
+
+/* Plugin navigation uses the same order on every device. */
+.mobile-nav{overflow-x:auto;justify-content:stretch;scrollbar-width:thin}.mobile-nav>a{flex:1 0 88px;min-width:88px;white-space:nowrap}
+.settings-tabs{display:flex;gap:8px;margin-bottom:24px;border-bottom:1px solid var(--border,#dce0e6)}.settings-tabs a{padding:12px 18px}.settings-tabs .active{border-bottom:3px solid currentColor}
+.plugin-card{display:block}.plugin-heading{display:flex;justify-content:space-between;gap:12px;align-items:center}.plugin-heading label{display:flex;gap:10px;align-items:center}.plugin-card .settings-card{margin-top:20px}.tab-order{display:block}.tab-order-row{display:flex;align-items:center;gap:8px;padding:10px 0}.tab-order-row>span{flex:1}.danger-button{color:#a52121}.conversation-plugin-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}.conversation-plugin-actions form{flex-basis:100%}.share-destinations{display:flex;flex-direction:column;gap:12px;margin:24px 0}.action-chooser{position:fixed;inset:auto 16px 90px;background:white;border:1px solid #ccd2db;box-shadow:0 6px 30px #0003;padding:20px;z-index:100;display:flex;gap:10px;flex-wrap:wrap}
+
+.conversation-header-actions{display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap}.conversation-header-actions .conversation-plugin-actions{display:contents}.conversation-header-actions .create-from-chat{order:10;flex-basis:100%}

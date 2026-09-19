@@ -65,7 +65,7 @@ test('checks permission and never reports enabled when verification fails',async
   await browserPush(page,true,'denied');await page.goto('/#/settings');await expect(settings(page)).toContainText('Notifications are blocked');await expect(page.getByRole('button',{name:'Send test notification'})).toHaveCount(0);
   await page.evaluate(()=>localStorage.setItem('fixture-permission','granted'));await page.route('**/api/v1/notifications/status',route=>route.abort());await page.reload();
   await expect(settings(page)).toContainText('Notification registration could not be verified');await expect(page.getByRole('button',{name:'Send test notification'})).toHaveCount(0);
-  await page.unroute('**/api/v1/notifications/status');await page.getByRole('button',{name:'Check again'}).click();await expect(page.getByRole('button',{name:'Repair notifications',exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Check again'})).toBeEnabled();await page.unroute('**/api/v1/notifications/status');await page.getByRole('button',{name:'Check again'}).click();await expect(page.getByRole('button',{name:'Repair notifications',exact:true})).toBeVisible();
 });
 
 test('a lost test response is recovered by its ID without submitting another push',async({page,request})=>{

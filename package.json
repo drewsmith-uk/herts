@@ -9,13 +9,15 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "dev:server": "tsx watch server/index.ts",
-    "build": "tsc --noEmit && vite build && node scripts/build-sw.mjs",
+    "build": "tsc --noEmit && node scripts/build-plugins.mjs plugins/tasks plugins/reading examples/notes && vite build && node scripts/build-sw.mjs",
     "start": "tsx server/index.ts",
     "test": "vitest run",
     "test:browser": "playwright test",
     "check": "npm run build && npm test",
     "check:connection": "node --import tsx scripts/check-connection.ts",
-    "test:installer": "python3 -m unittest discover -s tests -p \"test_installer.py\""
+    "test:installer": "python3 -m unittest discover -s tests -p \"test_installer.py\"",
+    "build:plugin": "node scripts/build-plugins.mjs",
+    "plugin:new": "node scripts/create-plugin.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -53,6 +55,7 @@
     "sharp": "^0.35.4",
     "typescript": "^5.9.2",
     "vite": "^7.1.7",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.11",
+    "esbuild": "^0.28.2"
   }
 }

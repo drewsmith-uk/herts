@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { Conflict, type Action, type Binding } from '../shared/model.js';
+import { Conflict, type Action, type Binding } from '../shared/core.js';
 import { Store } from './store.js';
 import { Gateway, GatewayError } from './gateway.js';
 

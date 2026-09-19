@@ -1,0 +1,23 @@
+{
+  "id": "tasks",
+  "name": "Tasks",
+  "description": "Capture, prioritise and snooze tasks across your spaces.",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "schemaVersion": 1,
+  "client": "client.js",
+  "server": "server.mjs",
+  "icon": "inbox",
+  "routes": [
+    "/tasks",
+    "/task",
+    "/spaces"
+  ],
+  "shortcuts": [
+    {
+      "name": "New voice task",
+      "description": "Record a task title, then review and add it to Inbox",
+      "url": "/#/tasks/inbox/record"
+    }
+  ]
+}

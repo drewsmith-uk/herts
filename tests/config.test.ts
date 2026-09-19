@@ -65,8 +65,9 @@ describe('portable configuration and safe upgrades', () => {
   });
   it('accepts installed clients’ request header and the Herts header while rejecting missing or foreign-origin headers', async () => {
     const dir=mkdtempSync(join(tmpdir(),'herts-api-'));
-    const {app}=await createApp({dataDir:dir,origin:prod.HERTS_ORIGIN,identity:prod.HERTS_IDENTITY,hermesBase:'',hermesToken:'',hermesProfile:'research'});
+    const {app,plugins}=await createApp({dataDir:dir,origin:prod.HERTS_ORIGIN,identity:prod.HERTS_IDENTITY,hermesBase:'',hermesToken:'',hermesProfile:'research'});
     cleanups.push(async()=>{await app.close();rmSync(dir,{recursive:true,force:true});});
+    await plugins.activate('tasks');
     const base={host:'herts.example.com','tailscale-user-login':prod.HERTS_IDENTITY,origin:prod.HERTS_ORIGIN};
     for (const header of ['x-tasks-request','x-herts-request']) expect((await app.inject({method:'POST',url:'/api/v1/sync',headers:{...base,[header]:'1'},payload:{id:randomUUID(),taskId:randomUUID(),kind:'create',title:'Offline-capable task',at:Date.now()}})).statusCode).toBe(200);
     expect((await app.inject({method:'POST',url:'/api/v1/sync',headers:base,payload:{}})).statusCode).toBe(403);

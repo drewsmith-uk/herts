@@ -1,4 +1,4 @@
-import { messageText, type ChatMessage, type History } from '../shared/model';
+import { messageText, type ChatMessage, type History } from '../shared/core';
 import { mediaRefs } from '../shared/media';
 
 export interface HistoryEntry { key: string; message: ChatMessage; page: History; index: number }

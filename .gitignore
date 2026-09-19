@@ -24,3 +24,12 @@ recordings/
 uploads/
 *.har
 *.trace
+
+# Prepared plugin code is built locally; external packages stay installation-local.
+plugins/*
+!plugins/tasks/
+!plugins/reading/
+plugins/*/client.js
+plugins/*/server.mjs
+examples/*/client.js
+examples/*/server.mjs

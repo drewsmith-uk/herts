@@ -1,0 +1,16 @@
+{
+  "id": "reading",
+  "name": "Reading",
+  "description": "Save links, read articles offline and continue their conversations.",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "schemaVersion": 1,
+  "client": "client.js",
+  "server": "server.mjs",
+  "icon": "book",
+  "routes": [
+    "/reading",
+    "/reading-item",
+    "/reader"
+  ]
+}

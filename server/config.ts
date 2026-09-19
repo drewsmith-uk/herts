@@ -24,7 +24,7 @@ export function configuration(env: NodeJS.ProcessEnv = process.env) {
   }
   if (!!hermesBase !== !!hermesToken) throw new Error('Configure both HERMES_BASE_URL and HERMES_TOKEN_FILE (or HERMES_TOKEN), or leave both unset for tasks-only use.');
   if (/[\r\n]/.test(hermesToken)) throw new Error('The Hermes token must be a single line.');
-  return { dataDir: resolve(setting('DATA_DIR') || 'data'), origin, identity, dev, port, hermesBase, hermesToken, hermesProfile, excluded: (env.HERMES_EXCLUDED_CONVERSATIONS || '').split(',').map(v => v.trim()).filter(Boolean) };
+  return { pluginsDir:resolve(setting('PLUGINS_DIR')||'plugins'), dataDir: resolve(setting('DATA_DIR') || 'data'), origin, identity, dev, port, hermesBase, hermesToken, hermesProfile, excluded: (env.HERMES_EXCLUDED_CONVERSATIONS || '').split(',').map(v => v.trim()).filter(Boolean) };
 }
 export function validateProfile(profile: string) {
   if (!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(profile)) throw new Error('HERMES_PROFILE must be a Hermes profile name (lowercase letters, digits, underscores and hyphens).');
@@ -42,8 +42,8 @@ export function bindHermesTarget(store: Store, base: string, profile: string) {
   if (!base) return; // A temporary tasks-only start does not forget the previous target.
   const target = { base: backendOrigin(base), profile };
   const previous = store.getMeta<typeof target>('hermesTarget');
-  const snapshot = store.snapshot();
-  const hasLinks = store.contexts().some(c => c.link) || snapshot.tasks.some(t => t.link) || store.bindings().length > 0 || store.actions().length > 0 || !!snapshot.hiddenConversations?.length;
+  const snapshot = store.coreSnapshot();
+  const hasLinks = store.contexts().some(c => c.link) || store.bindings().length > 0 || store.actions().length > 0 || !!snapshot.hiddenConversations?.length;
   if (hasLinks && ((!previous && profile !== 'default') || (previous && (previous.base !== target.base || previous.profile !== profile)))) throw new Error('This data directory is linked to a different Hermes target. Restore the original endpoint/profile, or use a separate HERTS_DATA_DIR.');
   // Legacy installs used only the default profile. Their first upgrade pins the
   // explicitly configured endpoint; operators must retain that endpoint on upgrade.

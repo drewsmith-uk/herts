@@ -20,6 +20,6 @@ export function NotificationLanding({ id, online }: { id: string; online: boolea
     {!error && online && <LoaderCircle className="spin"/>}
     <p>{!online ? 'Waiting for a connection to open this notification…' : error || 'Opening notification…'}</p>
     {error && online && <button onClick={() => setAttempt(n => n + 1)}>Try again</button>}
-    <a className="text-link" href="#/tasks">Back to tasks</a>
+    <a className="text-link" href="#/conversations">Back to conversations</a>
   </div>;
 }

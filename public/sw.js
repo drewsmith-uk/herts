@@ -16,8 +16,8 @@ self.addEventListener('push',event=>{event.waitUntil((async()=>{
  const seen=await caches.open('tasks-notification-receipts');const key=new Request(`${self.location.origin}/__notice/${encodeURIComponent(data.id)}`);if(await seen.match(key)){await confirmTest(data);return;}
  const taskTitle=data.kind!=='test'&&typeof data.taskTitle==='string'?data.taskTitle.trim():'';
  const eventTitle={reminder:'Reminder',approval:'Approval needed',failure:'Work needs attention',completion:'Work finished'}[data.kind];
- const title=taskTitle&&eventTitle?`Herts · ${eventTitle}`:'Herts';
- const body=taskTitle||(data.kind==='test'?'Test notification — reminders can reach this device.':data.kind==='reminder'?'A snoozed task is back in your Inbox.':data.kind==='approval'?'Hermes needs your input.':data.kind==='failure'?'Hermes work needs attention.':'Hermes work has finished.');
+ const title=data.kind==='plugin'&&typeof data.title==='string'?`Herts · ${data.title}`:taskTitle&&eventTitle?`Herts · ${eventTitle}`:'Herts';
+ const body=(data.kind==='plugin'&&typeof data.body==='string'?data.body:'')||taskTitle||(data.kind==='test'?'Test notification — reminders can reach this device.':data.kind==='reminder'?'A snoozed task is back in your Inbox.':data.kind==='approval'?'Hermes needs your input.':data.kind==='failure'?'Hermes work needs attention.':'Hermes work has finished.');
  await self.registration.showNotification(title,{body,tag:data.id,renotify:false,icon:'/icon-192.png',data:{id:data.id,...(data.kind==='test'?{kind:'test'}:{})}});
  await seen.put(key,new Response('shown'));const keys=await seen.keys();for(const k of keys.slice(0,-1000))await seen.delete(k);
  await confirmTest(data);
@@ -64,3 +64,21 @@ self.addEventListener('pushsubscriptionchange',event=>{event.waitUntil((async()=
  const response=await fetch('/api/v1/notifications/subscribe',{method:'POST',headers:{'Content-Type':'application/json','X-Herts-Request':'1'},body:JSON.stringify(sub.toJSON()),credentials:'same-origin',signal:AbortSignal.timeout(10000)});
  if(response.ok&&event.oldSubscription&&event.oldSubscription.endpoint!==sub.endpoint)await fetch('/api/v1/notifications/unsubscribe',{method:'POST',headers:{'Content-Type':'application/json','X-Herts-Request':'1'},body:JSON.stringify({endpoint:event.oldSubscription.endpoint}),credentials:'same-origin',signal:AbortSignal.timeout(10000)});
 })().catch(()=>{/* Settings verifies both ends and offers repair after a failed renewal. */}));});
+
+// Prepared plugin assets are immutable and cached independently of the shell.
+// A package update gets a new hash; an interrupted update cannot mix its files.
+self.addEventListener('fetch',event=>{
+ const url=new URL(event.request.url);
+ if(url.origin!==self.location.origin||event.request.method!=='GET'||!url.pathname.startsWith('/_plugins/'))return;
+ event.respondWith((async()=>{const cache=await caches.open('herts-plugin-assets-v1');const cached=await cache.match(event.request);if(cached)return cached;const response=await fetch(event.request);if(response.ok)await cache.put(event.request,response.clone());return response;})());
+});
+
+self.addEventListener('install',event=>event.waitUntil((async()=>{
+ const response=await fetch('/api/v1/plugins',{cache:'no-store'});
+ if(!response.ok)throw new Error('Could not prepare plugin packages for this update.');
+ const {catalogue}=await response.json(),cache=await caches.open('herts-plugin-assets-v1');
+ for(const entry of catalogue.entries)if(entry.enabled&&entry.hash&&entry.manifest.client){
+  await cache.add(`/_plugins/${entry.manifest.id}/${entry.hash}/${entry.manifest.client}`);
+ }
+ await cache.put('/__herts_plugin_catalogue',new Response(JSON.stringify(catalogue),{headers:{'Content-Type':'application/json'}}));
+})()));

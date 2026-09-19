@@ -38,6 +38,7 @@ test('Android share confirmation saves offline and reconnecting never sends', as
   await page.evaluate(() => navigator.serviceWorker.ready); await page.reload(); const before=await calls(request);
   await context.setOffline(true);
   await page.goto('/share?title=Shared%20story&text=Read%20https%3A%2F%2Fexample.com%2Fshared-offline');
+  await page.getByRole('button',{name:'Reading',exact:true}).click();
   await expect(page.getByLabel('Article link',{exact:true})).toHaveValue('https://example.com/shared-offline');
   await page.getByRole('button',{name:'Save link',exact:true}).click(); await expect(page).toHaveURL(/#\/reading-item\/[0-9a-f-]+$/); await expect(page.getByLabel('Reading title',{exact:true})).toHaveValue('Shared story'); const url = page.url();
   await page.reload(); await expect(page.getByLabel('Message Hermes')).toHaveValue('https://example.com/shared-offline');
@@ -48,13 +49,14 @@ test('Android share confirmation saves offline and reconnecting never sends', as
   await expect(page.locator('.reader-article')).toContainText('Article paragraph 7');
   await context.setOffline(true); await page.reload(); await expect(page.locator('.reader-article')).toContainText('Article paragraph 7');
   await page.goto(url); await page.getByRole('button',{name:'Mark read',exact:true}).click(); await expect(page.locator('.offline-controls')).toContainText('Download removed');
-  expect(await page.evaluate(async () => { const db=await new Promise<IDBDatabase>((resolve,reject)=>{const r=indexedDB.open('hermes-tasks');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);}); const rows=await new Promise<any[]>((resolve,reject)=>{const r=db.transaction('articles').objectStore('articles').getAll();r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});db.close();return rows.some(a=>a.url.includes('shared-offline'));})).toBe(false);
+  expect(await page.evaluate(async () => { const db=await new Promise<IDBDatabase>((resolve,reject)=>{const r=indexedDB.open('hermes-tasks');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);}); const rows=await new Promise<any[]>((resolve,reject)=>{const r=db.transaction('pluginLocal').objectStore('pluginLocal').getAll();r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});db.close();return rows.some(a=>a.key.startsWith('reading:')&&a.value?.url?.includes('shared-offline'));})).toBe(false);
   await context.setOffline(false);
 });
 
 test('a multi-link share requires choosing one and cancel starts no work', async ({page,request}) => {
   const before=await calls(request);
   await page.goto('/share?text=https%3A%2F%2Fexample.com%2Fa%20https%3A%2F%2Fexample.com%2Fb');
+  await page.getByRole('button',{name:'Reading',exact:true}).click();
   await expect(page.getByRole('radio')).toHaveCount(2); await expect(page.getByLabel('Article link',{exact:true})).toHaveValue('');
   await expect(page.getByRole('button',{name:/Add & send|Save link/})).toBeDisabled();
   await page.getByRole('radio').last().check(); await expect(page.getByLabel('Article link',{exact:true})).toHaveValue('https://example.com/b');
@@ -103,7 +105,7 @@ test('concurrent offline bookmarks converge on one item and a read on another de
 });
 
 test('storage failure does not claim offline availability or prevent reading the fetched article', async ({page}) => {
-  await page.addInitScript(() => { const put=IDBObjectStore.prototype.put; IDBObjectStore.prototype.put=function(...args: Parameters<typeof put>) { if(this.name==='articles') throw new DOMException('Storage full','QuotaExceededError');return put.apply(this,args); }; });
+  await page.addInitScript(() => { const put=IDBObjectStore.prototype.put; IDBObjectStore.prototype.put=function(...args: Parameters<typeof put>) { if(this.name==='pluginLocal' && String(args[0]?.key).includes(':article:')) throw new DOMException('Storage full','QuotaExceededError');return put.apply(this,args); }; });
   await add(page,'Article with full device storage');
   await expect(page.locator('.offline-controls')).toContainText('Could not save the article on this device');
   await expect(page.locator('.offline-controls')).not.toContainText('Available offline');

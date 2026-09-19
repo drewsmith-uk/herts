@@ -1,6 +1,6 @@
 import { Conflict, type Link, type List } from './model.js';
 
-export interface ConversationContext { id: string; title: string; link: Link | null; aliases: string[] }
+export type { ConversationContext } from './conversations.js';
 export interface ReadingItem {
   id: string; contextId: string; url: string; urlKey: string; title: string;
   createdAt: number; updatedAt: number; readAt: number | null;

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Paperclip, Download } from 'lucide-react';
 import { mediaRefs, type MediaRef } from '../shared/media';
-import type { ChatMessage, HistoryOrder } from '../shared/model';
+import type { ChatMessage, HistoryOrder } from '../shared/core';
 import { api, cacheRead, db } from './data';
 
 export function MessageMedia({ message, conversationId, offset, index, order = 'oldest' }: { message: ChatMessage; conversationId: string; offset: number; index: number; order?: HistoryOrder }) {

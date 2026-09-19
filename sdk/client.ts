@@ -1,0 +1,13 @@
+export type { ClientPlugin, RouteProps, ConversationActionProps, MessageLinkProps } from '../src/pluginContract';
+export type { State as CoreState } from '../src/data';
+export type { Draft, LocalFile, Recording, PendingPlugin } from '../src/data';
+export * from './types';
+export { useApp as useCore, getState as getCore, refresh, sync, api, publish, submit, addFile, uploadFile, cacheRead, createLocalConversation, contextForConversation, openConversation } from '../src/data';
+export { pluginLocal, pluginRecords, usePluginRecords, pluginQuery, mutatePlugin, resolvePluginOperation, rebuild, liveQuery } from '../src/pluginApi';
+export { useUpdatePreparation, useUpdateWork, useDraftPersistence, prepareForUpdate } from '../src/updateSafety';
+export { ConversationPanel, HistoryView } from '../src/Conversation';
+export { ConversationHeader } from '../src/ConversationHeader';
+export { PluginVoice as Voice } from '../src/plugins';
+export { useHoldSensors, useDragClickGuard, holdListeners } from '../src/dragging';
+import { db } from '../src/data';
+export const conversationDrafts = db.drafts;

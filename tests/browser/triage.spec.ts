@@ -17,7 +17,7 @@ test('phone swipes respect scrolling and cancellation, hide with undo, and creat
   const context = await browser.newContext({ baseURL: 'http://127.0.0.1:8790', viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   try {
     const page = await context.newPage(); let writes = 0;
-    page.on('request', r => { if (r.method() === 'POST') writes++; });
+    page.on('request', r => { if (r.method() === 'POST' && !/\/plugins\/[^/]+\/queries\//.test(new URL(r.url()).pathname)) writes++; });
     await page.goto('/#/conversations'); await page.getByLabel('Search conversations').fill('Swipe conversation');
     const item = page.locator('[data-conversation-key="swipe-first"]');
     await expect(item).toBeVisible();
@@ -95,22 +95,28 @@ test('hidden items survive offline reload, search saved results and sync between
   } finally { await otherContext.close(); }
 });
 
-test('retrying task creation after a lost response reuses the saved intent and creates one task', async ({ page, request }) => {
+test('recovering task creation after a lost response and reload reuses the saved intent and creates one task', async ({ page, request }) => {
   await page.goto('/#/conversations'); await page.getByLabel('Search conversations').fill('Receipt triage');
   const item = page.locator('[data-conversation-key="triage-receipt"]'); await expect(item).toBeVisible();
   const initial = await (await request.get('/api/v1/state')).json();
   let holdState = true; const ids: string[] = [];
   await page.route('**/api/v1/state', route => holdState ? route.fulfill({ json: initial }) : route.continue());
-  await page.route('**/api/v1/conversations/triage-receipt/task', async route => {
+  await page.route('**/api/v1/plugins/tasks/commands', async route => {
+    if (route.request().postDataJSON().command !== 'link') return route.continue();
     ids.push(route.request().postDataJSON().id);
-    if (ids.length === 1) { await route.fetch(); await route.abort(); }
-    else { holdState = false; await route.continue(); }
+    if (holdState) { await route.fetch(); await route.abort(); }
+    else await route.continue();
   });
   await mouseSwipe(page, item, 150);
-  await expect(page.getByRole('alert')).toContainText('Connection lost');
-  await mouseSwipe(page, item, 150);
-  await expect(page.getByText('Task created in Personal Inbox.', { exact: true })).toBeVisible();
-  expect(ids).toHaveLength(2); expect(ids[1]).toBe(ids[0]);
+  await expect(page.getByRole('alert')).toContainText('The task request is saved');
+  await page.reload();
+  await expect.poll(() => ids.length).toBeGreaterThanOrEqual(2);
+  holdState = false;
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await expect(page.locator('.save-state')).toContainText('All changes saved');
+  await page.getByLabel('Show linked conversations').check();
+  await expect(item).toContainText('Task created');
+  expect(new Set(ids).size).toBe(1);
   const final = await (await request.get('/api/v1/state')).json();
   expect(final.snapshot.tasks.filter((t: any) => t.link?.key === 'triage-receipt')).toHaveLength(1);
 });

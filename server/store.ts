@@ -4,16 +4,19 @@ import { applyReadingOp, emptyReading, normalizeUrl, retainsArticle, type Conver
 import { mkdirSync, chmodSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createHash } from 'node:crypto';
-import { EventEmitter } from 'node:events';
+import { LegacyFeatures } from './legacyFeatures.js';
 import { applyTaskOp, applySpaceOp, withSpaces, applyConversationVisibility, emptySnapshot, Conflict, type Snapshot, type TaskOp, type SpaceOp, type Task, type Link, type Action, type Binding, type Upload, type ConversationVisibilityOp } from '../shared/model.js';
 
 export const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
-export class Store extends EventEmitter {
+export class Store extends LegacyFeatures {
   db: Database.Database;
+  readonly legacyInstallation: boolean;
   constructor(path: string) {
     super();
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     this.db = new Database(path);
+    if(Number(this.db.pragma('user_version',{simple:true}))>6){this.db.close();throw new Error('This database needs a newer Herts version.');}
+    this.legacyInstallation = Number(this.db.pragma('user_version', { simple: true })) > 0;
     this.db.pragma('journal_mode = WAL'); this.db.pragma('synchronous = FULL'); this.db.pragma('foreign_keys = ON');
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -64,8 +67,8 @@ export class Store extends EventEmitter {
     })();
   }
   getMeta<T = any>(key: string): T | undefined { const r = this.db.prepare('SELECT value FROM meta WHERE key=?').get(key) as any; return r ? JSON.parse(r.value) : undefined; }
+  coreSnapshot(){return{revision:this.getMeta<any>('snapshot')?.revision||0,contexts:this.contexts(),hiddenConversations:this.getMeta<string[]>('hiddenConversations')||[]};}
   setMeta(key: string, value: unknown) { this.db.prepare('INSERT OR REPLACE INTO meta VALUES (?,?)').run(key, JSON.stringify(value)); }
-  snapshot(): Snapshot { return withSpaces({ ...this.getMeta<Omit<Snapshot, 'tasks'>>('snapshot')!, hiddenConversations: this.getMeta<string[]>('hiddenConversations') || [], contexts: this.contexts(), reading: this.reading(), tasks: (this.db.prepare('SELECT data FROM tasks').all() as any[]).map(r => JSON.parse(r.data)) }); }
   setConversationVisibility(op: ConversationVisibilityOp) {
     const result = this.db.transaction(() => {
       const prior = this.receipt(op.id, op); if (prior) return prior;
@@ -75,8 +78,6 @@ export class Store extends EventEmitter {
     })();
     this.emit('change', { type: 'conversations' }); return result;
   }
-  task(id: string): Task | undefined { const r = this.db.prepare('SELECT data FROM tasks WHERE id=?').get(id) as any; return r && JSON.parse(r.data); }
-  saveTask(task: Task) { this.db.prepare('INSERT INTO tasks VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET link_key=excluded.link_key,data=excluded.data').run(task.id, task.link?.key || null, JSON.stringify(task)); }
   receipt(id: string, payload: unknown): any {
     const r = this.db.prepare('SELECT * FROM receipts WHERE id=?').get(id) as any;
     if (!r) return undefined;
@@ -84,64 +85,10 @@ export class Store extends EventEmitter {
     return JSON.parse(r.data);
   }
   saveReceipt(id: string, payload: unknown, data: unknown) { this.db.prepare('INSERT INTO receipts VALUES (?,?,?)').run(id, digest(payload), JSON.stringify(data)); }
-  saveTaskState(snapshot: Snapshot) {
-    const { lists, revision, spaces, spaceLists, defaultSpaceId } = withSpaces(snapshot);
-    this.setMeta('snapshot', { lists, revision, spaces, spaceLists, defaultSpaceId });
-  }
-  mutateSpace(op: SpaceOp) {
-    const result = this.db.transaction(() => {
-      const prior = this.receipt(op.id, op); if (prior) return prior;
-      this.saveTaskState(applySpaceOp(this.snapshot(), op));
-      const result = { accepted: true, id: op.id }; this.saveReceipt(op.id, op, result); return result;
-    })(); this.emit('change', { type: 'spaces' }); return result;
-  }
-  mutate(op: TaskOp) {
-    const result = this.db.transaction(() => {
-      const prior = this.receipt(op.id, op); if (prior) return prior;
-      const next = applyTaskOp(this.snapshot(), op);
-      const task = next.tasks.find(t => t.id === op.taskId)!;
-      if (!task.contextId) task.contextId = task.id;
-      const context = this.context(task.contextId);
-      if (!context || !context.link) this.saveContext({ id: task.contextId, title: task.title, link: null, aliases: [] });
-      this.saveTask(task);
-      this.saveTaskState(next);
-      const result = { accepted: true, id: op.id }; this.saveReceipt(op.id, op, result); return result;
-    })();
-    this.emit('change', { type: 'tasks' }); return result;
-  }
-  wakeSnoozed(now = Date.now()) {
-    const woke = this.db.transaction(() => {
-      let snapshot = this.snapshot();
-      const due = snapshot.tasks.filter(t => t.status === 'snoozed' && t.snoozedUntil && t.snoozedUntil <= now).sort((a,b) => a.snoozedUntil! - b.snoozedUntil! || a.id.localeCompare(b.id));
-      for (const task of due) {
-        snapshot = applyTaskOp(snapshot, { id: randomUUID(), taskId: task.id, kind: 'move', status: 'inbox', baseStatus: 'snoozed', spaceId: task.spaceId, baseSpaceId: task.spaceId, baseSnoozeId: task.snoozeId, at: now });
-        this.saveTask(snapshot.tasks.find(t => t.id === task.id)!);
-        // Persist the return and its one reminder together. Startup recovery and
-        // a lost sync receipt cannot produce another reminder for this snooze.
-        this.db.prepare('INSERT OR IGNORE INTO notices VALUES (?,?,?,?)').run(`snooze:${task.id}:${task.snoozeId}`, task.id, 'reminder', now);
-      }
-      if (due.length) this.saveTaskState(snapshot);
-      return due.length;
-    })();
-    if (woke) { this.emit('change', { type: 'tasks' }); this.emit('notice'); }
-    return woke;
-  }
-  createLinked(op: TaskOp, link: Link, aliases: string[] = []) {
-    return this.db.transaction(() => {
-      const prior = this.receipt(op.id, { op, linkKey: link.key }); if (prior) return prior;
-      const context = this.ensureContext(link, aliases, op.taskId);
-      const existing = this.snapshot().tasks.find(t => t.contextId === context.id || t.link?.key === link.key);
-      if (existing) throw new Conflict(`This conversation already belongs to task ${existing.id}.`);
-      const next = applyTaskOp(this.snapshot(), op);
-      const task = next.tasks.find(t => t.id === op.taskId)!; task.link = link; task.contextId = context.id;
-      this.saveTask(task); this.saveTaskState(next);
-      const result = { taskId: task.id }; this.saveReceipt(op.id, { op, linkKey: link.key }, result);
-      this.emit('change', { type: 'tasks' }); return result;
-    })();
-  }
   contexts(): ConversationContext[] { return (this.db.prepare('SELECT data FROM contexts').all() as any[]).map(r => JSON.parse(r.data)); }
   context(id: string): ConversationContext | undefined {
-    const key = this.task(id)?.contextId || id;
+    const ref = this.db.prepare("SELECT name FROM sqlite_master WHERE name='context_references'").get() ? this.db.prepare('SELECT context_id FROM context_references WHERE id=?').get(id) as any : undefined;
+    const key = ref?.context_id || (this.db.prepare("SELECT name FROM sqlite_master WHERE name='context_references'").get() ? id : this.task(id)?.contextId || id);
     const r = this.db.prepare('SELECT data FROM contexts WHERE id=?').get(key) as any; return r && JSON.parse(r.data);
   }
   saveContext(context: ConversationContext) {
@@ -175,55 +122,11 @@ export class Store extends EventEmitter {
       if (context.link && context.link.key !== link.key) throw new Conflict('This item already has a conversation.');
       const linked = this.ensureContext(link, context.aliases, context.id);
       if (linked.id !== context.id) throw new Conflict('Conversation already linked.');
-      for (const task of this.snapshot().tasks.filter(t => t.contextId === context.id)) { task.link = link; this.saveTask(task); }
+      this.updateLegacyLinks(context.id,link);
       this.bumpRevision();
     })(); this.emit('change', { type: 'contexts' });
   }
   bumpRevision() { const meta = this.getMeta('snapshot'); meta.revision++; this.setMeta('snapshot', meta); }
-  reading(): ReadingState { return { ...emptyReading(), ...this.getMeta('reading'), items: (this.db.prepare('SELECT data FROM reading_items').all() as any[]).map(r => JSON.parse(r.data)) }; }
-  readingMutation(op: ReadingOp, conversation?: { link: Link; aliases: string[] }) {
-    const result = this.db.transaction(() => {
-      const prior = this.receipt(op.id, op); if (prior) return prior;
-      let actual = op;
-      if (op.kind === 'create') {
-        let context: ConversationContext;
-        if (op.conversationId) {
-          if (!conversation) {
-            context = this.contexts().find(c => c.aliases.includes(op.conversationId!))!;
-            if (!context) throw new Conflict('Connect to Hermes to save this conversation link.');
-          } else context = this.ensureContext(conversation.link, conversation.aliases, op.contextId);
-        } else {
-          if (!op.contextId || this.context(op.contextId)) throw new Conflict('Conversation reference already exists.');
-          context = this.saveContext({ id: op.contextId, title: op.title?.trim() || op.url!, link: null, aliases: [] });
-        }
-        actual = { ...op, contextId: context.id };
-        const existing = this.reading().items.find(i => i.contextId === context.id && i.urlKey === normalizeUrl(op.url!));
-        if (existing) { const result = { accepted: true, itemId: existing.id }; this.saveReceipt(op.id, op, result); return result; }
-      }
-      const next = applyReadingOp(this.reading(), actual);
-      this.setMeta('reading', { unread: next.unread, autoDownload: next.autoDownload });
-      for (const item of next.items) {
-        this.db.prepare('INSERT INTO reading_items VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').run(item.id, item.contextId, item.urlKey, JSON.stringify(item));
-        if (!retainsArticle(item, next) || this.article(item.id)?.version !== item.downloadVersion) this.db.prepare('DELETE FROM articles WHERE item_id=?').run(item.id);
-      }
-      this.bumpRevision();
-      const result = { accepted: true, itemId: op.itemId }; this.saveReceipt(op.id, op, result); return result;
-    })(); this.emit('change', { type: 'reading' }); return result;
-  }
-  article(id: string): Article | undefined { const r = this.db.prepare('SELECT data FROM articles WHERE item_id=?').get(id) as any; return r && JSON.parse(r.data); }
-  saveArticle(article: Article) {
-    const reading = this.reading(), item = reading.items.find(i => i.id === article.itemId);
-    if (!item || !retainsArticle(item, reading) || item.downloadVersion !== article.version) return false;
-    this.db.prepare('INSERT OR REPLACE INTO articles VALUES (?,?)').run(item.id, JSON.stringify(article));
-    if (article.title && item.title === item.url) { item.title = article.title.slice(0, 2000); this.db.prepare('UPDATE reading_items SET data=? WHERE id=?').run(JSON.stringify(item), item.id); this.bumpRevision(); }
-    this.emit('change', { type: 'article' }); return true;
-  }
-  notificationRoute(id: string) {
-    const context = this.context(id), contextId = context?.id || id;
-    const task = this.snapshot().tasks.find(t => t.contextId === contextId);
-    const item = this.reading().items.find(i => i.contextId === contextId);
-    return task ? `/task/${task.id}` : item ? `/reading-item/${item.id}` : context?.link ? `/conversation/${encodeURIComponent(context.link.key)}` : '/reading';
-  }
   actions(taskId?: string): Action[] { return (taskId ? this.db.prepare('SELECT data FROM actions WHERE task_id=? ORDER BY rowid DESC').all(this.context(taskId)?.id || taskId) : this.db.prepare('SELECT data FROM actions ORDER BY rowid DESC').all()).map((r: any) => JSON.parse(r.data)); }
   action(id: string): Action | undefined { const r = this.db.prepare('SELECT data FROM actions WHERE id=?').get(id) as any; return r && JSON.parse(r.data); }
   saveAction(action: Action) { action.updatedAt = Date.now(); this.db.prepare('INSERT INTO actions VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').run(action.id, action.taskId, JSON.stringify(action)); this.emit('change', { type: 'action', action }); }

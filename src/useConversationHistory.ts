@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { History } from '../shared/model';
+import type { History } from '../shared/core';
 import { api, cacheRead, db } from './data';
 
 type ScrollTarget = { kind: 'latest' } | { kind: 'anchor'; key?: string; top: number };

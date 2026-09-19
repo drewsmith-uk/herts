@@ -1,8 +1,8 @@
 # Herts
 
-**Hermes Tasks:** a private task, reading and conversation app for one person. Use it in a browser or install it as a PWA on Android or Mac. Herts connects to the same Desktop-compatible backend as [Hermes Desktop](https://hermes-agent.nousresearch.com/docs/user-guide/features/web-dashboard#connecting-hermes-desktop-to-a-remote-backend).
+**Herts:** private Hermes conversations with optional plugins for one person. Use it in a browser or install it as a PWA on Android or Mac. Herts connects to the same Desktop-compatible backend as [Hermes Desktop](https://hermes-agent.nousresearch.com/docs/user-guide/features/web-dashboard#connecting-hermes-desktop-to-a-remote-backend).
 
-Capture tasks without calling an agent; organise them manually into spaces with Inbox, Next, Waiting, Parked, Snoozed and Done. Browse your existing Hermes conversations and deliberately turn one into a task. Save links to a separate reading list, continue their conversations, and keep article text offline. Conversations and Reading are shared across spaces.
+Conversations is the always-available core. New installations start with that tab alone. Enable the included **Tasks** and **Reading** plugins in **Settings → Plugins**: capture and prioritise tasks across spaces, snooze reminders, save reading links and keep article text offline. Existing installations retain both plugins, their data and their tab order on upgrade. Third-party prepared plugin folders use the same framework and can add tabs and conversation actions.
 
 Herts runs on your Linux server behind **Tailscale Serve**. It is a **single-user application**, not a public web service or a multi-user task manager. You supply your own Hermes installation and configuration. Herts is an independent project; it is not an official Nous Research product.
 
@@ -95,6 +95,7 @@ node --env-file=/private/path/app.env --import tsx server/index.ts
 | `HERTS_ORIGIN` | Required production HTTPS origin, with no trailing slash or path. |
 | `HERTS_IDENTITY` | Required exact Tailscale user login. |
 | `HERTS_DATA_DIR` | Persistent private data directory; default `./data`. Prefer an absolute path for services. |
+| `HERTS_PLUGINS_DIR` | Prepared plugin folder directory; default `./plugins`. The installer also accepts `--plugins-dir`. |
 | `HERTS_PORT` | Loopback port; default `8787`. |
 | `HERTS_DEV` | `1` bypasses Tailscale identity on loopback for development only; default off. |
 | `HERMES_BASE_URL` | Backend HTTP(S) origin. HTTP is allowed only on loopback. |
@@ -103,7 +104,7 @@ node --env-file=/private/path/app.env --import tsx server/index.ts
 | `HERMES_PROFILE` | Existing profile name; default `default`. Used for history, execution, attachments, transcription and speech. |
 | `HERMES_EXCLUDED_CONVERSATIONS` | Optional comma-separated conversation/lineage IDs excluded from browsing. |
 
-Leave both `HERMES_BASE_URL` and token settings unset for tasks-only use. A configured but temporarily unreachable Hermes does not prevent task management. Changing server environment requires restarting **only the app** to apply it.
+Leave both `HERMES_BASE_URL` and token settings unset for local use, then enable Tasks in Settings if needed. A configured but temporarily unreachable Hermes does not prevent task management. Changing server environment requires restarting **only the app** to apply it.
 
 Legacy `TASKS_DATA_DIR`, `TASKS_ORIGIN`, `TASKS_IDENTITY`, `TASKS_DEV`, `TASKS_PORT` and `PORT` remain accepted. `HERTS_*` takes precedence, followed by `TASKS_*`, then `PORT` for the port. Existing installations need not rename services or change environment files.
 
@@ -114,13 +115,19 @@ Each data directory is bound to its Hermes endpoint and profile. Once it contain
 In Android Chrome, open the HTTPS URL and choose **Install app** / **Add to Home screen**. On Mac, use a browser's install/add-to-Dock option when available, or bookmark the app. Keep Tailscale connected to sync and use Hermes.
 
 - Enable notifications in Settings on each device, then deliberately send a test. Settings distinguishes push-service acceptance from the device confirming display. Repair is shown only when needed. Notifications contain task titles, which may appear on the lock screen.
-- Long-press the installed Android icon for **New voice task**. The shortcut records after microphone permission, then lets you stop, review and save the title. Opening the app normally never records. Existing Android shortcuts/app names can take time to refresh after an update.
+- With Tasks enabled, long-press the installed Android icon for **New voice task**. The shortcut records after microphone permission, then lets you stop, review and save the title. Opening the app normally never records. Existing Android shortcuts/app names can take time to refresh after an update.
 - When a new deployed version is ready, an **Update available** toast offers **Update now** or **Later**. Updating saves local drafts and reloads the current screen; pending changes remain on the device and accepted Hermes work keeps running. Finish recording or unsaved forms first. Later dismisses that version for the current page session. **Settings → App updates** shows the loaded app version and provides **Check for updates** plus **Update now** for a ready update, even after dismissing its toast. Explicit checks report when you are up to date or when the latest version cannot be verified. The app checks on launch, when returning to the foreground, and periodically while open. This updates the web app; Chrome separately manages Android's launcher name, icon and shortcuts.
-- Share a link from another app to Herts to add it to Reading and send it to Hermes. Reading titles can be edited on the item page or inline in Edit list, just like task titles.
+- Share from another app to Herts and choose an enabled destination. Choosing a destination sends nothing; review the draft or link and explicitly save/send it. Reading offers **Add & send**, or **Save link** while offline. Reading titles can be edited on the item page or inline in Edit list, just like task titles.
 - Open a conversation from Conversations to read or reply directly, without creating a task or reading item. All three views share messaging, saved drafts on the same device, activity and approval/stop controls. Opening a conversation never starts Hermes; sending a message deliberately continues it.
 - Inbox tasks can be snoozed from their page or by swiping the row. The server returns them to Inbox at the chosen time, even when Hermes is offline; notification delivery also depends on browser/OS push support.
 
 See [behaviour and data ownership](docs/decisions.md) for conversation linking, offline work and deliberate agent execution.
+
+## Manage plugins
+
+Open **Settings → Plugins** to enable/disable features, rescan the package directory, apply package updates, reorder tabs or reset a plugin’s data. Disabling or removing a package retains its data and pauses its jobs; accepted Hermes work and conversation drafts remain available in core Conversations. Re-adding the same plugin ID restores access after you enable it again. Reset is separate and requires typing the plugin name before deleting its data; old offline edits cannot recreate reset records.
+
+Copy prepared third-party packages into `plugins/PLUGIN-ID/`, then rescan. Only enable code you trust: plugins run with the app’s access, without a security sandbox. Tasks and Reading have no privileged API. See [plugin management](docs/plugins.md) and [building a plugin](docs/plugin-api.md), including the independent Notes example and `npm run plugin:new -- my-plugin` scaffold.
 
 ## Backups and upgrades
 
@@ -134,11 +141,11 @@ node --env-file=data/app.env scripts/backup.mjs /private/backups/herts-before-up
 systemctl --user start herts.service
 ```
 
-The destination must be new and outside the data directory. The backup includes SQLite, complete uploads and environment/token files stored alongside it. Also back up externally located token files and Hermes itself separately. Device-only unsynced edits/drafts/recordings are not in a server backup: sync/recover those before clearing browser storage. Incomplete uploads remain recoverable on their original devices.
+The destination must be new and outside the data directory. The backup includes SQLite, complete uploads, plugin-owned files, retained plugin package versions, a plugin inventory, and environment/token files stored alongside it. Back up your source plugin directory separately if it contains local development work. Also back up externally located token files and Hermes itself separately. Device-only unsynced edits/drafts/recordings are not in a server backup: sync/recover those before clearing browser storage. Incomplete uploads remain recoverable on their original devices.
 
 Build and test an update in a separate checkout first (`npm ci`, `npm run check`, `npm run test:installer`; see browser tests below). Preserve your data directory, environment, origin and service names. Stop only the app before replacing its source, dependencies and `dist` with the tested version; retain previous hashed `dist/assets` files for clients with older open pages. Start the app and run the read-only connection check. Do not rerun the installer to upgrade an existing differently named service.
 
-Keep the previous source revision/build and private backup until the update is verified. To roll back, stop the app, restore the prior source/build/dependencies, and restore a matching data backup if the update migrated the database. Restore files with private permissions and restart only the app. Restoring a database backup discards newer server changes; recover device drafts before proceeding. Never retry an uncertain Hermes send just because you restored the app.
+The plugin transition migrates the database and browser queues while retaining the historical storage identities. Keep the previous source revision/build and private backup until the update is verified. A pre-plugin build must be paired with its pre-migration database backup; do not run it against the migrated database. To roll back, stop the app, restore the prior source/build/dependencies, and restore a matching data backup if the update migrated the database. Restore files with private permissions and restart only the app. Restoring a database backup discards newer server changes; recover device drafts before proceeding. Never retry an uncertain Hermes send just because you restored the app.
 
 Herts retains the historical IndexedDB name `hermes-tasks`, SQLite filename `tasks.sqlite`, browser storage/cache keys, API routes, PWA ID `/`, service worker URL `/sw.js` and legacy request header for installed clients. The visible app name can change without reinstalling, clearing data, changing its URL, or replacing notification keys.
 

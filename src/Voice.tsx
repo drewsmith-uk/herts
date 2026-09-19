@@ -31,7 +31,7 @@ export function Voice({ owner, onTranscript, startRequest }: { owner: string; on
     try {
       const r = await db.recordings.get(id); if (!r?.chunks.length) throw new Error('No recoverable audio was recorded.');
       const blob = new Blob(r.chunks, { type: r.type });
-      const fileId = await addFile(blob, `dictation.${r.type.includes('mp4') ? 'm4a' : 'webm'}`); await uploadFile(fileId);
+      const fileId = await addFile(blob, `dictation.${r.type.includes('mp4') ? 'm4a' : 'webm'}`,owner.startsWith('plugin:')?owner.split(':').slice(1,3).join(':'):undefined); await uploadFile(fileId);
       const result = await api('/audio/transcribe', { id: crypto.randomUUID(), uploadId: fileId });
       if (!result.transcript) throw new Error('No speech detected. The recording is saved.');
       if (mounted.current && attempt === generation.current && !cancelled.current) { await transcriptHandler.current(result.transcript, fresh && !document.hidden && navigator.onLine); await db.recordings.delete(id); }

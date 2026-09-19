@@ -20,19 +20,19 @@ export function useUpdateWork() {
   return <T,>(work: Promise<T>) => { pending.current = work; return work; };
 }
 
-export function useDraftPersistence() {
+export function useDraftPersistence(target: {put:(draft:Draft)=>Promise<unknown>} = db.drafts) {
   const latest = useRef<{ draft: Draft; saved: Promise<unknown> } | undefined>(undefined);
   useUpdatePreparation({ save: async () => {
     const write = latest.current;
     if (!write) return;
     try { await write.saved; }
-    catch { await db.drafts.put(write.draft); }
+    catch { await target.put(write.draft); }
     // Do not rewrite an already-saved draft from a stale render: another open
     // window may have edited it, or attached a file, in the meantime.
     if (latest.current === write) latest.current = undefined;
   } });
   return (draft: Draft) => {
-    const write = { draft, saved: db.drafts.put(draft) };
+    const write = { draft, saved: target.put(draft) };
     latest.current = write;
     void write.saved.then(() => { if (latest.current === write) latest.current = undefined; }, () => {});
     return write.saved;

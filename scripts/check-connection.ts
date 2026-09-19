@@ -16,7 +16,7 @@ try {
     if (!Array.isArray(result.sessions) || result.sessions.some((row: any) => row.profile !== config.hermesProfile)) throw new Error('Hermes session listing/profile identity could not be verified. Check backend compatibility and HERMES_PROFILE.');
     await gateway.rpc('gateway.ping', {}, 15_000);
     console.log('Hermes session listing and gateway connection: OK. No agent work was started.');
-  } else console.log('Tasks-only configuration: Hermes checks skipped.');
+  } else console.log('Hermes is not configured; gateway checks skipped.');
 } catch (error) {
   // Gateway errors are redacted; fetch errors and server bodies may contain private URLs.
   console.error(error instanceof Error && error.message !== 'fetch failed' ? error.message : 'Connection failed. Check that the app is reachable through Tailscale.');

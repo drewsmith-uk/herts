@@ -40,8 +40,8 @@ test('offline snooze survives reload; a lost receipt and a conflicting device ca
   // unload the page while that IndexedDB transaction is still in progress.
   await expect(page.getByRole('dialog')).toHaveCount(0);await expect(page.getByLabel('Task list',{exact:true})).toHaveValue('snoozed');
   await page.reload();await expect(page.getByLabel('Task list',{exact:true})).toHaveValue('snoozed');
-  let dropping=false,dropped=false;await page.route('**/api/v1/sync',async route=>{if(!dropping&&route.request().postDataJSON().kind==='snooze'){dropping=true;await route.fetch();await route.abort();dropped=true;}else await route.continue();});
-  await context.setOffline(false);await expect.poll(()=>dropped).toBe(true);await page.unroute('**/api/v1/sync');await page.reload();await expect(page.locator('.save-state')).toContainText('All changes saved');
+  let dropping=false,dropped=false;await page.route('**/api/v1/plugins/tasks/commands',async route=>{if(!dropping&&route.request().postDataJSON().input.kind==='snooze'){dropping=true;await route.fetch();await route.abort();dropped=true;}else await route.continue();});
+  await context.setOffline(false);await expect.poll(()=>dropped).toBe(true);await page.unroute('**/api/v1/plugins/tasks/commands');await page.reload();await expect(page.locator('.save-state')).toContainText('All changes saved');
   const second=await browser.newContext(),other=await second.newPage();
   try{
     await other.goto(url);await expect(other.getByLabel('Task list',{exact:true})).toHaveValue('snoozed');await expect(other.locator('.save-state')).toContainText('All changes saved');await second.setOffline(true);

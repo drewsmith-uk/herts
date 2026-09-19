@@ -1,4 +1,4 @@
-import { messageText, type Action, type History } from '../shared/model';
+import { messageText, type Action, type History } from '../shared/core';
 
 export interface HistoryBaseline { sessionId: string; ids: (string | number)[] }
 export interface OutgoingMessage { id: string; taskId: string; text: string; uploadIds: string[]; at: number; baseline?: HistoryBaseline }

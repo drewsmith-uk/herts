@@ -8,7 +8,7 @@ import { createApp } from '../server/app';
 import { originalSpaceId, type Conversation } from '../shared/model';
 const closes: (()=>Promise<void>)[] = [];
 afterEach(async () => { for (const close of closes.splice(0)) await close(); });
-async function fixture(dev = true) { const dir = await mkdtemp(join(tmpdir(), 'tasks-test-')); const result = await createApp({ dataDir: dir, origin: 'https://tasks.example:8443', identity: 'owner@example.com', dev, hermesBase: '', hermesToken: '' }); closes.push(async () => { await result.app.close(); await rm(dir, { recursive: true, force: true }); }); return result; }
+async function fixture(dev = true) { const dir = await mkdtemp(join(tmpdir(), 'tasks-test-')); const result = await createApp({ dataDir: dir, origin: 'https://tasks.example:8443', identity: 'owner@example.com', dev, hermesBase: '', hermesToken: '' }); await result.plugins.activate('tasks');await result.plugins.activate('reading');closes.push(async () => { await result.app.close(); await rm(dir, { recursive: true, force: true }); }); return result; }
 describe('private API and upload recovery', () => {
   it('opens one shared conversation reference without agent work or a task, and reuses it after linking', async () => {
     const { app, store, gateway, articles } = await fixture();
@@ -17,6 +17,7 @@ describe('private API and upload recovery', () => {
     gateway.http = async () => ({ sessions: [ { id: conversation.id, _lineage_root_id: conversation.key, _lineage_ids: conversation.aliases, title: conversation.title, source: conversation.source } ], total: 1 });
     const rpc = vi.spyOn(gateway, 'rpc');
     const headers = { 'x-herts-request': '1' };
+    const initialRevision=store.snapshot().revision;
     const open = (id: string) => app.inject({ method: 'POST', url: `/api/v1/conversations/${encodeURIComponent(id)}/context`, headers, payload: {} });
     expect((await app.inject('/api/v1/conversations')).json().total).toBe(1);
     expect(store.contexts()).toEqual([]);
@@ -24,7 +25,7 @@ describe('private API and upload recovery', () => {
     for (const response of responses) expect(response.statusCode).toBe(200);
     const contextId = responses[0].json().context.id;
     expect(responses[1].json().context.id).toBe(contextId);
-    expect(store.contexts()).toHaveLength(1); expect(store.snapshot().revision).toBe(1);
+    expect(store.contexts()).toHaveLength(1); expect(store.snapshot().revision).toBe(initialRevision+1);
     expect(store.snapshot().tasks).toEqual([]); expect(store.reading().items).toEqual([]);
     expect(store.actions()).toEqual([]); expect(store.bindings()).toEqual([]); expect(rpc).not.toHaveBeenCalled();
     expect((await app.inject('/api/v1/conversations')).json().conversations[0].linkedTaskId).toBeUndefined();
