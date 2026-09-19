@@ -5,6 +5,7 @@ import { applyConversationVisibility, type Action, type Binding, type Conversati
 import type { ConversationContext } from '../shared/conversations';
 import { emptyCatalogue, type PluginCatalogue, type PluginData, type PluginOperation } from '../shared/plugins';
 import { migrateDevice, migrateDeviceSpaces } from './legacyDeviceMigration';
+import { discardResetDrafts } from './draftJournal';
 import type { ClientPlugin } from './pluginContract';
 export interface LocalFile {
     owner?: string;
@@ -198,6 +199,7 @@ export async function acceptPlugins(catalogue: PluginCatalogue, data: Record<str
         await db.kv.put({ key: 'plugins', value: { catalogue, data: next } });
         return next;
     });
+    for (const entry of catalogue.entries) if (entry.generation > 0) discardResetDrafts(entry.manifest.id, entry.generation);
     publish({ plugins: catalogue, pluginRemote: next });
     await rebuild();
 }

@@ -22,6 +22,7 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run test:browser
       - name: Scan repository history and built assets (redacted)
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           set -euo pipefail

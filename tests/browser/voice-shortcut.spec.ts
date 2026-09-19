@@ -27,7 +27,7 @@ async function shortcutUrl(page: Page) {
   return manifest.shortcuts.find((entry: { name: string }) => entry.name === 'New voice task').url as string;
 }
 
-test('shortcut records on a cold launch, preserves the draft, and only saves a task on Add', async ({ page, request }) => {
+test('shortcut records on a cold launch, preserves the draft, and only saves a task on Add', async ({ page, request }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await probeMicrophone(page);
   await page.goto('/');
@@ -42,12 +42,13 @@ test('shortcut records on a cold launch, preserves the draft, and only saves a t
   await expect(page.getByRole('button', { name: 'Stop recording and transcribe' })).toBeVisible();
   await expect(page).toHaveURL(/#\/tasks\/inbox$/);
   await expect(page.getByRole('textbox', { name: 'New task title' })).toHaveValue('My saved idea.');
-  await page.getByRole('textbox', { name: 'New task title' }).fill('Edited while recording.');
+  const edited = `Edited while recording ${testInfo.repeatEachIndex}.`;
+  await page.getByRole('textbox', { name: 'New task title' }).fill(edited);
   await page.waitForTimeout(1200); // Let the synthetic microphone produce a saved audio chunk.
   await page.screenshot({ path: 'test-results/phone-voice-shortcut.png', fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.getByRole('button', { name: 'Stop recording and transcribe' }).click();
-  const title = 'Edited while recording. Please draft a packing list.';
+  const title = `${edited} Please draft a packing list.`;
   await expect(page.getByRole('textbox', { name: 'New task title' })).toHaveValue(title);
   await expect(page.getByRole('link', { name: title, exact: true })).toHaveCount(0);
   await expect(page.locator('.countdown')).toHaveCount(0);
