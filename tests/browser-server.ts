@@ -99,10 +99,11 @@ wss.on('connection', ws => {
 await new Promise<void>(resolve => server.listen(8791, '127.0.0.1', resolve));
 // Push traffic is simulated inside this isolated fixture, never sent to a vendor.
 let pushStatus=201;
+let pushFailureKind:string|undefined;
 const pushCalls:{id:string;kind:string}[]=[];
 webpush.sendNotification=async(_subscription,payload)=>{
-  pushCalls.push(JSON.parse(String(payload)));
-  if(pushStatus!==201)throw Object.assign(new Error('Fixture push failure'),{statusCode:pushStatus});
+  const notice=JSON.parse(String(payload));pushCalls.push(notice);
+  if(pushStatus!==201&&(!pushFailureKind||notice.kind===pushFailureKind))throw Object.assign(new Error('Fixture push failure'),{statusCode:pushStatus});
   return {statusCode:201,headers:{},body:''};
 };
 const fixtureRoot=await mkdtemp('/tmp/herts-browser-');
@@ -123,7 +124,7 @@ app.get('/', async (req, reply) => {
 app.get('/__test/old-sw.js',async(_req,reply)=>reply.type('application/javascript').header('Service-Worker-Allowed','/').send("self.addEventListener('install',event=>event.waitUntil(self.skipWaiting()));self.addEventListener('activate',event=>event.waitUntil(self.clients.claim()));"));
 app.get('/__test/failed-sw.js',async(_req,reply)=>reply.type('application/javascript').header('Service-Worker-Allowed','/').send("self.addEventListener('install',event=>event.waitUntil(Promise.reject(new Error('Fixture install failure'))));"));
 app.post('/__test/notes',async req=>{if((req.body as any).present)await cp('examples/notes',pluginsDir+'/notes',{recursive:true});else await rm(pluginsDir+'/notes',{recursive:true,force:true});await plugins.scan();return{ok:true};});
-app.post('/__test/push-status',async req=>{pushStatus=(req.body as {status:number}).status;return{ok:true};});
+app.post('/__test/push-status',async req=>{const input=req.body as {status:number;kind?:string};pushStatus=input.status;pushFailureKind=input.kind;return{ok:true};});
 app.get('/__test/push-calls',async()=>pushCalls);
 // Isolated browser-fixture clock control; this route is never in the app server.
 app.post('/__test/wake-snoozed', async req => { const at = (req.body as { at: number }).at; return { woke: store.wakeSnoozed(at), notices: store.db.prepare("SELECT id, task_id FROM notices WHERE kind='reminder'").all() }; });

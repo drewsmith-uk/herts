@@ -48,7 +48,9 @@ test('detects the stale enabled setting, repairs it, confirms a test and persist
 });
 
 test('an expired provider subscription becomes repairable, and a test never silently retries',async({page,request})=>{
-  await request.post('/__test/push-status',{headers,data:{status:410}});
+  // Earlier navigation tests leave future-dated reminder fixtures. Their
+  // background delivery must not expire this subscription before its test send.
+  await request.post('/__test/push-status',{headers,data:{status:410,kind:'test'}});
   try {
     await browserPush(page);await page.goto('/#/settings');await page.getByRole('button',{name:'Enable notifications',exact:true}).click();
     await page.getByRole('button',{name:'Send test notification'}).click();await expect(settings(page)).toContainText('expired');await expect(settings(page)).toContainText('Notifications need repair');
