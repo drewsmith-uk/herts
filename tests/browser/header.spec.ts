@@ -58,6 +58,9 @@ test('touch scrolling hides and reveals the header without reacting to programma
   try {
     const page = await context.newPage(); await page.goto('/#/conversation/long-history');
     const header = page.locator('.conversation-page-header');
+    // Wait for the final shared panel, rather than the history-only preview
+    // shown while its local conversation reference is being opened.
+    await expect(page.getByLabel('Message Hermes')).toBeEditable();
     await expect(page.locator('[data-history-message="long-history:450"]')).toBeInViewport();
     await expect(header).not.toHaveClass(/is-hidden/);
     const cdp = await context.newCDPSession(page);
