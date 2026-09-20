@@ -61,3 +61,20 @@ test('a task captured offline in a deleted space can be recovered into the defau
   await page.getByRole('link', { name: /^Go to .* Inbox$/ }).click();
   await expect(page.getByRole('link', { name: 'Keep my offline task', exact: true })).toBeVisible();
 });
+
+test('an otherwise empty space retains its saved dictation until it is transcribed or discarded', async ({ page, request }) => {
+  const id = await createSpace(request, 'Space with saved dictation');
+  await page.goto(`/#/spaces/${id}/inbox`);
+  await page.getByRole('button', { name: 'Dictate', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Cancel dictation', exact: true })).toBeVisible();
+  await page.waitForTimeout(1200); // Allow the synthetic microphone to persist an audio chunk.
+  await page.getByRole('button', { name: 'Cancel dictation', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Transcribe saved recording', exact: true })).toBeVisible();
+  await page.goto('/#/settings/plugins');
+  await page.getByRole('button', { name: 'Delete Space with saved dictation space', exact: true }).click();
+  const dialog = page.getByRole('dialog'); await dialog.getByRole('button', { name: 'Delete space', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('Transcribe or discard the saved recording');
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.goto(`/#/spaces/${id}/inbox`);
+  await expect(page.getByRole('button', { name: 'Transcribe saved recording', exact: true })).toBeVisible();
+});

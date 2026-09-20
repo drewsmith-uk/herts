@@ -104,6 +104,8 @@ Use `usePluginRecords(ID)` to read synchronized records and `mutatePlugin(ID, co
 
 Plugin capture drafts must be JSON-serializable. The host keeps a synchronous browser-storage recovery copy until the IndexedDB write completes, so reloading during a pending write preserves the draft. Draft deletion uses the same protection. Recovery never submits a message or creates a task; reset discards recovery copies from earlier plugin generations.
 
+`pluginLocal(ID).hasRecording(owner)` checks whether a plugin's `Voice` capture owner has a saved recording on this device. Use it before removing a capture location, so dictation remains reachable. Older hosts may not expose this helper; feature-detect it and ask for a Herts update before allowing removal.
+
 Embed `<ConversationPanel context={context}/>` for the complete chat experience. Use the canonical context returned by the server; an unsent local item can supply `{id, title, link: null, aliases: []}`. Do not build a separate send loop or automatically resume on mount. The panel preserves unconfirmed submissions and reuses the same Hermes context across every view.
 
 `useDraftPersistence`, `useUpdateWork` and `useUpdatePreparation` help save forms before app/plugin changes. Register blockers for active recordings or unfinished forms, and clean up timers/subscriptions. Core voice support uses `Voice`; plugin capture recordings are tagged with the current plugin generation, while conversation recordings remain core-owned.

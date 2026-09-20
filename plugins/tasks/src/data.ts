@@ -56,8 +56,11 @@ export async function setDefaultSpace(spaceId: string) { await mutateSpace({ id:
 export async function deleteSpace(spaceId: string) {
     const state = current(), space = state.snapshot.spaces!.find(s => s.id === spaceId);
     if (!space) return;
-    const draft = await db.drafts.get(`capture:${spaceId}`);
+    const local = pluginLocal('tasks');
+    if (!local.hasRecording) throw new Error('Update Herts before deleting a space.');
+    const draft = await local.drafts.get(`capture:${spaceId}`);
     if (draft?.text?.trim()) throw new Error('Save or clear the draft in this space before deleting it.');
+    if (await local.hasRecording(`capture:${spaceId}`)) throw new Error('Transcribe or discard the saved recording in this space before deleting it.');
     await mutateSpace({ id: crypto.randomUUID(), spaceId, kind: 'delete', baseName: space.name, baseDefaultSpaceId: state.snapshot.defaultSpaceId, at: Date.now() });
 }
 export async function resolveConflict(id: string, keep: boolean) { const state = current(), p = state.pending.find(p => p.id === id); if (!p)

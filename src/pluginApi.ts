@@ -29,7 +29,9 @@ export function pluginLocal(id: string, generation = getState().plugins.entries.
         async delete(key: string) { guard(); const storageKey = `${prefix}${kind}:${key}`; if (kind === 'draft') await commitDraft(storageKey, stageDraft(storageKey, null)); else await db.pluginLocal.delete(storageKey); },
         async toArray() { if (kind === 'draft') for (const key of pendingDraftKeys(`${prefix}${kind}:`)) await recoverDraft(key); const rows = await db.pluginLocal.where('key').startsWith(`${prefix}${kind}:`).toArray(); return rows.map(r => kind === 'kv' ? { key: r.key.slice(`${prefix}${kind}:`.length), value: r.value } : r.value); },
     });
-    return { kv: table('kv'), drafts: table('draft'), articles: table('article') };
+    return { kv: table('kv'), drafts: table('draft'), articles: table('article'),
+        async hasRecording(owner: string) { guard(); return (await db.recordings.where('owner').equals(`plugin:${id}:${generation}:${owner}`).count()) > 0; },
+    };
 }
 export function pluginRecords<T = Record<string, unknown>>(id: string): T { return (getState().pluginData[id]?.records || {}) as T; }
 export function usePluginRecords<T = Record<string, unknown>>(id: string): T { return (useApp().pluginData[id]?.records || {}) as T; }

@@ -8,7 +8,7 @@ Conversations is always available. Tasks and Reading are optional plugins, enabl
 
 Each task space has Inbox, Next, Waiting, Parked, Snoozed and Done. Create and rename spaces from Settings or the **+** at the end of the space tabs. Tabs share available width on phones and scroll when they no longer fit. Conversations and Reading are global.
 
-Delete empty added spaces from **Settings → Plugins → Tasks**, after confirmation. Done and Snoozed tasks also count as content; move them elsewhere first. A local capture draft must be saved or cleared first. The original space remains as a renameable fallback, and becomes the default if the deleted space was the default. The server rechecks emptiness so concurrent task creation cannot be erased by a stale deletion.
+Delete empty added spaces from **Settings → Plugins → Tasks**, after confirmation. Done and Snoozed tasks also count as content; move them elsewhere first. Local capture drafts and saved dictation must be saved or cleared first. The original space remains as a renameable fallback, and becomes the default if the deleted space was the default. The server rechecks emptiness so concurrent task creation cannot be erased by a stale deletion.
 
 Capture requires only a title. A task has no Hermes conversation until its first deliberate send. List order expresses priority. Moves normally put tasks at the top of the destination; Done is sorted by completion time and Snoozed by reminder time. Moving between spaces puts the same task in the destination Inbox, retaining its conversation and ongoing work. Settings selects the default space for conversation conversion and the voice shortcut.
 
