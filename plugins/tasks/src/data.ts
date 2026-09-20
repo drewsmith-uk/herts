@@ -16,7 +16,7 @@ function adapt(core: CoreState) {
     const data = (core.pluginData.tasks?.records.state || emptySnapshot()) as Snapshot, remote = (core.pluginRemote.tasks?.records.state || emptySnapshot()) as Snapshot;
     const project = (s: Snapshot) => ({ ...s, contexts: core.snapshot.contexts, tasks: s.tasks.map(t => ({ ...t, link: core.snapshot.contexts.find(c => c.id === t.contextId)?.link || t.link })) });
     const pending = core.pluginPending.filter(p => p.pluginId === 'tasks');
-    return { ...core, snapshot: project(data), remote: project(remote), pending: pending.filter(p => p.operation.command === 'task').map(p => ({ id: p.id, op: p.operation.input as TaskOp, order: p.order, conflict: p.conflict })), spacePending: pending.filter(p => p.operation.command === 'space').map(p => ({ id: p.id, op: p.operation.input as SpaceOp, order: p.order, conflict: p.conflict })), viewedSpaceId: localViewed || data.defaultSpaceId || originalSpaceId };
+    return { ...core, snapshot: project(data), remote: project(remote), pending: pending.filter(p => p.operation.command === 'task').map(p => ({ id: p.id, op: p.operation.input as TaskOp, order: p.order, conflict: p.conflict })), spacePending: pending.filter(p => p.operation.command === 'space').map(p => ({ id: p.id, op: p.operation.input as SpaceOp, order: p.order, conflict: p.conflict })), viewedSpaceId: data.spaces?.some(s => s.id === localViewed) ? localViewed : data.defaultSpaceId || originalSpaceId };
 }
 let localViewed = '';
 export function useApp() { return adapt(useCore()); }
@@ -53,11 +53,18 @@ export async function mutateSpace(op: SpaceOp) { applySpaceOp(current().snapshot
 export async function createSpace(name: string) { const spaceId = crypto.randomUUID(); await mutateSpace({ id: crypto.randomUUID(), spaceId, kind: 'create', name: name.trim(), at: Date.now() }); return spaceId; }
 export async function renameSpace(spaceId: string, name: string) { const space = current().snapshot.spaces!.find(s => s.id === spaceId)!; await mutateSpace({ id: crypto.randomUUID(), spaceId, kind: 'rename', name: name.trim(), baseName: space.name, at: Date.now() }); }
 export async function setDefaultSpace(spaceId: string) { await mutateSpace({ id: crypto.randomUUID(), spaceId, kind: 'default', baseDefaultSpaceId: current().snapshot.defaultSpaceId || originalSpaceId, at: Date.now() }); }
+export async function deleteSpace(spaceId: string) {
+    const state = current(), space = state.snapshot.spaces!.find(s => s.id === spaceId);
+    if (!space) return;
+    const draft = await db.drafts.get(`capture:${spaceId}`);
+    if (draft?.text?.trim()) throw new Error('Save or clear the draft in this space before deleting it.');
+    await mutateSpace({ id: crypto.randomUUID(), spaceId, kind: 'delete', baseName: space.name, baseDefaultSpaceId: state.snapshot.defaultSpaceId, at: Date.now() });
+}
 export async function resolveConflict(id: string, keep: boolean) { const state = current(), p = state.pending.find(p => p.id === id); if (!p)
-    return; const task = state.remote.tasks.find(t => t.id === p.op.taskId); return resolvePluginOperation(id, keep ? { ...p.op, at: Date.now(), baseTitle: task?.title, baseStatus: task?.status, baseSnoozeId: task?.snoozeId || null, baseSpaceId: task ? taskSpaceId(task) : originalSpaceId, spaceId: p.op.spaceId || originalSpaceId, listVersion: spaceLists(state.remote, p.op.spaceId || originalSpaceId)?.[p.op.status || task?.status || 'inbox'].version } : undefined); }
+    return; const task = state.remote.tasks.find(t => t.id === p.op.taskId); const destination = state.remote.spaces?.some(s => s.id === (p.op.spaceId || originalSpaceId)) ? p.op.spaceId || originalSpaceId : state.remote.defaultSpaceId || originalSpaceId; return resolvePluginOperation(id, keep ? { ...p.op, at: Date.now(), baseTitle: task?.title, baseStatus: task?.status, baseSnoozeId: task?.snoozeId || null, baseSpaceId: task ? taskSpaceId(task) : originalSpaceId, spaceId: destination, listVersion: spaceLists(state.remote, destination)?.[p.op.status || task?.status || 'inbox'].version } : undefined); }
 export async function resolveSpaceConflict(id: string, keep: boolean, name?: string) { const state = current(), p = state.spacePending.find(p => p.id === id); if (!p)
     return; if (p.op.kind === 'create' && !keep)
-    throw new Error('Choose a new name to preserve this space and its saved tasks.'); return resolvePluginOperation(id, keep ? { ...p.op, at: Date.now(), ...(name !== undefined ? { name: name.trim() } : {}), ...(p.op.kind === 'rename' ? { baseName: state.remote.spaces?.find(s => s.id === p.op.spaceId)?.name } : {}), ...(p.op.kind === 'default' ? { baseDefaultSpaceId: state.remote.defaultSpaceId } : {}) } : undefined); }
+    throw new Error('Choose a new name to preserve this space and its saved tasks.'); return resolvePluginOperation(id, keep ? { ...p.op, at: Date.now(), ...(name !== undefined ? { name: name.trim() } : {}), ...(['rename', 'delete'].includes(p.op.kind) ? { baseName: state.remote.spaces?.find(s => s.id === p.op.spaceId)?.name } : {}), ...(['default', 'delete'].includes(p.op.kind) ? { baseDefaultSpaceId: state.remote.defaultSpaceId } : {}) } : undefined); }
 
 export function linkedTaskId(conversation:import('@herts/plugin-api/types').Conversation){return conversationTaskId(conversation,current().snapshot.tasks);}
 export function taskInboxName(id: string) {

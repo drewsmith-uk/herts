@@ -372,6 +372,24 @@ export async function createLocalConversation(title = 'New conversation', id: st
     await rebuild();
     return context;
 }
+const titleWrites = new Map<string, Promise<void>>();
+export function renameConversationTitle(id: string, title: string, baseTitle: string) {
+    const work = (async () => {
+        const context = state.snapshot.contexts.find(c => c.id === id);
+        if (!context) throw new Error('This conversation is not available.');
+        if (state.remote.contexts.some(c => c.id === id)) {
+            const result = await api(`/contexts/${id}/title`, { title, baseTitle });
+            await acceptSnapshot(result.snapshot);
+        } else {
+            await db.kv.put({ key: `context:${id}`, value: { ...context, title } });
+        }
+        await rebuild();
+    })();
+    titleWrites.set(id, work);
+    const settled = () => { if (titleWrites.get(id) === work) titleWrites.delete(id); };
+    void work.then(settled, settled);
+    return work;
+}
 export async function setConversationHidden(conversation: Conversation, hidden: boolean) {
     const op: ConversationVisibilityOp = { id: crypto.randomUUID(), key: conversation.key, aliases: [...new Set([conversation.id, ...conversation.aliases])], hidden, at: Date.now() };
     lastOrder = Math.max(Date.now(), lastOrder + 1);
@@ -412,6 +430,7 @@ export async function uploadFile(id: string, progress?: (n: number) => void) {
 }
 export async function submit(input: any): Promise<Action> {
     const contextId = input.contextId || input.taskId;
+    await titleWrites.get(contextId);
     if (state.localSubmissions.some(s => s.taskId === contextId))
         throw new Error('A submitted request is still unconfirmed. Check its status before sending another.');
     await sync();

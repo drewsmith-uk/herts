@@ -38,6 +38,50 @@ function fixture() {
   cleanup.push(() => { engine.close(); store.close(); }); return { store, gateway, engine, taskId };
 }
 describe('deliberate execution and receipts', () => {
+  it('resolves confirmed title collisions on one session and submits the message once', async () => {
+    const { store, gateway, engine, taskId } = fixture();
+    store.saveContext({ ...store.context(taskId)!, title: 'New conversation' });
+    const rpc = gateway.rpc.bind(gateway); let collisions = 0;
+    gateway.rpc = async (method, params) => {
+      if (method === 'session.title' && collisions++ < 2) {
+        gateway.calls.push({ method, params });
+        throw new GatewayError(`Title '${params.title}' is already in use by session existing`, false, 4022);
+      }
+      return rpc(method, params);
+    };
+    const input = { id: randomUUID(), taskId, kind: 'send' as const, text: 'Help me plan a holiday' };
+    engine.start(input); await expect.poll(() => store.action(input.id)?.receipt).toBe('accepted'); engine.start(input);
+    expect(gateway.calls.filter(c => c.method === 'session.create')).toHaveLength(1);
+    expect(gateway.calls.find(c => c.method === 'session.create')!.params).not.toHaveProperty('title');
+    expect(gateway.calls.filter(c => c.method === 'session.title').map(c => c.params.title)).toEqual(['Help me plan a holiday', 'Help me plan a holiday (2)', 'Help me plan a holiday (3)']);
+    expect(gateway.calls.filter(c => c.method === 'prompt.submit')).toHaveLength(1);
+    expect(store.context(taskId)?.link?.title).toBe('Help me plan a holiday (3)');
+  });
+  it('does not retry an uncertain title write or send its saved message', async () => {
+    const { store, gateway, engine, taskId } = fixture(); const rpc = gateway.rpc.bind(gateway);
+    gateway.rpc = async (method, params) => {
+      if (method === 'session.title') { gateway.calls.push({ method, params }); throw new GatewayError('Title reply lost', true); }
+      return rpc(method, params);
+    };
+    const input = { id: randomUUID(), taskId, kind: 'send' as const, text: 'Keep this message' };
+    engine.start(input); await expect.poll(() => store.action(input.id)?.receipt).toBe('unknown');
+    expect(store.action(input.id)).toMatchObject({ text: input.text, sendStage: 'preparing' });
+    expect(gateway.calls.filter(c => c.method === 'session.create')).toHaveLength(1);
+    expect(gateway.calls.filter(c => c.method === 'session.title')).toHaveLength(1);
+    expect(gateway.calls.filter(c => c.method === 'prompt.submit')).toHaveLength(0);
+  });
+  it('repairs an older duplicate-title failure on its existing conversation only when sent again', async () => {
+    const { store, gateway, engine, taskId } = fixture();
+    store.linkNew(taskId, { key: 'stored', storedId: 'stored', title: 'New conversation', source: 'desktop' });
+    store.saveAction({ id: randomUUID(), taskId, kind: 'send', text: 'Original saved request', uploadIds: [], createdAt: 1, updatedAt: 1, state: 'failed', phase: 'saving conversation', receipt: 'rejected', sendStage: 'preparing', error: "Title 'New conversation' is already in use by session original" });
+    expect(gateway.calls).toEqual([]);
+    const input = { id: randomUUID(), taskId, kind: 'send' as const, text: 'Original saved request' };
+    engine.start(input); await expect.poll(() => store.action(input.id)?.receipt).toBe('accepted');
+    expect(store.context(taskId)?.link?.storedId).toBe('stored');
+    expect(gateway.calls.filter(c => c.method === 'session.create')).toHaveLength(0);
+    expect(gateway.calls.filter(c => c.method === 'session.title')).toHaveLength(1);
+    expect(gateway.calls.filter(c => c.method === 'prompt.submit')).toHaveLength(1);
+  });
   it('creates and resumes in a named profile and rejects a mismatched identity before sending', async () => {
     const {store,gateway,engine,taskId}=fixture();gateway.profile='research';
     const first={id:randomUUID(),taskId,kind:'send' as const,text:'A fixture message'};

@@ -10,6 +10,21 @@ const closes: (()=>Promise<void>)[] = [];
 afterEach(async () => { for (const close of closes.splice(0)) await close(); });
 async function fixture(dev = true) { const dir = await mkdtemp(join(tmpdir(), 'tasks-test-')); const result = await createApp({ dataDir: dir, origin: 'https://tasks.example:8443', identity: 'owner@example.com', dev, hermesBase: '', hermesToken: '' }); await result.plugins.activate('tasks');await result.plugins.activate('reading');closes.push(async () => { await result.app.close(); await rm(dir, { recursive: true, force: true }); }); return result; }
 describe('private API and upload recovery', () => {
+  it('renames conversation metadata in its existing profile without resuming or sending', async () => {
+    const { app, store, gateway } = await fixture(); const id = randomUUID();
+    const link = { key: 'root', storedId: 'tip', title: 'Old name', source: 'telegram' };
+    store.saveContext({ id, title: link.title, link, aliases: ['root', 'tip'] });
+    gateway.conversation = async () => ({ id: 'tip', key: 'root', title: 'Old name', aliases: ['root', 'tip'], preview: '', source: 'telegram', updatedAt: 1 });
+    const http = vi.spyOn(gateway, 'http').mockResolvedValue({ ok: true, title: 'New name' });
+    const rpc = vi.spyOn(gateway, 'rpc');
+    const response = await app.inject({ method: 'POST', url: `/api/v1/contexts/${id}/title`, headers: { 'x-herts-request': '1' }, payload: { title: 'New name', baseTitle: 'Old name' } });
+    expect(response.statusCode).toBe(200);
+    expect(http).toHaveBeenCalledWith('/api/sessions/tip', { profile: 'default', title: 'New name' }, 'PATCH');
+    expect(rpc).not.toHaveBeenCalled();
+    expect(store.context(id)).toMatchObject({ title: 'New name', link: { key: 'root', storedId: 'tip', title: 'New name' } });
+    const conflict = await app.inject({ method: 'POST', url: `/api/v1/contexts/${id}/title`, headers: { 'x-herts-request': '1' }, payload: { title: 'Stale rename', baseTitle: 'Old name' } });
+    expect(conflict.statusCode).toBe(409); expect(http).toHaveBeenCalledTimes(1);
+  });
   it('opens one shared conversation reference without agent work or a task, and reuses it after linking', async () => {
     const { app, store, gateway, articles } = await fixture();
     articles.fetchHtml = async () => { throw new Error('Article unavailable'); };

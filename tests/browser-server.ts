@@ -37,6 +37,14 @@ const server = createServer(async (req, res) => {
     return res.end(JSON.stringify({ results: [...rows.values()].filter(row => `${row.title} ${JSON.stringify(row.messages)}`.toLowerCase().includes(query)).map(row => ({ session_id: row.id })) }));
   }
   const id = url.pathname.split('/')[3];
+  if (req.method === 'PATCH' && url.pathname.startsWith('/api/sessions/')) {
+    const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk));
+    const { title, profile } = JSON.parse(Buffer.concat(chunks).toString());
+    const row = rows.get(id), duplicate = [...rows.values()].find(other => other.id !== id && other.title === title);
+    if (!row || profile !== 'default') { res.statusCode = 404; return res.end('{}'); }
+    if (duplicate) { res.statusCode = 400; return res.end(JSON.stringify({ detail: `Title '${title}' is already in use by session ${duplicate.id}` })); }
+    row.title = title; return res.end(JSON.stringify({ ok: true, title }));
+  }
   if (url.pathname.endsWith('/messages')) { const all = rows.get(id)?.messages || [], offset = Number(url.searchParams.get('offset') || 0), limit = Number(url.searchParams.get('limit') || 200); const start = url.searchParams.get('order') === 'latest' ? Math.max(0, all.length - offset - limit) : offset; const end = url.searchParams.get('order') === 'latest' ? Math.max(0, all.length - offset) : offset + limit; const messages = all.slice(start, end); return res.end(JSON.stringify({ session_id: id, profile: 'default', messages, pagination: { returned: messages.length } })); }
   if (url.pathname === '/api/audio/transcribe') return res.end(JSON.stringify({ transcript: 'Please draft a packing list.' }));
   res.statusCode = 404; res.end('{}');
@@ -60,7 +68,11 @@ wss.on('connection', ws => {
       const resumed=runtimes.get(runtime);
       if(stored==='resume-busy') {resumed.running=true;emit('message.start',runtime);emit('message.delta',runtime,{text:'Resuming earlier work.'});}
       result = { session_id: runtime, stored_session_id: stored, session_key: stored, info: { profile_name: 'default' }, messages_omitted: true, resumed: true, running: resumed.running, inflight: null, status: resumed.running?'working':'idle',...(resumed.running?{auto_continue:{attempt:1}}:{}) };
-    } else if (method === 'session.title') result = { title: p.title, pending: false };
+    } else if (method === 'session.title') {
+      const duplicate = [...rows.values()].find(row => row.id !== r.stored && row.title === p.title);
+      if (duplicate) { ws.send(JSON.stringify({ jsonrpc: '2.0', id, error: { code: 4022, message: `Title '${p.title}' is already in use by session ${duplicate.id}` } })); return; }
+      rows.get(r.stored).title = p.title; result = { title: p.title, pending: false };
+    }
     else if (method === 'session.activate') result = { session_id: p.session_id, session_key: r.stored, info: { profile_name: 'default' }, running: r.running, status: r.running ? 'working' : 'idle',queued:r.queued?{text:r.queued}:undefined };
     else if (method === 'approval.pending') result = { approvals: r.approvals };
     else if (method === 'session.control.read') result = { control: {} };

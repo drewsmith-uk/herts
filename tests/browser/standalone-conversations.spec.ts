@@ -17,7 +17,8 @@ for (const width of [390, 1280]) test(`continues a conversation directly with ap
   await page.getByLabel('Search conversations').fill(`Direct conversation ${id}`);
   await page.getByRole('link', { name: new RegExp(`Direct conversation ${id}`) }).click();
   await expect(page.getByLabel('Message Hermes')).toBeEditable();
-  await expect(page.getByRole('heading', { name: `Direct conversation ${id}`, exact: true })).toBeInViewport();
+  await expect(page.getByLabel('Conversation title', { exact: true })).toHaveValue(`Direct conversation ${id}`);
+  await expect(page.getByLabel('Conversation title', { exact: true })).toBeInViewport();
   await expect(page.getByRole('button', { name: 'Continue', exact: true })).toHaveCount(0);
   expect(await calls(request)).toEqual(beforeCalls);
   await page.getByLabel('Message Hermes').fill(`Please ask approval from ${width}.`);

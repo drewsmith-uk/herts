@@ -17,6 +17,34 @@ async function fixture(legacy=false){
 }
 const op=(command:string,input:any,generation=0)=>({id:input.id,generation,command,input});
 describe('public plugin framework',()=>{
+  it('deletes only empty added spaces, preserves task data, and handles concurrent edits and replay', async () => {
+    const f = await fixture(); await f.plugins.activate('tasks');
+    const original = '00000000-0000-4000-8000-000000000001', spaceId = randomUUID();
+    const command = (input: any) => f.plugins.command('tasks', op('space', input));
+    await command({ id: randomUUID(), spaceId, kind: 'create', name: 'Accidental space', at: 1 });
+    await command({ id: randomUUID(), spaceId, kind: 'default', baseDefaultSpaceId: original, at: 2 });
+    const deletion = { id: randomUUID(), spaceId, kind: 'delete', baseName: 'Accidental space', baseDefaultSpaceId: spaceId, at: 3 };
+    await command(deletion);
+    const saved = structuredClone(f.plugins.storage.data('tasks'));
+    expect((saved.records.state as any).spaces.map((s: any) => s.id)).toEqual([original]);
+    expect((saved.records.state as any).defaultSpaceId).toBe(original);
+    await command(deletion); expect(f.plugins.storage.data('tasks')).toEqual(saved);
+    await expect(command({ ...deletion, id: randomUUID(), spaceId: original })).rejects.toThrow('original space');
+    await command({ id: randomUUID(), spaceId, kind: 'create', name: 'Another space', at: 4 });
+    await expect(command({ ...deletion, id: randomUUID() })).rejects.toThrow('renamed');
+    const taskId = randomUUID();
+    await f.plugins.command('tasks', op('task', { id: randomUUID(), taskId, spaceId, kind: 'create', title: 'Arrived on another device', at: 5 }));
+    const before = structuredClone(f.plugins.storage.data('tasks'));
+    await expect(command({ ...deletion, id: randomUUID(), baseName: 'Another space' })).rejects.toThrow('Move all tasks');
+    expect(f.plugins.storage.data('tasks')).toEqual(before);
+    const state = before.records.state as any;
+    for (const status of ['done', 'snoozed']) {
+      const next = structuredClone(state); next.tasks[0].status = status;
+      f.plugins.storage.transaction('tasks', 0, () => {}, tx => tx.put('state', next));
+      await expect(command({ ...deletion, id: randomUUID(), baseName: 'Another space' })).rejects.toThrow('Move all tasks');
+    }
+    expect(f.store.context(taskId)?.title).toBe('Arrived on another device');
+  });
   it('starts fresh with core only and migrates an existing installation with its tasks and order',async()=>{
     const fresh=await fixture();expect(fresh.plugins.catalogue().order).toEqual(['conversations']);expect(fresh.plugins.catalogue().entries.every(e=>!e.enabled)).toBe(true);
     const legacy=await fixture(true);expect(legacy.plugins.catalogue().order).toEqual(['tasks','conversations','reading']);expect(legacy.plugins.enabled('tasks')).toBe(true);expect(legacy.plugins.enabled('reading')).toBe(true);

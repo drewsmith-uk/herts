@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { Conflict, type Action, type Binding } from '../shared/core.js';
 import { Store } from './store.js';
 import { Gateway, GatewayError } from './gateway.js';
+import { cleanConversationTitle } from '../shared/conversationTitles.js';
 
 export interface ActionInput { id: string; taskId?: string; contextId?: string; kind: Action['kind']; text?: string; uploadIds?: string[]; targetId?: string; generation?: string; approvalId?: string }
 const activeStates = new Set(['preparing', 'running', 'awaiting_input', 'stopping']);
@@ -77,6 +78,10 @@ export class Actions {
     try {
       await this.gateway.connect();
       const task = this.store.context(a.taskId)!;
+      // Older Herts versions may have created the session before its duplicate
+      // placeholder title was rejected. Reuse that session on a deliberate Send.
+      const repairTitle = this.store.actions(task.id).some(prior => prior.id !== a.id && prior.kind === 'send' && prior.sendStage === 'preparing' && prior.receipt === 'rejected' && /Title .*already in use/.test(prior.error || ''))
+        && !this.store.actions(task.id).some(prior => prior.kind === 'send' && prior.receipt === 'accepted');
       let b = this.store.binding(a.taskId);
       if (a.kind === 'send' && task.link && b?.ready && b.epoch === this.gateway.epoch) {
         try { await this.verifyBinding(b); }
@@ -107,14 +112,14 @@ export class Actions {
       if (a.kind === 'send') {
         if (!task.link) {
           dispatched = true;
-          const r = await this.step(a, 'creating conversation', 'session.create', { profile: this.gateway.profile, source: 'desktop', title: [...task.title].slice(0, 100).join(''), close_on_disconnect: false });
+          const r = await this.step(a, 'creating conversation', 'session.create', { profile: this.gateway.profile, source: 'desktop', close_on_disconnect: false });
           if (!r.session_id || !r.stored_session_id || r.info?.profile_name !== this.gateway.profile) throw new GatewayError('Conversation creation identity is not confirmed.', true);
           b = { runtimeId: r.session_id, storedId: r.stored_session_id, epoch: this.gateway.epoch, generation: randomUUID(), seq: 0, ready: false, monitored: true, known: true };
           this.store.linkNew(task.id, { key: r.stored_session_id, storedId: r.stored_session_id, title: task.title, source: 'desktop' });
           this.store.saveBinding(task.id, b); this.gateway.metadata = undefined;
-          await this.step(a, 'saving conversation', 'session.title', { session_id: b.runtimeId, title: [...task.title].slice(0, 100).join('') });
         }
         if (!b || b.epoch !== this.gateway.epoch) throw new GatewayError('Conversation preparation was interrupted. Your message was not sent.');
+        if (!task.link || repairTitle) await this.nameConversation(a, b, task.title);
         b = this.store.binding(task.id)!;
         a.binding = b;
         await this.checkSendable(b, !!task.link);
@@ -181,6 +186,27 @@ export class Actions {
   }
   checkSendNotCancelled(id: string) {
     if (this.store.action(id)?.cancelSend) throw new GatewayError('Sending was cancelled by your stop request.');
+  }
+  async nameConversation(a: Action, b: Binding, requested: string) {
+    const base = cleanConversationTitle(requested === 'New conversation' ? a.text.trim() || requested : requested) || 'New conversation';
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const suffix = attempt ? ` (${attempt + 1})` : '';
+      const title = [...base].slice(0, 100 - suffix.length).join('') + suffix;
+      this.checkSendNotCancelled(a.id);
+      try {
+        const result = await this.step(a, 'saving conversation', 'session.title', { session_id: b.runtimeId, title });
+        if (result.title !== title || result.pending) throw new GatewayError('The conversation title could not be confirmed. Your message remains saved.', true);
+        const context = this.store.context(a.taskId)!;
+        this.store.saveContext({ ...context, title, link: context.link ? { ...context.link, title } : null });
+        this.store.bumpRevision(); this.store.emit('change', { type: 'contexts' }); this.gateway.metadata = undefined;
+        return;
+      } catch (error) {
+        // Only retry a confirmed title collision, on the SAME session. A lost
+        // response must never create another session or submit another prompt.
+        if (!(error instanceof GatewayError) || error.uncertain || error.code !== 4022 || !/^Title .*already in use by session /.test(error.message)) throw error;
+      }
+    }
+    throw new GatewayError('Choose a different conversation title before sending.');
   }
   async verifyBinding(b: Binding) {
     if (b.epoch !== this.gateway.epoch) throw new GatewayError('Hermes restarted. Sending your next message will prepare this conversation again.');

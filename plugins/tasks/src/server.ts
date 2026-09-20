@@ -10,7 +10,7 @@ const taskSchema = z.object({ id: uuid, taskId: uuid, kind: z.enum(['create', 't
     if ((v.kind === 'move' && (!v.status || !v.baseStatus)) || (v.kind === 'snooze' && (!v.baseStatus || !v.snoozedUntil)))
         ctx.addIssue({ code: 'custom', message: 'Task status and reminder time are required.' });
 });
-const spaceSchema = z.object({ id: uuid, spaceId: uuid, kind: z.enum(['create', 'rename', 'default']), at: z.number().int().positive(), name: z.string().trim().min(1).max(80).optional(), baseName: z.string().optional(), baseDefaultSpaceId: uuid.optional() }).strict();
+const spaceSchema = z.object({ id: uuid, spaceId: uuid, kind: z.enum(['create', 'rename', 'default', 'delete']), at: z.number().int().positive(), name: z.string().trim().min(1).max(80).optional(), baseName: z.string().optional(), baseDefaultSpaceId: uuid.optional() }).strict();
 const linkedSchema = z.object({ id: uuid, taskId: uuid, title: z.string().trim().min(1).max(2000), spaceId: uuid.optional(), at: z.number().int().positive(), conversationId: z.string().min(1).max(300) }).strict();
 export function taskMutation(tx: Transaction, input: unknown) {
     const op = taskSchema.parse(input) as TaskOp;

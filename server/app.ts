@@ -90,6 +90,27 @@ export async function createApp(config: Config) {
     store.emit('change',{type:'contexts'});return{context,snapshot:clientSnapshot(store,req)};
   });
   registerLegacyPluginRoutes(app,store,gateway,plugins);
+  app.post('/api/v1/contexts/:id/title', async req => {
+    const id = uuid.parse((req.params as any).id);
+    const { title, baseTitle } = z.object({ title: z.string().trim().min(1).max(100), baseTitle: z.string().max(2000) }).strict().parse(req.body);
+    const context = store.context(id);
+    if (!context) throw new Conflict('This conversation is not available. Refresh before renaming.');
+    if ((context.link?.title || context.title) !== baseTitle && (context.link?.title || context.title) !== title) throw new Conflict('The conversation title changed. Refresh before renaming.');
+    if (actions.dispatching.size && store.actions(id).some(a => a.state === 'preparing' && a.receipt === 'pending')) throw new Conflict('Wait for the message to finish sending before renaming the conversation.');
+    let link = context.link;
+    if (link) {
+      const conversation = await gateway.conversation(link.storedId);
+      if (conversation.title !== baseTitle && conversation.title !== title) {
+        store.openConversation({ ...link, storedId: conversation.id, title: conversation.title }, conversation.aliases);
+        throw new Conflict('The conversation title changed in Hermes. Refresh before renaming.');
+      }
+      await gateway.renameConversation(conversation.id, title);
+      link = { ...link, storedId: conversation.id, title };
+    }
+    const updated = store.saveContext({ ...store.context(id)!, title, link });
+    store.bumpRevision(); store.emit('change', { type: 'contexts' });
+    return { context: updated, snapshot: clientSnapshot(store, req) };
+  });
   app.get('/api/v1/conversations', async req => {
     const { q = '', offset = 0, includeLinked, includeHidden, filters } = z.object({ filters:z.string().max(4000).optional(), q: z.string().max(500).optional(), offset: z.coerce.number().int().nonnegative().optional(), includeLinked: z.enum(['true', 'false']).default('false'), includeHidden: z.enum(['true', 'false']).default('false') }).parse(req.query);
     const conversations = await gateway.search(q); const snapshot = store.coreSnapshot();

@@ -17,7 +17,7 @@ for (const width of [390,1280]) test(`keeps conversation controls available at t
   await page.goto('/#/conversations'); await page.getByRole('checkbox',{name:'Show linked conversations'}).check(); await page.getByRole('link',{name:/Header conversation/}).click();
   const header = page.locator('.conversation-page-header');
   const recent = page.locator('[data-history-message="header-history:450"]');
-  await usable(header.getByRole('heading',{name:'Header conversation',exact:true})); await usable(recent);
+  await usable(header.getByRole('textbox',{name:'Conversation title',exact:true})); await usable(recent);
   const hide = header.getByRole('button', { name: 'Hide conversation', exact: true });
   await usable(hide);
   const makeOrOpen = header.getByRole('button', { name: /^(Make a task|Open task)$/ });
@@ -26,7 +26,7 @@ for (const width of [390,1280]) test(`keeps conversation controls available at t
   await page.screenshot({ path: `test-results/conversation-view-actions-${width}.png` });
   await scrollHistory(page,200); await expect(header).toHaveClass(/is-hidden/);
   await scrollHistory(page,-250); await expect(header).not.toHaveClass(/is-hidden/);
-  await usable(header.getByRole('heading',{name:'Header conversation',exact:true}));
+  await usable(header.getByRole('textbox',{name:'Conversation title',exact:true}));
   // The conversion controls remain reachable in the floating header too.
   if (await page.getByRole('button',{name:'Make a task',exact:true}).count()) {
     await page.getByRole('button',{name:'Make a task',exact:true}).click();

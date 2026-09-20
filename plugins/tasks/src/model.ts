@@ -29,7 +29,7 @@ export interface Space {
 export interface SpaceOp {
     id: string;
     spaceId: string;
-    kind: 'create' | 'rename' | 'default';
+    kind: 'create' | 'rename' | 'default' | 'delete';
     at: number;
     name?: string;
     baseName?: string;
@@ -82,7 +82,17 @@ export function spacePath(id: string, status: Status = 'inbox') { return id === 
 export function applySpaceOp(input: Snapshot, op: SpaceOp, check = true): Snapshot {
     const s = withSpaces(structuredClone(input));
     const space = s.spaces.find(v => v.id === op.spaceId);
-    if (op.kind === 'default') {
+    if (op.kind === 'delete') {
+        if (op.spaceId === originalSpaceId) throw new Conflict('The original space cannot be deleted. You can rename it.');
+        if (!space) return input;
+        if (s.tasks.some(task => taskSpaceId(task) === space.id)) throw new Conflict('Move all tasks out of this space before deleting it, including Done and Snoozed items.');
+        if (check && space.name !== op.baseName) throw new Conflict('This space was renamed on another device. Review it before deleting.');
+        if (check && s.defaultSpaceId === space.id && op.baseDefaultSpaceId !== space.id) throw new Conflict('This space became the default on another device. Review it before deleting.');
+        s.spaces = s.spaces.filter(v => v.id !== space.id);
+        delete s.spaceLists[space.id];
+        if (s.defaultSpaceId === space.id) s.defaultSpaceId = originalSpaceId;
+    }
+    else if (op.kind === 'default') {
         if (!space)
             throw new Conflict('This space is not available.');
         if (check && s.defaultSpaceId !== op.baseDefaultSpaceId && s.defaultSpaceId !== op.spaceId)

@@ -8,6 +8,8 @@ Conversations is always available. Tasks and Reading are optional plugins, enabl
 
 Each task space has Inbox, Next, Waiting, Parked, Snoozed and Done. Create and rename spaces from Settings or the **+** at the end of the space tabs. Tabs share available width on phones and scroll when they no longer fit. Conversations and Reading are global.
 
+Delete empty added spaces from **Settings → Plugins → Tasks**, after confirmation. Done and Snoozed tasks also count as content; move them elsewhere first. A local capture draft must be saved or cleared first. The original space remains as a renameable fallback, and becomes the default if the deleted space was the default. The server rechecks emptiness so concurrent task creation cannot be erased by a stale deletion.
+
 Capture requires only a title. A task has no Hermes conversation until its first deliberate send. List order expresses priority. Moves normally put tasks at the top of the destination; Done is sorted by completion time and Snoozed by reminder time. Moving between spaces puts the same task in the destination Inbox, retaining its conversation and ongoing work. Settings selects the default space for conversation conversion and the voice shortcut.
 
 Hold an item still to begin dragging. Drop it between items, onto another list, or onto a space tab (that space's Inbox). Edit list provides accessible reorder buttons and inline title editing. Otherwise edit titles on the detail page. Completing/reopening a task never stops Hermes or deletes history.
@@ -15,6 +17,8 @@ Hold an item still to begin dragging. Drop it between items, onto another list, 
 Snooze an Inbox task from its page or by swiping its row. At the chosen time the server returns it to Inbox and creates a reminder. The schedule is persisted and catches up after downtime. Moving/completing the task cancels its snooze. Notifications require browser permission and a working push subscription; delivery is not guaranteed at an exact instant.
 
 ## Conversations
+
+New conversations use their first message as a starting title, unless a title was entered manually. A confirmed duplicate gets a numbered suffix on the same Hermes session; an uncertain response is never automatically retried. Conversation titles can be edited inline on the conversation page and save on blur. Existing-session renames use Hermes' metadata endpoint without resuming the conversation or sending a message; local task and reading titles remain separate.
 
 Browse/search personal Hermes history before deciding what belongs in Tasks. Herts filters worker, test and internal conversations. There is no automatic backlog import. A conversation can become a new task; an unrelated existing task cannot be attached to it. Each task has at most one conversation and each conversation at most one task, including across spaces.
 

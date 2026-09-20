@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
-import { Layers, Plus } from 'lucide-react';
+import { Layers, Plus, Trash2 } from 'lucide-react';
 import { liveQuery } from '@herts/plugin-api/client';
 import { useDroppable } from '@dnd-kit/core';
 import { originalSpaceId, spaceName, spacePath, type Space } from './model';
-import { db, useApp, createSpace, renameSpace, setDefaultSpace, rememberSpace, resolveSpaceConflict, type PendingSpace } from './data';
+import { db, useApp, createSpace, renameSpace, deleteSpace, setDefaultSpace, rememberSpace, resolveSpaceConflict, type PendingSpace } from './data';
+import { taskSpaceId } from './model';
 import { TaskDropLink, useTaskInteractions } from './TaskDragging';
 import { useUpdatePreparation } from '@herts/plugin-api/client';
 export function useTaskDestination(conversationId?: string) {
@@ -109,7 +110,7 @@ export function SpaceSettings() {
     }
     return <section className="settings-card spaces-settings"><div className="settings-icon"><Layers size={22}/></div><div><h2>Task spaces</h2><p>Each space has its own Inbox, Next, Waiting, Parked and Done. Conversations and Reading are shared.</p>
     <label className="default-space-label">Default space<select aria-label="Default space" value={state.snapshot.defaultSpaceId} onChange={e => { setError(''); void setDefaultSpace(e.target.value).catch(e => setError(e.message)); }}>{state.snapshot.spaces?.map(space => <option key={space.id} value={space.id}>{space.name}</option>)}</select></label><p className="subtle-note">New tasks from conversations and the home-screen voice shortcut go to this space’s Inbox. Capture on a task-list screen uses the space you are viewing.</p>
-    <div className="space-management-list">{state.snapshot.spaces?.map(space => <SpaceName key={space.id} space={space}/>)}</div>
+    <p className="subtle-note">Empty added spaces can be deleted. The original space is kept as a fallback and can be renamed.</p><div className="space-management-list">{state.snapshot.spaces?.map(space => <SpaceName key={space.id} space={space}/>)}</div>
     <form className="new-space-form" onSubmit={add}><label>New space<input aria-label="New space name" placeholder="e.g. Work" value={name} onChange={e => setName(e.target.value)} maxLength={80}/></label><button disabled={busy || !name.trim()}><Plus size={16}/> Create space</button></form>
     {error && <p role="alert" className="inline-error">{error}</p>}
   </div></section>;
@@ -117,7 +118,9 @@ export function SpaceSettings() {
 function SpaceName({ space }: {
     space: Space;
 }) {
-    const [name, setName] = useState(space.name), [error, setError] = useState(''), [busy, setBusy] = useState(false);
+    const { snapshot } = useApp();
+    const [name, setName] = useState(space.name), [error, setError] = useState(''), [busy, setBusy] = useState(false), [deleting, setDeleting] = useState(false);
+    const hasTasks = snapshot.tasks.some(task => taskSpaceId(task) === space.id);
     useUpdatePreparation({ blocked: () => name !== space.name || busy ? 'Save the space name before updating.' : undefined });
     useEffect(() => setName(space.name), [space.name]);
     async function save(e: FormEvent) { e.preventDefault(); setBusy(true); setError(''); try {
@@ -129,7 +132,26 @@ function SpaceName({ space }: {
     finally {
         setBusy(false);
     } }
-    return <div><form className="space-name-form" onSubmit={save}><input aria-label={`Name of ${space.name} space`} value={name} onChange={e => setName(e.target.value)} maxLength={80}/><button disabled={busy || !name.trim() || name.trim() === space.name}>Rename</button><a className="text-link" href={`#${spacePath(space.id)}`}>Open</a></form>{error && <p role="alert" className="inline-error">{error}</p>}</div>;
+    return <div><form className="space-name-form" onSubmit={save}><input aria-label={`Name of ${space.name} space`} value={name} onChange={e => setName(e.target.value)} maxLength={80}/><button disabled={busy || !name.trim() || name.trim() === space.name}>Rename</button><a className="text-link" href={`#${spacePath(space.id)}`}>Open</a></form>
+    {space.id !== originalSpaceId && <><button className="quiet-button danger-button" disabled={busy || hasTasks || name !== space.name} onClick={() => setDeleting(true)} aria-label={`Delete ${space.name} space`}><Trash2 size={15}/> Delete space</button>{hasTasks && <p className="subtle-note">Move all tasks out first, including Done and Snoozed items.</p>}</>}
+    {error && <p role="alert" className="inline-error">{error}</p>}{deleting && <DeleteSpaceDialog space={space} close={() => setDeleting(false)}/>}</div>;
+}
+function DeleteSpaceDialog({ space, close }: { space: Space; close: () => void }) {
+    const { snapshot, online } = useApp(), dialog = useRef<HTMLDialogElement>(null);
+    const [busy, setBusy] = useState(false), [error, setError] = useState('');
+    useLayoutEffect(() => { const node = dialog.current!; node.showModal(); return () => { if (node.open) node.close(); }; }, []);
+    async function remove(event: FormEvent) {
+        event.preventDefault(); if (busy) return; setBusy(true); setError('');
+        try { await deleteSpace(space.id); close(); }
+        catch (e) { setError((e as Error).message); setBusy(false); }
+    }
+    return <dialog ref={dialog} className="space-dialog" aria-labelledby="delete-space-heading" onCancel={event => { event.preventDefault(); if (!busy) close(); }}><form onSubmit={remove}>
+      <h2 id="delete-space-heading">Delete “{space.name}”?</h2><p>This removes the empty space and its list tabs. You can create a new space again later.</p>
+      {snapshot.defaultSpaceId === space.id && <p>Your default space will become {spaceName(snapshot, originalSpaceId)}.</p>}
+      {!online && <p>The deletion will sync when you reconnect. If another device has added tasks, the space will be kept.</p>}
+      {error && <p className="inline-error" role="alert">{error}</p>}
+      <div className="button-row"><button type="button" disabled={busy} onClick={close}>Cancel</button><button className="danger-button" disabled={busy}>{busy ? 'Deleting…' : 'Delete space'}</button></div>
+    </form></dialog>;
 }
 export function SpaceConflict({ pending }: {
     pending: PendingSpace;
@@ -137,7 +159,8 @@ export function SpaceConflict({ pending }: {
     const state = useApp(), [name, setName] = useState(pending.op.name || ''), [error, setError] = useState('');
     useUpdatePreparation({ blocked: () => name !== (pending.op.name || '') ? 'Save your choice of space name before updating.' : undefined });
     const creating = pending.op.kind === 'create';
-    const resolve = (keep: boolean) => { setError(''); void resolveSpaceConflict(pending.id, keep, pending.op.kind === 'default' ? undefined : name).catch(e => setError(e.message)); };
+    const resolve = (keep: boolean) => { setError(''); void resolveSpaceConflict(pending.id, keep, ['default', 'delete'].includes(pending.op.kind) ? undefined : name).catch(e => setError(e.message)); };
+    if (pending.op.kind === 'delete') return <div className="conflict-banner"><strong>The space could not be deleted</strong><p>{pending.conflict}</p><div className="button-row"><button onClick={() => resolve(true)}>Try deleting again</button><button onClick={() => resolve(false)}>Keep space</button></div>{error && <p role="alert">{error}</p>}</div>;
     return <div className="conflict-banner"><strong>A space change needs your choice</strong><p>{pending.conflict}</p>
     {pending.op.kind === 'default' ? <><p>Your default: {spaceName(state.snapshot, pending.op.spaceId)}</p><p>Synced default: {spaceName(state.remote, state.remote.defaultSpaceId)}</p></> : <><label>Space name<input aria-label="Resolve space name" value={name} onChange={e => setName(e.target.value)} maxLength={80}/></label>{!creating && <p>Synced name: {spaceName(state.remote, pending.op.spaceId)}</p>}</>}
     {creating && <p>Choose another name to keep this space and its saved tasks.</p>}

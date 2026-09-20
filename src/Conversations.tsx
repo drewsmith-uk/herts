@@ -4,6 +4,7 @@ import { db, useApp, cacheRead, api, setConversationHidden, contextForConversati
 import { conversationHidden, messageText, type Conversation } from '../shared/core';
 import { ConversationPanel, HistoryView } from './Conversation';
 import { ConversationHeader } from './ConversationHeader';
+import { ConversationTitle } from './ConversationTitle';
 import { ConversationRow } from './ConversationRow';
 import { ConversationContributions, ConversationBadges, usePlugins, pluginHook } from './plugins';
 import type { SharedContent } from '../shared/plugins';
@@ -93,7 +94,7 @@ export function ConversationView({ id }: {
     useEffect(() => { if (context || !state.online)
         return; let alive = true; void openConversation(id).catch(e => { if (alive)
         setError(e.message); }); return () => { alive = false; }; }, [id, !!context, state.online, attempt]);
-    const current = conversation || { id: context?.link?.storedId || id, key: context?.link?.key || id, aliases: context?.aliases || [id], title: context?.link?.title || 'Conversation', preview: '', source: context?.link?.source || '', updatedAt: 0 };
+    const current = { ...(conversation || { id: context?.link?.storedId || id, key: context?.link?.key || id, aliases: context?.aliases || [id], title: 'Conversation', preview: '', source: context?.link?.source || '', updatedAt: 0 }), ...(context ? { title: context.link?.title || context.title } : {}) };
     const hidden = conversationHidden(current, state.snapshot.hiddenConversations || []);
     async function hide() { setBusy(true); try {
         await setConversationHidden(current, !hidden);
@@ -104,7 +105,7 @@ export function ConversationView({ id }: {
     finally {
         setBusy(false);
     } }
-    return <div className="conversation-detail"><ConversationHeader><a className="back-link" href="#/conversations"><ChevronLeft size={17}/> Conversations</a><div className="page-heading conversation-detail-heading"><h1>{current.title}</h1></div><div className="conversation-header-actions"><ConversationContributions context={context} conversation={current}/><button disabled={busy} onClick={() => void hide()}>{hidden ? <Eye size={16}/> : <EyeOff size={16}/>} {hidden ? 'Unhide conversation' : 'Hide conversation'}</button></div></ConversationHeader>
+    return <div className="conversation-detail"><ConversationHeader><a className="back-link" href="#/conversations"><ChevronLeft size={17}/> Conversations</a><div className="page-heading conversation-detail-heading">{context ? <ConversationTitle context={context}/> : <h1>{current.title}</h1>}</div><div className="conversation-header-actions"><ConversationContributions context={context} conversation={current}/><button disabled={busy} onClick={() => void hide()}>{hidden ? <Eye size={16}/> : <EyeOff size={16}/>} {hidden ? 'Unhide conversation' : 'Hide conversation'}</button></div></ConversationHeader>
     {context ? <ConversationPanel key={context.id} context={context} showActions={false}/> : <><HistoryView conversationId={id}/><p role="status">{state.online ? error || 'Opening conversation…' : 'Connect once to enable messaging for this conversation.'}</p>{state.online && error && <button onClick={() => setAttempt(n => n + 1)}>Try again</button>}</>}{context && error && <p role="alert">{error}</p>}</div>;
 }
 export function NewConversation({ id, shared }: {
@@ -114,7 +115,7 @@ export function NewConversation({ id, shared }: {
     const state = useApp(), [draftId] = useState(() => id || crypto.randomUUID()), [error, setError] = useState('');
     const context = state.snapshot.contexts.find(c => c.id === draftId);
     useEffect(() => { if (context)
-        return; void createLocalConversation(shared?.title || 'New conversation', draftId).then(async () => { if (shared)
-        await db.drafts.put({ id: draftId, text: [shared.text, shared.url].filter((v, i, a) => v && a.indexOf(v) === i).join('\n'), files: [] }); history.replaceState(null, '', `/#/draft/${draftId}`); }).catch(e => setError(e.message)); }, [draftId]);
-    return <div className="conversation-detail"><ConversationHeader><a href="#/conversations" className="back-link"><ChevronLeft size={17}/> Conversations</a><h1>{context?.title || 'New conversation'}</h1></ConversationHeader>{context && <ConversationPanel context={context}/>} {error && <p role="alert">{error}</p>}</div>;
+        return; let active = true; void createLocalConversation(shared?.title || 'New conversation', draftId).then(async () => { if (shared)
+        await db.drafts.put({ id: draftId, text: [shared.text, shared.url].filter((v, i, a) => v && a.indexOf(v) === i).join('\n'), files: [] }); if (active) { history.replaceState(null, '', `/#/draft/${draftId}`); dispatchEvent(new PopStateEvent('popstate')); } }).catch(e => { if (active) setError(e.message); }); return () => { active = false; }; }, [draftId]);
+    return <div className="conversation-detail"><ConversationHeader><a href="#/conversations" className="back-link"><ChevronLeft size={17}/> Conversations</a>{context ? <ConversationTitle context={context}/> : <h1>New conversation</h1>}</ConversationHeader>{context && <ConversationPanel context={context}/>} {error && <p role="alert">{error}</p>}</div>;
 }

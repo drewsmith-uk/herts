@@ -18,14 +18,23 @@ export class Gateway extends EventEmitter {
   connecting?: Promise<void>; reconnectTimer?: NodeJS.Timeout; heartbeat?: NodeJS.Timeout;
   metadata?: { at: number; rows: Conversation[] }; fetchingMetadata?: Promise<Conversation[]>;
   constructor(public base: string, private token: string, private excluded: string[] = [], private owned: () => string[] = () => [], public readonly profile = 'default') { super(); }
-  async http(path: string, body?: unknown): Promise<any> {
+  async http(path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST'): Promise<any> {
     if (!this.base || !this.token) throw new GatewayError('Hermes connection is not configured.');
     let response: Response;
-    try { response = await fetch(new URL(path, this.base), { method: body === undefined ? 'GET' : 'POST', redirect: 'error', headers: { 'X-Hermes-Session-Token': this.token, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(body === undefined ? 30_000 : 180_000) }); }
+    try { response = await fetch(new URL(path, this.base), { method, redirect: 'error', headers: { 'X-Hermes-Session-Token': this.token, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(body === undefined ? 30_000 : 180_000) }); }
     catch { throw new GatewayError('Hermes is unreachable. Your work is saved in Herts.', body !== undefined); }
-    if (!response.ok) throw new GatewayError(`Hermes request failed (${response.status}).`, false, response.status);
+    if (!response.ok) {
+      const detail = method === 'PATCH' ? await response.json().catch(() => ({})) : {};
+      throw new GatewayError(typeof detail.detail === 'string' ? detail.detail : `Hermes request failed (${response.status}).`, false, response.status);
+    }
     try { return await response.json(); }
     catch { throw new GatewayError('Hermes returned an invalid response.', body !== undefined); }
+  }
+  async renameConversation(id: string, title: string) {
+    const result = await this.http(`/api/sessions/${encodeURIComponent(id)}`, { profile: this.profile, title }, 'PATCH');
+    if (result.title !== title) throw new GatewayError('The new conversation title could not be confirmed. Refresh to check it.', true);
+    this.metadata = undefined;
+    return title;
   }
   connect(): Promise<void> {
     if (this.online) return Promise.resolve();
