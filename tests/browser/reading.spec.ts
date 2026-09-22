@@ -64,8 +64,18 @@ test('a multi-link share requires choosing one and cancel starts no work', async
 });
 
 test('unread reorder controls and shared drafts survive reload across reading and task views', async ({page}) => {
+  // A slow acknowledgement must not let the shared composer make the old
+  // reading page look like the newly-created task page.
+  await page.route('**/api/v1/plugins/tasks/commands', async route => {
+    const response = await route.fetch();
+    if (route.request().postDataJSON()?.command === 'link') await new Promise(resolve => setTimeout(resolve, 750));
+    await route.fulfill({ response });
+  });
   await add(page,'Reading order first'); const readingUrl=page.url();
-  await page.getByRole('button',{name:'Make a task',exact:true}).click(); await page.getByRole('button',{name:'Create task',exact:true}).click(); const taskUrl=page.url();
+  await page.getByRole('button',{name:'Make a task',exact:true}).click(); await page.getByRole('button',{name:'Create task',exact:true}).click();
+  await expect(page).toHaveURL(/#\/task\/[0-9a-f-]+$/);
+  await expect(page.getByLabel('Task title',{exact:true})).toHaveValue('Reading order first');
+  const taskUrl=page.url();
   await page.getByLabel('Message Hermes').fill('Shared follow-up draft'); await page.goto(readingUrl); await expect(page.getByLabel('Message Hermes')).toHaveValue('Shared follow-up draft');
   await page.getByLabel('Message Hermes').fill('Revised from reading'); await page.goto(taskUrl); await expect(page.getByLabel('Message Hermes')).toHaveValue('Revised from reading');
   await add(page,'Reading order second'); await page.goto('/#/reading'); await page.getByRole('button',{name:'Edit list',exact:true}).click();
