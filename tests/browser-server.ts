@@ -30,6 +30,7 @@ rows.set('reading-links', {id:'reading-links',title:'Links for reading',source:'
 rows.set('spaces-retry', { id: 'spaces-retry', title: 'Space retry conversation', source: 'telegram', started_at: Date.now()/1000, messages: [{ id: 1, role: 'assistant', content: 'A saved task destination.' }] });
 rows.set('spaces-conversation', {id:'spaces-conversation',title:'Shared spaces conversation',source:'telegram',started_at:Date.now()/1000,messages:[{id:1,role:'assistant',content:'This conversation is shared across task spaces.'}]});
 for (const id of ['settings-390', 'settings-1280', 'settings-shared', 'settings-confirm', 'settings-offline']) rows.set(id, { id, title: id, source: 'telegram', started_at: Date.now()/1000, settings: { ...profileSettings, model: 'existing-model', reasoning_effort: 'high', cwd: '/projects/existing' }, messages: [{ id: 1, role: 'assistant', content: 'A saved [article](https://example.com/settings-shared).' }] });
+rows.get('settings-confirm').messages = structuredClone(rows.get('long-history').messages);
 const runtimes = new Map<string, any>();
 const server = createServer(async (req, res) => {
   const url = new URL(req.url!, 'http://localhost'); res.setHeader('Content-Type', 'application/json');

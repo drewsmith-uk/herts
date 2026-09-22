@@ -33,7 +33,7 @@ function useSettingsView(contextId?: string) {
   return { view: merged, error, loading, refresh };
 }
 
-export function SessionSettingsControls({ context, onOpen }: { context: ConversationContext; onOpen: () => void }) {
+export function SessionSettingsControls({ context, onOpen, onClose }: { context: ConversationContext; onOpen: () => void; onClose: () => void }) {
   const state = useApp(), { view, error, loading, refresh } = useSettingsView(context.id), [editing, setEditing] = useState(false);
   const local = state.settingsPending?.find(p => p.contextId === context.id), values = view ? effectiveSettings(view, !context.link) : {};
   const pending = hasSettings(view?.pending.values), saving = state.actions.some(a => a.taskId === context.id && a.kind === 'send' && a.receipt === 'pending');
@@ -48,7 +48,7 @@ export function SessionSettingsControls({ context, onOpen }: { context: Conversa
     <p className="session-settings-note">{pending ? 'Applies on next Send · kept for this conversation' : !context.link ? 'New conversation defaults' : view?.source === 'live' ? 'Current conversation settings' : view?.source === 'saved' ? 'Saved Hermes settings' : 'Current settings are not confirmed'}{local ? ' · Saved on this device' : ''}</p>
     {local?.conflict && <p role="alert" className="inline-error">{local.conflict} <button type="button" className="text-button" onClick={() => void useSyncedSessionChoices(context.id)}>Use synced choices</button><button type="button" className="text-button" onClick={open}>Review choices</button></p>}
     {error && <p className="session-settings-note">{error} <button type="button" className="text-button" disabled={loading} onClick={() => void refresh(true)}>Refresh settings</button></p>}
-    {editing && view && <SettingsDialog context={context} initial={view} reload={() => refresh(true)} close={() => setEditing(false)}/>}
+    {editing && view && <SettingsDialog context={context} initial={view} reload={() => refresh(true)} close={() => { setEditing(false); onClose(); }}/>}
   </div>;
 }
 

@@ -95,11 +95,12 @@ test('offline choices survive reload and sync before the deliberate Send', async
 });
 
 test('Hermes model confirmation retains the message and requires explicit acceptance', async ({ page, request }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
   const before = await writes(request);
   await page.goto('/#/conversation/settings-confirm'); await open(page);
   await page.getByLabel('Conversation model', { exact: true }).selectOption(model('confirm-model')); await page.getByRole('button', { name: 'Apply', exact: true }).click(); await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.getByLabel('Message Hermes').fill('Wait for model confirmation'); await page.getByRole('button', { name: 'Send', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Switch and send saved message', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Switch and send saved message', exact: true })).toBeInViewport();
   expect((await writes(request)).slice(before.length).filter(c => c.method === 'prompt.submit')).toEqual([]);
   await page.reload(); await page.getByRole('button', { name: 'Switch and send saved message', exact: true }).click();
   await expect(page.locator('.execution-title')).toContainText('complete');
@@ -122,4 +123,21 @@ test('a concurrent settings edit requires review instead of overwriting the othe
   await page.getByRole('button', { name: 'Save defaults', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   expect((await state(request)).snapshot.sessionSettings.defaults.values).toEqual({ effort: 'low' });
+});
+
+
+test('a late dictation transcript never starts an automatic send while choosing settings', async ({ page, request }) => {
+  await page.goto('/#/new'); await expect(page.getByRole('button', { name: 'Conversation settings', exact: true })).toBeEnabled();
+  const before = await writes(request); let release!: () => void;
+  const delayed = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/v1/audio/transcribe', async route => { await delayed; await route.continue(); });
+  await page.getByRole('button', { name: 'Dictate', exact: true }).click(); await page.waitForTimeout(1200);
+  await page.getByRole('button', { name: 'Stop recording and transcribe', exact: true }).click();
+  await open(page); release();
+  await expect(page.getByLabel('Message Hermes')).toHaveValue('Please draft a packing list.');
+  await expect(page.locator('.countdown')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.waitForTimeout(5500);
+  expect(await writes(request)).toEqual(before);
+  await expect(page.getByLabel('Message Hermes')).toHaveValue('Please draft a packing list.');
 });
