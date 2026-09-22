@@ -144,9 +144,9 @@ a.quiet-button { border: 1px solid var(--border); }
 
 .conversation-header-actions{display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap}.conversation-header-actions .conversation-plugin-actions{display:contents}.conversation-header-actions .create-from-chat{order:10;flex-basis:100%}
 .session-settings-controls{margin-bottom:.6rem;min-width:0}
-.session-settings-buttons{display:flex;align-items:center;gap:.4rem;flex-wrap:wrap}
-.session-setting-chip{display:inline-flex;align-items:center;gap:.35rem;max-width:100%;min-width:0;padding:.45rem .65rem;font-size:.8rem;border-radius:1rem;background:var(--surface,#fff)}
-.session-setting-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:min(24rem,65vw)}
+.session-settings-button{max-width:100%;min-width:0;min-height:44px;gap:.5rem;padding:.55rem .75rem;font-size:.8rem}
+.session-settings-model{min-width:0;max-width:24rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.session-settings-effort{flex-shrink:0;white-space:nowrap}
 .session-settings-note{font-size:.75rem;line-height:1.5;color:var(--muted,#667085);margin:.35rem 0 0}
 .session-settings-note .text-button{font-size:inherit}
 .session-settings-dialog{width:min(38rem,calc(100vw - 2rem));max-height:85dvh;overflow-y:auto;border:1px solid var(--border,#d8dee8);border-radius:1rem;padding:1.25rem;color:inherit;background:var(--surface,#fff);box-sizing:border-box}
@@ -166,4 +166,4 @@ a.quiet-button { border: 1px solid var(--border); }
 .session-folder-browser ul{list-style:none;padding:0;margin:.5rem 0;max-height:12rem;overflow:auto}
 .session-folder-browser li button{width:100%;justify-content:flex-start;border:0;background:transparent;text-align:left;overflow-wrap:anywhere}
 .session-folder-browser .button-row{margin-top:.5rem;flex-wrap:wrap}
-@media(max-width:560px){.session-settings-grid{grid-template-columns:1fr}.session-settings-dialog{padding:1rem}.session-setting-chip{font-size:.75rem}}
+@media(max-width:560px){.session-settings-grid{grid-template-columns:1fr}.session-settings-dialog{padding:1rem}.session-settings-button{font-size:.75rem}}

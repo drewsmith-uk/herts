@@ -1,12 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ChevronDown, Folder, RefreshCw, SlidersHorizontal, X } from 'lucide-react';
+import { Folder, RefreshCw, SlidersHorizontal, X } from 'lucide-react';
 import type { ConversationContext } from '../shared/conversations';
-import { effectiveSettings, emptySettings, efforts, hasSettings, sameSetting, type Effort, type ModelChoice, type SessionValues, type SettingsView } from '../shared/sessionSettings';
+import { effectiveSettings, emptySettings, efforts, hasSettings, type Effort, type ModelChoice, type SessionValues, type SettingsView } from '../shared/sessionSettings';
 import { api, db, saveSessionChoices, useApp, useSyncedSessionChoices } from './data';
 import { useUpdatePreparation, useUpdateWork } from './updateSafety';
 
 const labels: Record<Effort, string> = { none: 'Off', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max', ultra: 'Ultra' };
 const modelKey = (model?: ModelChoice) => model ? JSON.stringify({ id: model.id, provider: model.provider }) : '';
+const currentSettingsLabel = (view?: SettingsView) => view?.source === 'live' ? 'Current session settings' : view?.source === 'saved' ? 'Current session settings (last saved)' : 'Current session settings are not fully confirmed';
 function useSettingsView(contextId?: string) {
   const state = useApp(), [view, setView] = useState<SettingsView>(), [error, setError] = useState(''), [loading, setLoading] = useState(false);
   const alive = useRef(true), sequence = useRef(0);
@@ -38,14 +39,14 @@ export function SessionSettingsControls({ context, onOpen, onClose }: { context:
   const local = state.settingsPending?.find(p => p.contextId === context.id), values = view ? effectiveSettings(view, !context.link) : {};
   const pending = hasSettings(view?.pending.values), saving = state.actions.some(a => a.taskId === context.id && a.kind === 'send' && a.receipt === 'pending');
   function open() { onOpen(); setEditing(true); }
-  const effort = values.effort ? labels[values.effort] : 'Effort unknown';
+  const model = values.model?.id || (loading ? 'Loading settings…' : 'Model unknown');
+  const effort = values.effort === 'none' ? 'Reasoning off' : values.effort ? `${labels[values.effort]} effort` : 'Effort unknown';
+  const wireEffort = view?.wireEffort && !pending && view.wireEffort !== values.effort ? ` → ${view.wireEffort}` : '';
   return <div className="session-settings-controls">
-    <div className="session-settings-buttons">
-      <button type="button" className="session-setting-chip" aria-label="Choose conversation model" disabled={!view || saving} onClick={open}><span>{values.model?.id || (loading ? 'Loading settings…' : 'Model unknown')}</span><ChevronDown size={14}/></button>
-      <button type="button" className="session-setting-chip" aria-label="Choose reasoning effort" disabled={!view || saving} onClick={open}>{effort}{view?.wireEffort && !pending && view.wireEffort !== values.effort ? ` → ${view.wireEffort}` : ''}<ChevronDown size={14}/></button>
-      <button type="button" className="icon-button" aria-label="Conversation settings" title="Conversation settings" disabled={!view || saving} onClick={open}><SlidersHorizontal size={18}/></button>
-    </div>
-    <p className="session-settings-note">{pending ? 'Applies on next Send · kept for this conversation' : !context.link ? 'New conversation defaults' : view?.source === 'live' ? 'Current conversation settings' : view?.source === 'saved' ? 'Saved Hermes settings' : 'Current settings are not confirmed'}{local ? ' · Saved on this device' : ''}</p>
+    <button type="button" className="session-settings-button" aria-label={`Conversation settings: ${model} · ${effort}${wireEffort}`} aria-haspopup="dialog" aria-expanded={editing} title={`Conversation settings: ${model} · ${effort}${wireEffort}`} disabled={!view || saving} onClick={open}>
+      <SlidersHorizontal size={18} aria-hidden="true"/><span className="session-settings-model">{model}</span><span aria-hidden="true">·</span><span className="session-settings-effort">{effort}{wireEffort}</span>
+    </button>
+    <p className="session-settings-note">{pending ? 'Applies on next Send · kept for this conversation' : !context.link ? 'New conversation defaults' : currentSettingsLabel(view)}{local ? ' · Saved on this device' : ''}</p>
     {local?.conflict && <p role="alert" className="inline-error">{local.conflict} <button type="button" className="text-button" onClick={() => void useSyncedSessionChoices(context.id)}>Use synced choices</button><button type="button" className="text-button" onClick={open}>Review choices</button></p>}
     {error && <p className="session-settings-note">{error} <button type="button" className="text-button" disabled={loading} onClick={() => void refresh(true)}>Refresh settings</button></p>}
     {editing && view && <SettingsDialog context={context} initial={view} reload={() => refresh(true)} close={() => { setEditing(false); onClose(); }}/>}
@@ -56,9 +57,9 @@ export function NewConversationDefaults() {
   const state = useApp(), { view, error, loading, refresh } = useSettingsView(), [editing, setEditing] = useState(false);
   const defaults = state.snapshot.sessionSettings?.defaults.values || {}, local = state.settingsPending?.find(p => !p.contextId);
   return <section className="settings-card"><div className="settings-icon"><SlidersHorizontal size={22}/></div><div><h2>New conversation defaults</h2>
-    <p>Choose the model, effort, fast mode and working folder for conversations started in Herts. These defaults apply across your devices.</p>
+    <p>Choose Herts defaults for the model, effort, fast mode and working folder of new conversations. Unset choices use your Hermes profile defaults. These defaults apply across your devices.</p>
     <p className="subtle-note">Existing conversations keep their settings. Individual conversations can override these defaults.</p>
-    <p>{defaults.model?.id || 'Hermes profile model'} · {defaults.effort ? `${labels[defaults.effort]} effort` : 'Hermes profile effort'}{defaults.fast !== undefined ? ` · Fast mode ${defaults.fast ? 'on' : 'off'}` : ''}</p>
+    <p>Model: {defaults.model ? `${defaults.model.id} (Herts default)` : 'Hermes default'} · Effort: {defaults.effort ? `${labels[defaults.effort]} (Herts default)` : 'Hermes default'}{defaults.fast !== undefined ? ` · Fast mode ${defaults.fast ? 'on' : 'off'} (Herts default)` : ''}</p>
     {defaults.cwd && <p className="settings-path">{defaults.cwd}</p>}
     <button disabled={!view} onClick={() => setEditing(true)}>Edit conversation defaults</button>
     {local && <p className="subtle-note">Saved on this device until synced.</p>}
@@ -110,28 +111,30 @@ function SettingsDialog({ context, initial, reload, close }: { context?: Convers
     try { const next = await reload(); if (next) { setView(next); setRevision(defaults ? next.defaults.revision : next.pending.revision); setReviewed(next.available && next.source !== 'unknown'); } }
     finally { setBusy(false); }
   }
-  const inheritLabel = defaults ? 'Use Hermes profile default' : context.link ? 'Keep current Hermes setting' : 'Use Herts / Hermes default';
+  const inheritedSource = (key: keyof SessionValues) => context?.link ? 'Current session setting' : !defaults && view.defaults.values[key] !== undefined ? 'Herts default' : 'Hermes default';
+  const inheritLabel = (key: keyof SessionValues) => context?.link ? 'Keep current session setting' : `Use ${inheritedSource(key)}`;
   return <dialog ref={dialog} className="session-settings-dialog" aria-labelledby="session-settings-title" onCancel={event => { event.preventDefault(); if (!busy) close(); }}>
     <form onSubmit={event => { event.preventDefault(); void work(save()); }}>
       <div className="session-dialog-heading"><h2 id="session-settings-title">{defaults ? 'New conversation defaults' : 'Conversation settings'}</h2><button className="icon-button" type="button" aria-label="Close settings" disabled={busy} onClick={close}><X size={20}/></button></div>
-      <p>{defaults ? 'Used when the first message starts a new conversation in Herts.' : 'Choices apply only on your next Send, then stay with this conversation until changed.'}</p>
-      {!defaults && <p className="subtle-note">{view.source === 'live' ? 'Current Hermes settings' : view.source === 'saved' ? 'Saved Hermes settings' : context.link ? 'Current Hermes settings are not fully confirmed' : 'Inherited defaults'}: {inherited.model?.id || 'model unknown'}{inherited.effort ? ` · ${labels[inherited.effort]}` : ''}{inherited.cwd ? ` · ${inherited.cwd}` : ''}</p>}
+      <p>{defaults ? 'Herts defaults apply when the first message starts a new conversation. Unset choices use your Hermes profile defaults. Existing sessions keep their own settings.' : 'Choices apply only on your next Send, then stay with this conversation until changed.'}</p>
+      {!defaults && <p className="subtle-note">{context.link ? currentSettingsLabel(view) : 'New conversation defaults'}: {inherited.model?.id || 'model unknown'}{inherited.effort ? ` · ${labels[inherited.effort]}` : ''}{inherited.cwd ? ` · ${inherited.cwd}` : ''}</p>}
       {view.uncertain && <p role="alert" className="error-banner">An earlier settings change is unconfirmed. Refresh and review the current values. Applying reviewed choices allows them to be tried again only when you next press Send.</p>}
       <label>Find a model<input type="search" aria-label="Find a model" value={search} onChange={e => setSearch(e.target.value)} placeholder="Model or provider" disabled={busy}/></label>
-      <label>Model and provider<select aria-label="Conversation model" disabled={busy || !view.models.length} value={modelKey(choice)} onChange={e => set('model', e.target.value ? JSON.parse(e.target.value) as ModelChoice : undefined)}>
-        <option value="">{inheritLabel}{inherited.model ? ` (${inherited.model.id})` : ''}</option>
+      <label>Model and provider<select aria-label="Conversation model" disabled={busy || !view.models.length} value={modelKey(values.model)} onChange={e => set('model', e.target.value ? JSON.parse(e.target.value) as ModelChoice : undefined)}>
+        <option value="">{inheritLabel('model')}{inherited.model ? ` (${inherited.model.id})` : ' (model unknown)'}</option>
         {choice && !view.models.some(m => m.id === choice.id && m.provider === choice.provider) && <option value={modelKey(choice)}>{choice.provider} · {choice.id} (current)</option>}
         {providers.map(provider => <optgroup key={provider} label={filtered.find(m => m.provider === provider)!.providerName}>{filtered.filter(m => m.provider === provider).map(m => <option key={modelKey({ id: m.id, provider })} value={modelKey({ id: m.id, provider })} disabled={!m.available}>{m.id}{!m.available ? ' (unavailable)' : ''}</option>)}</optgroup>)}
       </select></label>
-      {values.model && <button type="button" className="text-button settings-inherit" disabled={busy} onClick={() => set('model', undefined)}>{inheritLabel}</button>}
+      {values.model && <button type="button" className="text-button settings-inherit" disabled={busy} onClick={() => set('model', undefined)}>{inheritLabel('model')}</button>}
       <div className="session-settings-grid"><label>Reasoning effort<select aria-label="Reasoning effort" value={values.effort ?? ''} disabled={busy} onChange={e => set('effort', e.target.value ? e.target.value as Effort : undefined)}>
-        <option value="">{inheritLabel}{inherited.effort ? ` (${labels[inherited.effort]})` : ''}</option>
+        <option value="">{inheritLabel('effort')}{inherited.effort ? ` (${labels[inherited.effort]})` : ' (effort unknown)'}</option>
         {efforts.map(e => <option key={e} value={e} disabled={selected?.reasoning !== true || (e === 'none' && selected.canDisableReasoning === false)}>{labels[e]}</option>)}
       </select></label><label>Fast mode<select aria-label="Fast mode" disabled={busy} value={values.fast === undefined ? '' : String(values.fast)} onChange={e => set('fast', e.target.value === '' ? undefined : e.target.value === 'true')}>
-        <option value="">{inheritLabel}{inherited.fast === undefined ? '' : ` (${inherited.fast ? 'On' : 'Off'})`}</option><option value="false">Off</option><option value="true" disabled={selected?.fast !== true}>On</option>
+        <option value="">{inheritLabel('fast')}{inherited.fast === undefined ? ' (unknown)' : ` (${inherited.fast ? 'On' : 'Off'})`}</option><option value="false">Off</option><option value="true" disabled={selected?.fast !== true}>On</option>
       </select></label></div>
       <label>Working folder on Hermes<input aria-label="Working folder" value={values.cwd ?? inherited.cwd ?? ''} disabled={busy} onChange={e => set('cwd', e.target.value)} placeholder="Full path on the Hermes server"/></label>
-      <div className="button-row"><button type="button" disabled={busy || !state.online || !state.gateway.online} onClick={() => void work(browse(effective.cwd))}><Folder size={16}/> Browse folders</button>{values.cwd && <button type="button" className="text-button" disabled={busy} onClick={() => set('cwd', undefined)}>{inheritLabel}</button>}</div>
+      <p className="subtle-note">{values.cwd !== undefined ? defaults ? 'Herts default' : 'Applies on next Send' : inheritedSource('cwd')}</p>
+      <div className="button-row"><button type="button" disabled={busy || !state.online || !state.gateway.online} onClick={() => void work(browse(effective.cwd))}><Folder size={16}/> Browse folders</button>{values.cwd && <button type="button" className="text-button" disabled={busy} onClick={() => set('cwd', undefined)}>{inheritLabel('cwd')}</button>}</div>
       {browsing && folder && <div className="session-folder-browser"><div className="settings-path">{folder.path}</div><div className="button-row">{folder.parent && <button type="button" disabled={busy} onClick={() => void work(browse(folder.parent!))}>Parent folder</button>}<button type="button" disabled={busy} onClick={() => { set('cwd', folder.path); setBrowsing(false); }}>Use this folder</button><button type="button" disabled={busy} onClick={() => setBrowsing(false)}>Close browser</button></div><ul>{folder.directories.map(dir => <li key={dir.path}><button type="button" disabled={busy} onClick={() => void work(browse(dir.path))}><Folder size={16}/>{dir.name}</button></li>)}</ul>{!folder.directories.length && <p>No subfolders.</p>}</div>}
       {unsupported && <p role="alert" className="inline-error">{unsupported}</p>}
       {view.error && <p className="subtle-note">{view.error}</p>}
