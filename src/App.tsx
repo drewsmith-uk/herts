@@ -8,6 +8,7 @@ import { NotificationLanding } from './NotificationLanding';
 import { PluginSettings } from './PluginSettings';
 import { NotificationSettings } from './NotificationSettings';
 import { AppUpdateSettings } from './AppUpdates';
+import { NewConversationDefaults } from './SessionSettings';
 import type { RouteProps } from './pluginContract';
 import type { SharedContent } from '../shared/plugins';
 export { ConversationPanel, HistoryView } from './Conversation';
@@ -20,7 +21,7 @@ function Shell() {
     const plugin = plugins.find(p => matchPluginRoute(p, path)), match = plugin && matchPluginRoute(plugin, path);
     const sidebar = plugin?.definition.Sidebar;
     const props: RouteProps = { path, parts };
-    const pending = state.pluginPending.length + state.visibilityPending.length;
+    const pending = state.pluginPending.length + state.visibilityPending.length + (state.settingsPending?.length || 0);
     let page;
     if (!state.loaded || !state.defaultsReady || route.path === '/' && state.plugins.entries.some(e => e.enabled && !plugins.some(p => p.id === e.manifest.id) && !pluginError(e.manifest.id)))
         page = <div className="empty"><LoaderCircle className="spin"/><p>Opening Herts…</p></div>;
@@ -52,7 +53,7 @@ function Shell() {
 }
 function Preferences({ plugins }: {
     plugins: boolean;
-}) { const state = useApp(); return <><div className="page-heading"><div><div className="eyebrow">YOUR WORKSPACE</div><h1>Settings</h1><p>Private by default. In your control.</p></div></div><nav className="settings-tabs" aria-label="Settings sections"><a className={!plugins ? 'active' : ''} href="#/settings">General</a><a className={plugins ? 'active' : ''} href="#/settings/plugins">Plugins</a></nav>{plugins ? <PluginSettings /> : <><AppUpdateSettings /><NotificationSettings /><section className="settings-card"><div className="settings-icon"><Link2 size={22}/></div><div><h2>Hermes connection</h2><p>{state.gateway.online ? `Connected to your ${state.gateway.profile || 'default'} profile.` : state.gateway.configured ? 'Hermes is currently unavailable. Saved data remains usable.' : 'The Hermes connection has not been configured yet.'}</p></div></section><section className="settings-card"><div className="settings-icon"><WifiOff size={22}/></div><div><h2>Saved on this device</h2><p>Drafts, recordings and viewed conversations remain available offline. Plugin changes sync when you return. Hermes messages are never automatically resent.</p><p className="subtle-note">Clearing browser storage removes unsynced work.</p><button onClick={() => void refresh()} disabled={!navigator.onLine}>Sync now</button></div></section></>}</>; }
+}) { const state = useApp(); return <><div className="page-heading"><div><div className="eyebrow">YOUR WORKSPACE</div><h1>Settings</h1><p>Private by default. In your control.</p></div></div><nav className="settings-tabs" aria-label="Settings sections"><a className={!plugins ? 'active' : ''} href="#/settings">General</a><a className={plugins ? 'active' : ''} href="#/settings/plugins">Plugins</a></nav>{plugins ? <PluginSettings /> : <><AppUpdateSettings /><NewConversationDefaults /><NotificationSettings /><section className="settings-card"><div className="settings-icon"><Link2 size={22}/></div><div><h2>Hermes connection</h2><p>{state.gateway.online ? `Connected to your ${state.gateway.profile || 'default'} profile.` : state.gateway.configured ? 'Hermes is currently unavailable. Saved data remains usable.' : 'The Hermes connection has not been configured yet.'}</p></div></section><section className="settings-card"><div className="settings-icon"><WifiOff size={22}/></div><div><h2>Saved on this device</h2><p>Drafts, recordings and viewed conversations remain available offline. Plugin changes sync when you return. Hermes messages are never automatically resent.</p><p className="subtle-note">Clearing browser storage removes unsynced work.</p><button onClick={() => void refresh()} disabled={!navigator.onLine}>Sync now</button></div></section></>}</>; }
 function ShareChooser() {
     const plugins = usePlugins(), core = useApp();
     const [shared] = useState<SharedContent>(() => { const params = new URLSearchParams(location.search); return { title: params.get('title') || '', text: params.get('text') || '', url: params.get('url') || '' }; });

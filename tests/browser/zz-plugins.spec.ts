@@ -1,5 +1,6 @@
 import {test,expect,type APIRequestContext} from '@playwright/test';
 const headers={'x-herts-request':'1'};
+const agentWrites=async(request:APIRequestContext)=>(await(await request.get('http://127.0.0.1:8791/calls')).json() as string[]).filter(method=>['session.create','session.resume','config.set','session.cwd.set','prompt.submit','session.interrupt'].includes(method));
 async function manage(request:APIRequestContext,id:string,action:string,confirmation?:string){
   const {catalogue}=await(await request.get('/api/v1/plugins')).json();
   const response=await request.post(`/api/v1/plugins/${id}/manage`,{headers,data:{action,confirmation,revision:catalogue.revision}});
@@ -25,9 +26,9 @@ test('core conversations work with every plugin disabled; Settings controls tabs
     await expect(page.getByRole('button',{name:/Save to reading list/})).toHaveCount(0);
     await page.getByLabel('Message Hermes').fill('Core survives without plugins.');
     await page.getByRole('button',{name:'Send',exact:true}).click();await expect(page.locator('.execution-title')).toContainText('complete');
-    const beforeNew=await(await request.get('http://127.0.0.1:8791/calls')).json();
+    const beforeNew=await agentWrites(request);
     await page.goto('/#/new');await expect(page.getByLabel('Message Hermes')).toBeEnabled();
-    expect(await(await request.get('http://127.0.0.1:8791/calls')).json()).toEqual(beforeNew);
+    expect(await agentWrites(request)).toEqual(beforeNew);
     await page.getByLabel('Message Hermes').fill('A new core-only conversation.');await page.getByRole('button',{name:'Send',exact:true}).click();await expect(page.locator('.execution-title')).toContainText('complete');
     await page.goto('/#/settings/plugins');await page.getByRole('checkbox',{name:'Enable Tasks',exact:true}).click();
     await page.getByRole('button',{name:'Move Conversations up',exact:true}).click();

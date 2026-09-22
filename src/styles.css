@@ -143,3 +143,27 @@ a.quiet-button { border: 1px solid var(--border); }
 .plugin-card{display:block}.plugin-heading{display:flex;justify-content:space-between;gap:12px;align-items:center}.plugin-heading label{display:flex;gap:10px;align-items:center}.plugin-card .settings-card{margin-top:20px}.tab-order{display:block}.tab-order-row{display:flex;align-items:center;gap:8px;padding:10px 0}.tab-order-row>span{flex:1}.danger-button{color:#a52121}.conversation-plugin-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;margin:12px 0}.conversation-plugin-actions form{flex-basis:100%}.share-destinations{display:flex;flex-direction:column;gap:12px;margin:24px 0}.action-chooser{position:fixed;inset:auto 16px 90px;background:white;border:1px solid #ccd2db;box-shadow:0 6px 30px #0003;padding:20px;z-index:100;display:flex;gap:10px;flex-wrap:wrap}
 
 .conversation-header-actions{display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap}.conversation-header-actions .conversation-plugin-actions{display:contents}.conversation-header-actions .create-from-chat{order:10;flex-basis:100%}
+.session-settings-controls{margin-bottom:.6rem;min-width:0}
+.session-settings-buttons{display:flex;align-items:center;gap:.4rem;flex-wrap:wrap}
+.session-setting-chip{display:inline-flex;align-items:center;gap:.35rem;max-width:100%;min-width:0;padding:.45rem .65rem;font-size:.8rem;border-radius:1rem;background:var(--surface,#fff)}
+.session-setting-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:min(24rem,65vw)}
+.session-settings-note{font-size:.75rem;line-height:1.5;color:var(--muted,#667085);margin:.35rem 0 0}
+.session-settings-note .text-button{font-size:inherit}
+.session-settings-dialog{width:min(38rem,calc(100vw - 2rem));max-height:85dvh;overflow-y:auto;border:1px solid var(--border,#d8dee8);border-radius:1rem;padding:1.25rem;color:inherit;background:var(--surface,#fff);box-sizing:border-box}
+.session-settings-dialog::backdrop{background:rgba(15,23,42,.45)}
+.session-settings-dialog form{display:grid;gap:.85rem;min-width:0}
+.session-settings-dialog label{display:grid;gap:.35rem;font-size:.85rem;font-weight:600;min-width:0}
+.session-settings-dialog input,.session-settings-dialog select{width:100%;min-width:0;min-height:44px;box-sizing:border-box;padding:.55rem .65rem;border:1px solid var(--border,#d8dee8);border-radius:.45rem;background:#fff;color:inherit;font:inherit;font-weight:400}
+.session-settings-dialog p{margin:0;font-size:.85rem;line-height:1.5;overflow-wrap:anywhere}
+.session-dialog-heading{display:flex;align-items:center;justify-content:space-between;gap:1rem}
+.session-dialog-heading h2{font-size:1.1rem;margin:0}
+.session-settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:.75rem}
+.session-dialog-actions{display:grid;gap:.75rem;border-top:1px solid var(--border,#d8dee8);padding-top:1rem}
+.session-dialog-actions>.button-row{justify-content:flex-end}
+.settings-inherit{justify-self:start;margin-top:-.6rem}
+.settings-path{overflow-wrap:anywhere;font-size:.85rem}
+.session-folder-browser{padding:.75rem;border:1px solid var(--border,#d8dee8);border-radius:.65rem}
+.session-folder-browser ul{list-style:none;padding:0;margin:.5rem 0;max-height:12rem;overflow:auto}
+.session-folder-browser li button{width:100%;justify-content:flex-start;border:0;background:transparent;text-align:left;overflow-wrap:anywhere}
+.session-folder-browser .button-row{margin-top:.5rem;flex-wrap:wrap}
+@media(max-width:560px){.session-settings-grid{grid-template-columns:1fr}.session-settings-dialog{padding:1rem}.session-setting-chip{font-size:.75rem}}

@@ -17,9 +17,10 @@ import { HistoryDisclosure } from './HistoryDisclosure';
 import { ConversationHeader } from './ConversationHeader';
 import { ConversationRow } from './ConversationRow';
 import { useDraftPersistence, useUpdatePreparation, useUpdateWork } from './updateSafety';
+import { SessionSettingsControls } from './SessionSettings';
 
 import {messageText,type Action,type Conversation,type History} from '../shared/core';
-import {db,useApp,addFile,submit,refresh,resolveSubmission,api,cacheRead,type Draft,type LocalFile} from './data';
+import {db,useApp,addFile,submit,refresh,resolveSubmission,api,cacheRead,saveSessionChoices,type Draft,type LocalFile} from './data';
 import {ConversationContributions,MessageLinkContributions} from './plugins';
 
 function time(at:number){return new Date(at).toLocaleString();}
@@ -53,11 +54,24 @@ export function ConversationPanel({ context: task, initialText = '', showActions
       {main.clarification && <Clarification question={main.clarification} disabled={busy || !state.gateway.online} onAnswer={answer => void control('clarify', main.clarification.request_id, answer)}/>}
     </div>}
     {state.actions.filter(a => a.taskId === task.id && !['send','continue'].includes(a.kind) && a.receipt === 'unknown').map(a => <p className="error-banner" key={a.id}>Your {a.kind === 'stop' ? 'stop request' : 'decision'} was not confirmed. Refresh to check current state; it will not be repeated.</p>)}
+    {main?.settings?.confirmation && state.snapshot.sessionSettings?.conversations[task.id]?.revision === main.settings.revision && <ModelSwitchConfirmation action={main}/>}
     {error && <p className="inline-error" role="alert">{error}</p>}
     {task.link ? <HistoryView key={task.link.key} conversationId={task.link.storedId} version={historyChange} liveText={main?.liveText} working={active} phase={main?.phase} outgoing={outgoing} outgoingAction={outgoingAction} sendVersion={sendVersion}/> : outgoing ? <div className="history"><OutgoingFeedback message={outgoing} action={outgoingAction}/>{active && <WorkingFeedback phase={main?.phase}/>}</div> : <div className="unlinked-note"><div className="empty-icon small"><MessageSquare size={23}/></div><h2>Ready when you are</h2><p>This item is saved. Sending the first message will start a new Hermes conversation.</p></div>}
     <Composer key={task.id} task={task} initialText={initialText} canSend={state.online && state.gateway.online && !active} onSending={() => setSendVersion(v => v + 1)} onSent={() => setHistoryVersion(v => v + 1)}/>
     {state.actions.filter(a => a.taskId === task.id && (['failed','unknown'].includes(a.state) || ['rejected','unknown'].includes(a.receipt)) && a.kind === 'send').map(a => <details className="saved-message" key={a.id}><summary>{a.sendStage === 'preparing' || a.receipt === 'rejected' ? 'Saved message · not sent' : 'Saved submitted message'} · {time(a.createdAt)}</summary><pre>{a.text}</pre>{a.uploadIds.map(id => <a key={id} href={`/api/v1/uploads/${id}`}>Download attachment</a>)}</details>)}
   </>;
+}
+function ModelSwitchConfirmation({ action }: { action: Action }) {
+  const state = useApp(), [busy, setBusy] = useState(false), [error, setError] = useState('');
+  const work = useUpdateWork();
+  async function choose(accept: boolean) {
+    if (busy) return; setBusy(true); setError('');
+    try {
+      if (accept) await submit({ id: crypto.randomUUID(), contextId: action.taskId, kind: 'send', text: action.text, uploadIds: action.uploadIds, settingsConfirmation: action.id });
+      else await saveSessionChoices(action.taskId, action.settings!.revision, {});
+    } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+  }
+  return <section className="error-banner" role="alert"><strong>Confirm model switch</strong><p>{action.settings!.confirmation}</p><p>Your message is saved and has not been sent.</p><div className="button-row"><button disabled={busy || !state.gateway.online} onClick={() => void work(choose(true))}>Switch and send saved message</button><button disabled={busy} onClick={() => void work(choose(false))}>Keep current settings</button></div>{error && <p>{error}</p>}</section>;
 }
 function Clarification({ question, disabled, onAnswer }: { question: any; disabled: boolean; onAnswer: (text: string) => void }) { const [text, setText] = useState(''); useUpdatePreparation({ blocked: () => text ? 'Send or clear your answer to Hermes before updating.' : undefined }); return <form className="clarify-form" onSubmit={e => { e.preventDefault(); onAnswer(text); }}><p>{question.question || question.prompt || 'Hermes has a question.'}</p><input aria-label="Answer Hermes" value={text} onChange={e => setText(e.target.value)}/><button disabled={disabled || !text.trim()}>Send answer</button></form>; }
 
@@ -91,7 +105,7 @@ function Composer({ task, canSend, onSent, onSending, initialText }: { task: Con
   useEffect(() => { if (!canSend) cancelTimer(); }, [canSend]);
   async function attach(selected: FileList | null) { cancelTimer(); if (!selected) return; attaching.current = true; setError(''); try { const ids = []; for (const file of Array.from(selected)) ids.push(await addFile(file, file.name)); await update({ ...draftRef.current, files: [...draftRef.current.files, ...ids] }); } catch(e) { setError((e as Error).message); } finally { attaching.current = false; } if (input.current) input.current.value = ''; }
   const uncertainLocal = state.localSubmissions.some(s => s.taskId === task.id);
-  return <div className="composer-wrap"><form className="composer" onSubmit={e => { e.preventDefault(); void send(); }}>
+  return <div className="composer-wrap"><SessionSettingsControls context={task} onOpen={cancelTimer}/><form className="composer" onSubmit={e => { e.preventDefault(); void send(); }}>
     <textarea aria-label="Message Hermes" placeholder={task.link ? 'Message Hermes…' : 'Tell Hermes what you want to do…'} value={draft.text} disabled={!loaded || busy} onChange={e => void update({ ...draft, text: e.target.value })} rows={3} onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); void send(); } }}/>
     {files.length > 0 && <div className="attachment-list">{files.map(f => <span className="attachment" key={f.id}><Paperclip size={13}/>{f.name}<small>{(f.blob.size / 1024).toFixed(0)} KB</small><button type="button" className="icon-button" aria-label={`Remove ${f.name}`} onClick={() => void update({ ...draft, files: draft.files.filter(id => id !== f.id) })}><X size={14}/></button></span>)}</div>}
     <div className="composer-tools"><div className="button-row"><button type="button" className="icon-button" aria-label="Attach files" onClick={() => input.current?.click()} disabled={busy}><Paperclip size={20}/></button><input type="file" ref={input} hidden multiple onChange={e => void attach(e.target.files)}/><Voice owner={`chat:${task.id}`} onTranscript={(text, fresh) => { return update({ ...draftRef.current, text: draftRef.current.text ? `${draftRef.current.text}\n${text}` : text }).then(() => { if (fresh && canSendRef.current && !uncertainLocal && !document.hidden) { deadline.current = Date.now() + 5000; setCountdown(5); } }); }}/></div><button className="primary-button send-button" disabled={!canSend || busy || !loaded || uncertainLocal || (!draft.text.trim() && !draft.files.length)}>{busy ? <LoaderCircle size={16} className="spin"/> : <Send size={16}/>} Send</button></div>

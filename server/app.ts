@@ -13,13 +13,14 @@ import { PluginRegistry } from './plugins/registry.js';
 import { migrateLegacyPlugins } from './plugins/migration.js';
 import { registerLegacyPluginRoutes,legacyConversationFilters,legacyConversationRow,clientSnapshot } from './plugins/compatibility.js';
 import { Actions } from './actions.js';
+import { registerSessionSettings } from './sessionSettings.js';
 import { Notifications } from './notifications.js';
 import { bindHermesTarget } from './config.js';
 import { mediaRefs } from '../shared/media.js';
 
 const uuid = z.string().uuid();
 const historyOrder = z.enum(['oldest', 'latest']).default('oldest');
-const actionSchema = z.object({ id: uuid, taskId: uuid.optional(), contextId: uuid.optional(), kind: z.enum(['send','continue','approve','deny','stop','clarify']), text: z.string().optional(), uploadIds: z.array(uuid).max(20).optional(), targetId: uuid.optional(), generation: uuid.optional(), approvalId: z.string().max(200).optional() }).strict().superRefine((v, ctx) => {
+const actionSchema = z.object({ id: uuid, taskId: uuid.optional(), contextId: uuid.optional(), kind: z.enum(['send','continue','approve','deny','stop','clarify']), text: z.string().optional(), uploadIds: z.array(uuid).max(20).optional(), targetId: uuid.optional(), generation: uuid.optional(), approvalId: z.string().max(200).optional(), settingsRevision: z.number().int().nonnegative().optional(), defaultsRevision: z.number().int().nonnegative().optional(), settingsConfirmation: uuid.optional() }).strict().superRefine((v, ctx) => {
   if ((!v.taskId && !v.contextId) || (v.taskId && v.contextId)) ctx.addIssue({ code: 'custom', message: 'Provide one conversation or task reference.' });
   if (v.kind === 'send' && !v.text?.trim() && !v.uploadIds?.length) ctx.addIssue({ code: 'custom', message: 'Write a message or attach a file.' });
   if (v.kind === 'clarify' && !v.text?.trim()) ctx.addIssue({ code: 'custom', message: 'An answer is required.' });
@@ -90,6 +91,7 @@ export async function createApp(config: Config) {
     store.emit('change',{type:'contexts'});return{context,snapshot:clientSnapshot(store,req)};
   });
   registerLegacyPluginRoutes(app,store,gateway,plugins);
+  registerSessionSettings(app, actions.settings);
   app.post('/api/v1/contexts/:id/title', async req => {
     const id = uuid.parse((req.params as any).id);
     const { title, baseTitle } = z.object({ title: z.string().trim().min(1).max(100), baseTitle: z.string().max(2000) }).strict().parse(req.body);

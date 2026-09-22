@@ -58,8 +58,8 @@ export class Gateway extends EventEmitter {
           const pending = this.pending.get(String(frame.id)); if (!pending) return;
           clearTimeout(pending.timer); this.pending.delete(String(frame.id));
           if (frame.error) {
-            const mutating = ['session.create', 'session.title', 'session.resume', 'prompt.submit', 'file.attach', 'approval.respond', 'clarify.respond', 'session.interrupt'].includes(pending.method);
-            const validation = frame.error.code >= 4000 && frame.error.code < 4100;
+            const mutating = ['session.create', 'session.title', 'session.resume', 'prompt.submit', 'file.attach', 'approval.respond', 'clarify.respond', 'session.interrupt', 'config.set', 'session.cwd.set'].includes(pending.method);
+            const validation = (frame.error.code >= 4000 && frame.error.code < 4100) || [-32601, -32602].includes(frame.error.code);
             pending.reject(new GatewayError(String(frame.error.message || 'Hermes refused the request.').replaceAll(this.token, '[redacted]'), mutating && !validation, frame.error.code));
           } else pending.resolve(frame.result);
         }

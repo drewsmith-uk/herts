@@ -23,6 +23,7 @@ export interface Action {
   receipt: 'pending' | 'accepted' | 'rejected' | 'unknown'; cancelled?: boolean; error?: string; binding?: Binding;
   approvalId?: string; targetId?: string; approvals?: Approval[]; clarification?: any; liveText?: string; terminal?: string;
   sendStage?: 'preparing' | 'submitting' | 'submitted'; turnStarted?: boolean; awaitingTurn?: boolean; cancelSend?: boolean;
+  settings?: import('./sessionSettings').SendSettings;
 }
 export interface Upload { owner?:string; id: string; name: string; type: string; size: number; hash: string; complete: boolean }
 export class Conflict extends Error { statusCode = 409; constructor(public reason: string) { super(reason); } }

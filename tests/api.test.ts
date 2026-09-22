@@ -10,6 +10,26 @@ const closes: (()=>Promise<void>)[] = [];
 afterEach(async () => { for (const close of closes.splice(0)) await close(); });
 async function fixture(dev = true) { const dir = await mkdtemp(join(tmpdir(), 'tasks-test-')); const result = await createApp({ dataDir: dir, origin: 'https://tasks.example:8443', identity: 'owner@example.com', dev, hermesBase: '', hermesToken: '' }); await result.plugins.activate('tasks');await result.plugins.activate('reading');closes.push(async () => { await result.app.close(); await rm(dir, { recursive: true, force: true }); }); return result; }
 describe('private API and upload recovery', () => {
+  it('saves and syncs settings without Hermes work and rejects stale or malformed changes', async () => {
+    const { app, gateway, store } = await fixture(); const contextId = randomUUID(), headers = { 'x-herts-request': '1' };
+    store.saveContext({ id: contextId, title: 'Settings API', link: null, aliases: [] });
+    const rpc = vi.spyOn(gateway, 'rpc'), http = vi.spyOn(gateway, 'http');
+    const input = { id: randomUUID(), revision: 0, values: { model: { provider: 'configured', id: 'model' }, effort: 'ultra', fast: false, cwd: '/projects/work' } };
+    for (let attempt = 0; attempt < 2; attempt++) expect((await app.inject({ method: 'POST', url: '/api/v1/session-defaults', headers, payload: input })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'POST', url: `/api/v1/contexts/${contextId}/settings`, headers, payload: { ...input, id: randomUUID(), values: { effort: 'none' } } })).statusCode).toBe(200);
+    const snapshot = (await app.inject({ url: '/api/v1/state', headers: { 'x-herts-plugin-api': '1' } })).json().snapshot;
+    expect(snapshot.sessionSettings).toMatchObject({ defaults: { revision: 1, values: input.values }, conversations: { [contextId]: { revision: 1, values: { effort: 'none' } } } });
+    expect((await app.inject({ method: 'POST', url: '/api/v1/session-defaults', headers, payload: { ...input, id: randomUUID() } })).statusCode).toBe(409);
+    expect((await app.inject({ method: 'POST', url: '/api/v1/session-defaults', headers, payload: { id: randomUUID(), revision: 1, values: { api_key: 'disallowed' } } })).statusCode).toBe(400);
+    expect(rpc).not.toHaveBeenCalled(); expect(http).not.toHaveBeenCalled(); expect(store.actions()).toEqual([]);
+  });
+  it('protects settings reads and writes with private authentication and same-origin controls', async () => {
+    const { app, gateway } = await fixture(false); const rpc = vi.spyOn(gateway, 'rpc'), http = vi.spyOn(gateway, 'http');
+    for (const url of ['/api/v1/session-settings', '/api/v1/session-directories?path=/projects']) expect((await app.inject(url)).statusCode).toBe(403);
+    const headers = { host: 'tasks.example:8443', 'tailscale-user-login': 'owner@example.com', origin: 'https://attacker.example', 'x-herts-request': '1' };
+    for (const url of ['/api/v1/session-defaults', `/api/v1/contexts/${randomUUID()}/settings`]) expect((await app.inject({ method: 'POST', url, headers, payload: { id: randomUUID(), revision: 0, values: {} } })).statusCode).toBe(403);
+    expect(rpc).not.toHaveBeenCalled(); expect(http).not.toHaveBeenCalled();
+  });
   it('renames conversation metadata in its existing profile without resuming or sending', async () => {
     const { app, store, gateway } = await fixture(); const id = randomUUID();
     const link = { key: 'root', storedId: 'tip', title: 'Old name', source: 'telegram' };

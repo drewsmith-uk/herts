@@ -106,7 +106,7 @@ Plugin capture drafts must be JSON-serializable. The host keeps a synchronous br
 
 `pluginLocal(ID).hasRecording(owner)` checks whether a plugin's `Voice` capture owner has a saved recording on this device. Use it before removing a capture location, so dictation remains reachable. Older hosts may not expose this helper; feature-detect it and ask for a Herts update before allowing removal.
 
-Embed `<ConversationPanel context={context}/>` for the complete chat experience. Use the canonical context returned by the server; an unsent local item can supply `{id, title, link: null, aliases: []}`. Do not build a separate send loop or automatically resume on mount. The panel preserves unconfirmed submissions and reuses the same Hermes context across every view.
+Embed `<ConversationPanel context={context}/>` for the complete chat experience. Use the canonical context returned by the server; an unsent local item can supply `{id, title, link: null, aliases: []}`. Do not build a separate send loop or automatically resume on mount. The panel preserves unconfirmed submissions and reuses the same Hermes context across every view. It also includes shared session settings (model/provider, effort, fast mode and server folder); edits remain staged until the next Send. New conversations inherit core Herts defaults automatically. Plugins do not need their own settings API or Hermes access.
 
 `useDraftPersistence`, `useUpdateWork` and `useUpdatePreparation` help save forms before app/plugin changes. Register blockers for active recordings or unfinished forms, and clean up timers/subscriptions. Core voice support uses `Voice`; plugin capture recordings are tagged with the current plugin generation, while conversation recordings remain core-owned.
 

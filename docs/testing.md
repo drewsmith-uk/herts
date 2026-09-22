@@ -23,3 +23,5 @@ For a release:
 6. Restart only the app and run the read-only connection check. Verify the existing backend process remains alive. Keep the old build and data backup for rollback.
 
 Secret scans reduce risk but cannot prove the absence of every possible secret or private detail. If a real credential is discovered in published content, revoke/rotate it and remove the exposure; deleting only the current file is insufficient.
+
+Conversation settings tests cover local-only staging, profile-scoped/sanitised reads, revision conflicts, defaults precedence, busy-session refusal, model confirmations, partial failures and lost replies without duplicate writes or messages. Browser fixtures exercise the same controls on phone/desktop and in Tasks/Reading, offline reloads, default settings and explicit Send. The fixture model catalogue and server folders contain only synthetic data; these tests do not invoke your Hermes installation.

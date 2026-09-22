@@ -5,6 +5,7 @@ import { mkdirSync, chmodSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createHash } from 'node:crypto';
 import { LegacyFeatures } from './legacyFeatures.js';
+import { emptySettings, type SettingsState } from '../shared/sessionSettings.js';
 import { applyTaskOp, applySpaceOp, withSpaces, applyConversationVisibility, emptySnapshot, Conflict, type Snapshot, type TaskOp, type SpaceOp, type Task, type Link, type Action, type Binding, type Upload, type ConversationVisibilityOp } from '../shared/model.js';
 
 export const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -67,7 +68,9 @@ export class Store extends LegacyFeatures {
     })();
   }
   getMeta<T = any>(key: string): T | undefined { const r = this.db.prepare('SELECT value FROM meta WHERE key=?').get(key) as any; return r ? JSON.parse(r.value) : undefined; }
-  coreSnapshot(){return{revision:this.getMeta<any>('snapshot')?.revision||0,contexts:this.contexts(),hiddenConversations:this.getMeta<string[]>('hiddenConversations')||[]};}
+  sessionSettings(): SettingsState { return this.getMeta<SettingsState>('session-settings') || emptySettings(); }
+  saveSessionSettings(settings: SettingsState) { this.setMeta('session-settings', settings); this.bumpRevision(); this.emit('change', { type: 'settings' }); }
+  coreSnapshot(){return{revision:this.getMeta<any>('snapshot')?.revision||0,contexts:this.contexts(),hiddenConversations:this.getMeta<string[]>('hiddenConversations')||[],sessionSettings:this.sessionSettings()};}
   setMeta(key: string, value: unknown) { this.db.prepare('INSERT OR REPLACE INTO meta VALUES (?,?)').run(key, JSON.stringify(value)); }
   setConversationVisibility(op: ConversationVisibilityOp) {
     const result = this.db.transaction(() => {

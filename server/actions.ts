@@ -5,17 +5,20 @@ import { Conflict, type Action, type Binding } from '../shared/core.js';
 import { Store } from './store.js';
 import { Gateway, GatewayError } from './gateway.js';
 import { cleanConversationTitle } from '../shared/conversationTitles.js';
+import { SessionSettings } from './sessionSettings.js';
 
-export interface ActionInput { id: string; taskId?: string; contextId?: string; kind: Action['kind']; text?: string; uploadIds?: string[]; targetId?: string; generation?: string; approvalId?: string }
+export interface ActionInput { id: string; taskId?: string; contextId?: string; kind: Action['kind']; text?: string; uploadIds?: string[]; targetId?: string; generation?: string; approvalId?: string; settingsRevision?: number; defaultsRevision?: number; settingsConfirmation?: string }
 const activeStates = new Set(['preparing', 'running', 'awaiting_input', 'stopping']);
 export function controlBusy(control: any): boolean {
   if (!control || typeof control !== 'object') return true;
   return ['goal', 'loop', 'heartbeat'].some(k => control[k] && ['active', 'running', 'pending', 'queued', 'waiting'].includes(String(control[k].status)));
 }
 export class Actions {
+  readonly settings: SessionSettings;
   dispatching = new Set<string>();
   polling = new Set<string>(); timers = new Set<NodeJS.Timeout>(); interval: NodeJS.Timeout;
   constructor(public store: Store, public gateway: Gateway, public uploadDir: string) {
+    this.settings = new SessionSettings(store, gateway);
     for (const a of store.actions()) if (a.receipt === 'pending') { if (a.state === 'preparing') a.state = 'unknown'; a.receipt = 'unknown'; a.error = a.sendStage === 'preparing' ? 'Herts restarted during conversation preparation. Your message was not sent; it remains saved.' : 'Herts restarted before this operation was confirmed. Review the saved submission and conversation history.'; store.saveAction(a); }
     gateway.on('event', e => { this.event(e); });
     gateway.on('disconnected', () => {
@@ -53,6 +56,7 @@ export class Actions {
     }
     const action: Action = { id: input.id, taskId: task.id, contextId: task.id, kind: input.kind, text: input.text || '', uploadIds: input.uploadIds || [], createdAt: Date.now(), updatedAt: Date.now(), state: 'preparing', phase: 'saved', receipt: 'pending', targetId: input.targetId, approvalId: input.approvalId, ...(input.kind === 'send' ? { sendStage: 'preparing' as const } : {}) };
     this.store.db.transaction(() => {
+      if (input.kind === 'send') action.settings = this.settings.freeze(task.id, input);
       if (!['send', 'continue'].includes(input.kind)) {
         const key = `${input.generation}:${input.targetId}:${input.kind === 'stop' ? 'stop' : input.approvalId}`;
         if (this.store.db.prepare('SELECT key FROM control_receipts WHERE key=?').get(key)) throw new Conflict('This control was already submitted. Check its existing receipt.');
@@ -111,8 +115,9 @@ export class Actions {
       }
       if (a.kind === 'send') {
         if (!task.link) {
+          await this.settings.beforeCreate(a);
           dispatched = true;
-          const r = await this.step(a, 'creating conversation', 'session.create', { profile: this.gateway.profile, source: 'desktop', close_on_disconnect: false });
+          const r = await this.step(a, 'creating conversation', 'session.create', { profile: this.gateway.profile, source: 'desktop', close_on_disconnect: false, ...this.settings.createParams(a) });
           if (!r.session_id || !r.stored_session_id || r.info?.profile_name !== this.gateway.profile) throw new GatewayError('Conversation creation identity is not confirmed.', true);
           b = { runtimeId: r.session_id, storedId: r.stored_session_id, epoch: this.gateway.epoch, generation: randomUUID(), seq: 0, ready: false, monitored: true, known: true };
           this.store.linkNew(task.id, { key: r.stored_session_id, storedId: r.stored_session_id, title: task.title, source: 'desktop' });
@@ -122,7 +127,9 @@ export class Actions {
         if (!task.link || repairTitle) await this.nameConversation(a, b, task.title);
         b = this.store.binding(task.id)!;
         a.binding = b;
-        await this.checkSendable(b, !!task.link);
+        const live = await this.checkSendable(b, !!task.link && !a.settings);
+        this.settings.observe(task.id, live.info, b);
+        await this.settings.apply(a, b, live, async () => { this.checkSendNotCancelled(a.id); const live = await this.checkSendable(b!, false); this.checkSendNotCancelled(a.id); return live; }, (phase, method, params) => this.step(a, phase, method, params));
         b.ready = false; this.store.saveBinding(task.id, b);
         let text = a.text;
         for (const uploadId of a.uploadIds) {
@@ -136,6 +143,7 @@ export class Actions {
           text += `\n${result.ref_text}`;
         }
         this.checkSendNotCancelled(a.id);
+        if (a.settings) { await this.checkSendable(b, false); this.checkSendNotCancelled(a.id); }
         Object.assign(a, this.store.action(a.id), { sendStage: 'submitting', terminal: undefined, turnStarted: false, awaitingTurn: false, liveText: '' });
         this.store.saveAction(a); dispatched = true;
         const result = await this.step(a, 'submitting message', 'prompt.submit', { session_id: b.runtimeId, text });
@@ -217,6 +225,8 @@ export class Actions {
       if (!c.aliases.includes(live.session_key)) { this.gateway.metadata = undefined; const fresh = await this.gateway.conversation(b.storedId); if (!fresh.aliases.includes(live.session_key)) throw new GatewayError('Conversation changed unexpectedly.'); }
       b.storedId = live.session_key;
     }
+    const owner = this.store.bindings().find(([, saved]) => saved.generation === b.generation)?.[0];
+    if (owner) this.settings.observe(owner, live.info, b);
     return live;
   }
   async checkSendable(b: Binding, allowBusy = false, attempt = 0): Promise<any> {
@@ -268,6 +278,7 @@ export class Actions {
     if (!event.session_id) return;
     for (const [taskId, b] of this.store.bindings()) {
       if (b.runtimeId !== event.session_id || b.epoch !== this.gateway.epoch || !Number.isInteger(event.seq) || event.seq <= b.seq) continue;
+      if (event.type === 'session.info') this.settings.observe(taskId, event.payload, b);
       const a = this.main(taskId); if (!a) continue;
       b.seq = event.seq;
       const p = event.payload || {};

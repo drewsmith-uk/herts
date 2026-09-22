@@ -19,7 +19,15 @@ Managed installation additionally requires `hermes serve --isolated` to avoid a 
 
 The configured `HERMES_PROFILE` is passed through history, search, create/resume, media and audio requests. Returned profile stamps are verified where supplied, and creation/history require identity confirmation. Warm Desktop sessions can omit a redundant profile stamp; runtime session identity, lineage and replay epoch are still checked. A mismatched identity prevents submission.
 
-Continuing an existing conversation does not send a replacement model or project folder. Hermes's resume flow resolves those settings. Starting a new conversation uses the selected profile's configuration. Herts does not guarantee that older settings survive every upstream compaction or version change beyond what Desktop itself preserves.
+Continuing an existing conversation retains its settings through Hermes's resume flow unless a change has been staged in Herts. New conversations inherit the selected profile's configuration, with optional Herts defaults and per-conversation overrides. Herts does not guarantee that older settings survive every upstream compaction or version change beyond what Desktop itself preserves.
+
+## Session settings controls
+
+The session settings contract was also checked against Hermes Agent 0.21.3 source at `2ed6387d87b4db091af2f05db32faab6e0dbb9a2`, and catalogue/default reads were verified against the running backend without agent work.
+
+The optional controls require `model.options` with configured provider/model capabilities, `config.get` (reasoning, fast, project), profile-stamped `GET /api/sessions/:id` metadata and directory browsing through `GET /api/files`. Only model/provider, effort, speed and folder fields are returned to the browser; raw model configuration and provider credentials are never forwarded.
+
+At the next Send, Herts uses `session.create` overrides for a new conversation or confirmed idle-session controls: `config.set model` with explicit provider and `--session`, `config.set reasoning` with session scope, `config.set fast`, and `session.cwd.set`. It never uses the profile-wide cwd setter. Every write targets the verified runtime; unknown/deferred outcomes stop before prompt submission. The backend must preserve these session overrides on subsequent turns and resume, as Desktop expects. Missing catalogue/capability information is reported; existing messaging without pending changes remains available. An unavailable selected model or folder blocks the message and retains it for review.
 
 ## Validate your installation
 

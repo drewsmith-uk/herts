@@ -24,11 +24,21 @@ Browse/search personal Hermes history before deciding what belongs in Tasks. Her
 
 While Tasks is enabled, task-linked conversations are hidden from the general list by default, with an option to include them. Swipe a conversation right for an enabled plugin action or left to hide it. Multiple plugin actions open a chooser. Hidden status belongs only to Herts; Show hidden reveals it again. Accessible actions are on the conversation detail page, keeping list rows uncluttered.
 
-Opening a conversation reads available history and observes status; it never resumes work. Sending a message prepares/resumes the same conversation when necessary, then submits the message. Existing model and project-directory settings are left to Hermes's resume behaviour, as in Desktop. There is no separate Continue button.
+Opening a conversation reads available history and observes status; it never resumes work. Sending a message prepares/resumes the same conversation when necessary, then submits the message. Existing settings follow Hermes's resume behaviour unless you have explicitly staged changes in Herts. There is no separate Continue button.
 
 The conversation detail page, task page and reading item page use the same conversation panel. You can reply directly from Conversations without creating either kind of item. Opening an individual conversation saves its reference in Herts; listing/searching does not import references for the backlog. This reference does not count as a task link or hide the conversation. If you later create a task or bookmark a link, it reuses the same reference, device draft, submissions and execution controls. Notifications for a conversation without either item open its conversation page.
 
 History starts at its most recent messages, with the detail header initially visible. Adjacent tool-only rounds are grouped under one expandable activity section. Expanding preserves the top of that section so it is easy to collapse. Available original message times are displayed; missing timestamps are not invented. Compaction/session rotation can limit older history.
+
+## Conversation settings
+
+The shared composer offers model/provider, reasoning effort, fast mode and a Hermes-server working folder. Models and capabilities come from Hermes's configured catalogue; current values come from the verified live session when available, otherwise saved session metadata. Missing values are labelled unknown rather than replaced with a guessed model or profile default. Hermes can map effort levels for a provider; a reported wire effort is shown separately.
+
+Changing a control only stages metadata in Herts. It does not create/resume a conversation, submit a prompt or alter Hermes configuration. The next Send prepares the session, confirms it is idle, applies the staged settings through Desktop-compatible session controls, confirms the changes, then submits the saved message. Choices persist for later messages. A recovered active turn must finish or be stopped before pending settings can be applied. No slash commands or synthetic instruction messages are sent.
+
+General Settings stores new-conversation defaults across devices. On the first Send, per-conversation choices override Herts defaults, which override the Hermes profile defaults. This applies to new Conversations and plugin-created conversations, including Tasks and Reading. Imported/existing conversations retain their own settings. No Herts control writes Hermes profile defaults. Plugins embedding the core conversation panel get the same controls automatically.
+
+Pending choices survive reloads and offline use. Settings have revisions; concurrent edits require review. Hermes model-switch confirmations retain the unsent message and require explicit acceptance. Failed or uncertain changes leave the message saved, distinguish confirmed partial changes, and never silently repeat an uncertain setter. A later deliberate Send can reconcile an already-applied choice; otherwise the user must refresh and explicitly review the choices before retrying. Settings are not a multi-field transaction: some fields can apply before a later field fails.
 
 ## Reading
 

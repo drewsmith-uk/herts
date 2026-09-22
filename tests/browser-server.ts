@@ -6,6 +6,9 @@ import { createApp } from '../server/app';
 const browserRoot = process.env.HERTS_BROWSER_ROOT || process.env.TASKS_BROWSER_ROOT;
 if (browserRoot) process.chdir(browserRoot);
 const calls: string[] = [];
+const callDetails: { method: string; params: any }[] = [];
+const profileSettings = { model: 'profile-model', provider: 'configured', reasoning_effort: 'medium', fast: false, cwd: '/projects' };
+const info = (r: any) => ({ profile_name: 'default', ...r.settings });
 const rows = new Map<string, any>([['existing', { id: 'existing', title: 'Plan the autumn trip', source: 'telegram', preview: 'A quiet week away', started_at: Date.now()/1000, messages: [{ id: 1, role: 'user', content: 'Help me plan a trip.' }, { id: 2, role: 'assistant', content: 'We could visit the coast.\n\nA slower pace sounds good.' }] }]]);
 rows.set('long-history', { id: 'long-history', title: 'Long conversation', source: 'desktop', started_at: Date.now()/1000, messages: Array.from({length:450}, (_, i) => ({id:i+1,role:i%2 ? 'assistant' : 'user',content:`History message ${i+1}. ${'Conversation detail. '.repeat(8)}`})) });
 for (const width of [390,1280]) rows.set(`live-history-${width}`, { ...rows.get('long-history'), id: `live-history-${width}`, title: `Live history ${width}`, messages: structuredClone(rows.get('long-history').messages) });
@@ -26,17 +29,21 @@ rows.set('tool-activity', { id: 'tool-activity', title: 'Conversation with tool 
 rows.set('reading-links', {id:'reading-links',title:'Links for reading',source:'telegram',started_at:Date.now()/1000,messages:[{id:1,role:'assistant',content:'Read [first article](https://example.com/one), [second article](https://example.com/two) or the [first again](https://example.com/one).'}]});
 rows.set('spaces-retry', { id: 'spaces-retry', title: 'Space retry conversation', source: 'telegram', started_at: Date.now()/1000, messages: [{ id: 1, role: 'assistant', content: 'A saved task destination.' }] });
 rows.set('spaces-conversation', {id:'spaces-conversation',title:'Shared spaces conversation',source:'telegram',started_at:Date.now()/1000,messages:[{id:1,role:'assistant',content:'This conversation is shared across task spaces.'}]});
+for (const id of ['settings-390', 'settings-1280', 'settings-shared', 'settings-confirm', 'settings-offline']) rows.set(id, { id, title: id, source: 'telegram', started_at: Date.now()/1000, settings: { ...profileSettings, model: 'existing-model', reasoning_effort: 'high', cwd: '/projects/existing' }, messages: [{ id: 1, role: 'assistant', content: 'A saved [article](https://example.com/settings-shared).' }] });
 const runtimes = new Map<string, any>();
 const server = createServer(async (req, res) => {
   const url = new URL(req.url!, 'http://localhost'); res.setHeader('Content-Type', 'application/json');
   if (url.pathname === '/calls') return res.end(JSON.stringify(calls));
+  if (url.pathname === '/call-details') return res.end(JSON.stringify(callDetails));
   if (req.headers['x-hermes-session-token'] !== 'fixture-token') { res.statusCode = 403; return res.end('{}'); }
   if (url.pathname === '/api/sessions') return res.end(JSON.stringify({ sessions: [...rows.values()], total: rows.size }));
   if (url.pathname === '/api/sessions/search') {
     const query = (url.searchParams.get('q') || '').toLowerCase();
     return res.end(JSON.stringify({ results: [...rows.values()].filter(row => `${row.title} ${JSON.stringify(row.messages)}`.toLowerCase().includes(query)).map(row => ({ session_id: row.id })) }));
   }
+  if (url.pathname === '/api/files') { const path = url.searchParams.get('path') || '/projects'; if (path === '/missing') { res.statusCode = 404; return res.end(JSON.stringify({ detail: 'Folder not found' })); } return res.end(JSON.stringify({ path, parent: path === '/projects' ? null : '/projects', entries: path === '/projects' ? [{ name: 'work', path: '/projects/work', is_directory: true }, { name: 'private.txt', path: '/projects/private.txt', is_directory: false }] : [] })); }
   const id = url.pathname.split('/')[3];
+  if (req.method === 'GET' && url.pathname === `/api/sessions/${id}` && rows.has(id)) { const row = rows.get(id), settings = row.settings || profileSettings; return res.end(JSON.stringify({ ...row, profile: 'default', model: settings.model, cwd: settings.cwd, model_config: { provider: settings.provider, reasoning_config: { effort: settings.reasoning_effort }, service_tier: settings.fast ? 'priority' : 'normal' } })); }
   if (req.method === 'PATCH' && url.pathname.startsWith('/api/sessions/')) {
     const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk));
     const { title, profile } = JSON.parse(Buffer.concat(chunks).toString());
@@ -56,24 +63,31 @@ wss.on('connection', ws => {
     if (ws.readyState === 1) ws.send(JSON.stringify({ jsonrpc: '2.0', method: 'event', params: event }));
   };
   emit('gateway.ready', undefined, { replay_epoch: 'fixture-epoch' });
-  const finish = (id: string) => { const r = runtimes.get(id); r.running = false; r.approvals = []; const text = 'Here is your answer. Your work continued after leaving the app.'; rows.get(r.stored).messages.push({ id: Date.now(), role: 'assistant', content: text, timestamp: Date.now()/1000 }); emit('message.complete', id, { status: 'complete', text }); emit('session.info', id); };
+  const finish = (id: string) => { const r = runtimes.get(id); r.running = false; r.approvals = []; const text = 'Here is your answer. Your work continued after leaving the app.'; rows.get(r.stored).messages.push({ id: Date.now(), role: 'assistant', content: text, timestamp: Date.now()/1000 }); emit('message.complete', id, { status: 'complete', text }); emit('session.info', id, info(r)); };
   ws.on('message', raw => {
-    const { id, method, params: p } = JSON.parse(raw.toString()); calls.push(method); let result: any = {};
+    const { id, method, params: p } = JSON.parse(raw.toString()); calls.push(method); callDetails.push({ method, params: p }); let result: any = {};
     const r = runtimes.get(p.session_id);
     if (method === 'session.create' || method === 'session.resume') {
       const stored = p.session_id || `stored-${rows.size}`, runtime = `runtime-${stored}`;
       if(stored==='resume-failure') { ws.send(JSON.stringify({jsonrpc:'2.0',id,error:{code:5001,message:'Preparation could not be confirmed.'}})); return; }
-      if (!rows.has(stored)) rows.set(stored, { id: stored, title: p.title, source: 'desktop', started_at: Date.now()/1000, messages: [] });
-      if (!runtimes.has(runtime)) runtimes.set(runtime, { stored, running: false, seq: 0, events: [], approvals: [] });
+      if (!rows.has(stored)) rows.set(stored, { id: stored, title: p.title, source: 'desktop', started_at: Date.now()/1000, settings: { ...profileSettings, ...Object.fromEntries(['model', 'provider', 'reasoning_effort', 'fast', 'cwd'].filter(k => p[k] !== undefined).map(k => [k, p[k]])) }, messages: [] });
+      if (!runtimes.has(runtime)) runtimes.set(runtime, { stored, running: false, seq: 0, events: [], approvals: [], settings: rows.get(stored).settings ||= { ...profileSettings } });
       const resumed=runtimes.get(runtime);
       if(stored==='resume-busy') {resumed.running=true;emit('message.start',runtime);emit('message.delta',runtime,{text:'Resuming earlier work.'});}
-      result = { session_id: runtime, stored_session_id: stored, session_key: stored, info: { profile_name: 'default' }, messages_omitted: true, resumed: true, running: resumed.running, inflight: null, status: resumed.running?'working':'idle',...(resumed.running?{auto_continue:{attempt:1}}:{}) };
+      result = { session_id: runtime, stored_session_id: stored, session_key: stored, info: info(resumed), messages_omitted: true, resumed: true, running: resumed.running, inflight: null, status: resumed.running?'working':'idle',...(resumed.running?{auto_continue:{attempt:1}}:{}) };
     } else if (method === 'session.title') {
       const duplicate = [...rows.values()].find(row => row.id !== r.stored && row.title === p.title);
       if (duplicate) { ws.send(JSON.stringify({ jsonrpc: '2.0', id, error: { code: 4022, message: `Title '${p.title}' is already in use by session ${duplicate.id}` } })); return; }
       rows.get(r.stored).title = p.title; result = { title: p.title, pending: false };
     }
-    else if (method === 'session.activate') result = { session_id: p.session_id, session_key: r.stored, info: { profile_name: 'default' }, running: r.running, status: r.running ? 'working' : 'idle',queued:r.queued?{text:r.queued}:undefined };
+    else if (method === 'model.options') result = { model: profileSettings.model, provider: profileSettings.provider, providers: [{ slug: 'configured', name: 'Configured provider', authenticated: true, models: ['profile-model', 'existing-model', 'chosen-model', 'confirm-model', 'simple-model'], capabilities: Object.fromEntries(['profile-model', 'existing-model', 'chosen-model', 'confirm-model', 'simple-model'].map(model => [model, { reasoning: model !== 'simple-model', fast: model !== 'simple-model', can_disable_reasoning: true }])) }] };
+    else if (method === 'config.get') result = p.key === 'reasoning' ? { value: profileSettings.reasoning_effort } : p.key === 'fast' ? { value: profileSettings.fast ? 'fast' : 'normal' } : { cwd: profileSettings.cwd };
+    else if (method === 'config.set') {
+      if (p.key === 'model' && p.value.includes('confirm-model') && !p.confirm_expensive_model) result = { confirm_required: true, confirm_message: 'This model switch needs confirmation from Hermes.' };
+      else { if (p.key === 'model') { r.settings.model = p.value.match(/^'([^']+)'/)[1]; r.settings.reasoning_effort = 'medium'; r.settings.fast = false; } if (p.key === 'reasoning') r.settings.reasoning_effort = p.value; if (p.key === 'fast') r.settings.fast = p.value === 'fast'; result = { value: p.key === 'model' ? r.settings.model : p.value, scope: 'session' }; emit('session.info', p.session_id, info(r)); }
+    }
+    else if (method === 'session.cwd.set') { r.settings.cwd = p.cwd; result = info(r); emit('session.info', p.session_id, info(r)); }
+    else if (method === 'session.activate') result = { session_id: p.session_id, session_key: r.stored, info: info(r), running: r.running, status: r.running ? 'working' : 'idle',queued:r.queued?{text:r.queued}:undefined };
     else if (method === 'approval.pending') result = { approvals: r.approvals };
     else if (method === 'session.control.read') result = { control: {} };
     else if (method === 'session.events.since') result = { epoch: 'fixture-epoch', events: r.events.filter((e: any) => e.seq > p.last_seen), latest_seq: r.seq, truncated: false };

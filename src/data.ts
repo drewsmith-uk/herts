@@ -3,6 +3,7 @@ import { useSyncExternalStore } from 'react';
 import type { HistoryBaseline, OutgoingMessage } from './transcriptFeedback';
 import { applyConversationVisibility, type Action, type Binding, type Conversation, type ConversationVisibilityOp } from '../shared/core';
 import type { ConversationContext } from '../shared/conversations';
+import { emptySettings, sameSetting, type SettingsState, type SessionValues } from '../shared/sessionSettings';
 import { emptyCatalogue, type PluginCatalogue, type PluginData, type PluginOperation } from '../shared/plugins';
 import { migrateDevice, migrateDeviceSpaces } from './legacyDeviceMigration';
 import { discardResetDrafts } from './draftJournal';
@@ -44,7 +45,9 @@ export interface CoreSnapshot {
     revision: number;
     contexts: ConversationContext[];
     hiddenConversations: string[];
+    sessionSettings?: SettingsState;
 }
+export interface PendingSettings { contextId?: string; input: { id: string; revision: number; values: SessionValues; baseline?: SessionValues; reviewed?: boolean }; conflict?: string }
 class LocalDB extends Dexie {
     kv!: Table<{
         key: string;
@@ -84,6 +87,7 @@ export interface State {
     pluginRemote: Record<string, PluginData>;
     pluginPending: PendingPlugin[];
     visibilityPending: PendingVisibility[];
+    settingsPending?: PendingSettings[];
     online: boolean;
     loaded: boolean;
     defaultsReady: boolean;
@@ -138,6 +142,13 @@ export async function rebuild() {
     const localContexts = (await db.kv.where('key').startsWith('context:').toArray()).map(r => r.value as ConversationContext);
     const pluginPending = await db.pluginPending.orderBy('order').toArray(), submissions = await db.submissions.toArray();
     let snapshot = { ...state.remote };
+    const settingsPending = (await db.kv.where('key').startsWith('settings-op:').toArray()).map(r => r.value as PendingSettings);
+    snapshot.sessionSettings = structuredClone(snapshot.sessionSettings || emptySettings());
+    for (const op of settingsPending) {
+        const record = { revision: op.input.revision, values: op.input.values, baseline: op.input.baseline };
+        if (op.contextId) snapshot.sessionSettings.conversations[op.contextId] = record;
+        else snapshot.sessionSettings.defaults = record;
+    }
     const pluginData = structuredClone(state.pluginRemote);
     for (const p of visibilityPending)
         snapshot = { ...snapshot, hiddenConversations: applyConversationVisibility(snapshot.hiddenConversations || [], p.op) };
@@ -152,7 +163,7 @@ export async function rebuild() {
     }
     const outgoing = submissions.filter(s => s.input.kind === 'send').map(s => ({ id: s.id, taskId: s.input.contextId || s.input.taskId, text: s.input.text || '', uploadIds: s.input.uploadIds || [], at: s.at, baseline: s.baseline }));
     const localSubmissions = submissions.filter(s => !s.confirmed && !state.actions.some(a => a.id === s.id)).map(s => ({ id: s.id, taskId: s.input.contextId || s.input.taskId }));
-    publish({ snapshot, pluginData, pluginPending, visibilityPending, outgoing, localSubmissions });
+    publish({ snapshot, pluginData, pluginPending, visibilityPending, settingsPending, outgoing, localSubmissions });
 }
 export async function acceptPlugins(catalogue: PluginCatalogue, data: Record<string, PluginData> = state.pluginRemote) {
     if (catalogue.revision < state.plugins.revision)
@@ -272,7 +283,7 @@ export async function refresh() {
     }
 }
 export async function acceptSnapshot(snapshot: CoreSnapshot, actions = state.actions) {
-    const core = { revision: snapshot.revision, contexts: snapshot.contexts || [], hiddenConversations: snapshot.hiddenConversations || [] };
+    const core = { revision: snapshot.revision, contexts: snapshot.contexts || [], hiddenConversations: snapshot.hiddenConversations || [], sessionSettings: snapshot.sessionSettings || emptySettings() };
     const chosen = await db.transaction('rw', db.kv, async () => {
         const saved = (await db.kv.get('state'))?.value, chosen = saved?.snapshot.revision > core.revision ? saved.snapshot : core;
         await db.kv.put({ key: 'state', value: { snapshot: chosen, actions } });
@@ -351,6 +362,44 @@ async function syncNow() {
                 break;
             }
         }
+    await syncSessionSettings();
+}
+let settingsSync: Promise<void> | undefined;
+export function syncSessionSettings(): Promise<void> {
+    if (settingsSync) return settingsSync;
+    settingsSync = (async () => {
+        if (!state.online) return;
+        for (const row of await db.kv.where('key').startsWith('settings-op:').toArray()) {
+            const op = row.value as PendingSettings;
+            if (op.conflict || (op.contextId && !state.remote.contexts.some(c => c.id === op.contextId))) continue;
+            try {
+                const result = await api(op.contextId ? `/contexts/${op.contextId}/settings` : '/session-defaults', op.input, undefined, 15000);
+                await db.transaction('rw', db.kv, async () => {
+                    await acceptSnapshot(result.snapshot);
+                    if ((await db.kv.get(row.key))?.value.input.id === op.input.id) await db.kv.delete(row.key);
+                });
+            } catch (e) {
+                if (e instanceof ApiError && e.data?.snapshot) await acceptSnapshot(e.data.snapshot);
+                if (e instanceof ApiError && [400, 409].includes(e.status)) {
+                    await db.transaction('rw', db.kv, async () => { if ((await db.kv.get(row.key))?.value.input.id === op.input.id) await db.kv.put({ key: row.key, value: { ...op, conflict: e.message } }); });
+                } else break;
+            }
+        }
+        await rebuild();
+    })().finally(() => { settingsSync = undefined; });
+    return settingsSync;
+}
+export async function saveSessionChoices(contextId: string | undefined, revision: number, values: SessionValues, baseline?: SessionValues, reviewed = false) {
+    await settingsSync;
+    const input = { id: crypto.randomUUID(), revision, values, ...(baseline ? { baseline } : {}), ...(reviewed ? { reviewed: true } : {}) };
+    await db.kv.put({ key: `settings-op:${contextId || 'defaults'}`, value: { contextId, input } satisfies PendingSettings });
+    lastOrder = Math.max(Date.now(), lastOrder + 1);
+    await rebuild(); await syncSessionSettings();
+    const pending = (await db.kv.get(`settings-op:${contextId || 'defaults'}`))?.value as PendingSettings | undefined;
+    if (pending?.conflict) throw new Error(pending.conflict);
+}
+export async function useSyncedSessionChoices(contextId?: string) {
+    await settingsSync; await db.kv.delete(`settings-op:${contextId || 'defaults'}`); await rebuild();
 }
 export async function resolvePluginOperation(id: string, input?: unknown) {
     const p = await db.pluginPending.get(id);
@@ -430,6 +479,7 @@ export async function uploadFile(id: string, progress?: (n: number) => void) {
 }
 export async function submit(input: any): Promise<Action> {
     const contextId = input.contextId || input.taskId;
+    const preview = state.snapshot.sessionSettings || emptySettings();
     await titleWrites.get(contextId);
     if (state.localSubmissions.some(s => s.taskId === contextId))
         throw new Error('A submitted request is still unconfirmed. Check its status before sending another.');
@@ -441,6 +491,13 @@ export async function submit(input: any): Promise<Action> {
         const data = await api('/contexts', { id: contextId, title: localContext.title });
         await acceptSnapshot(data.snapshot);
         await rebuild();
+    }
+    if (input.kind === 'send') {
+        await syncSessionSettings();
+        const now = state.remote.sessionSettings || emptySettings(), isNew = !state.snapshot.contexts.find(c => c.id === contextId)?.link;
+        if (state.settingsPending?.some(p => p.contextId === contextId || (isNew && !p.contextId))) throw new Error('Sync or review the saved conversation settings before sending.');
+        if (!sameSetting(preview.conversations[contextId]?.values || {}, now.conversations[contextId]?.values || {}) || (isNew && !sameSetting(preview.defaults.values, now.defaults.values))) throw new Error('Conversation settings changed. Review them before sending.');
+        input = { ...input, settingsRevision: now.conversations[contextId]?.revision || 0, ...(isNew ? { defaultsRevision: now.defaults.revision } : {}) };
     }
     if (!state.online || !state.gateway.online)
         throw new Error('Hermes is unavailable. Your message is saved; send it when connected.');
