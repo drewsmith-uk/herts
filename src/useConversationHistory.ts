@@ -1,11 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { History } from '../shared/core';
-import { api, cacheRead, db } from './data';
+import { api, cacheRead, db, useApp } from './data';
 
 type ScrollTarget = { kind: 'latest' } | { kind: 'anchor'; key?: string; top: number };
 const sameTail = (a?: History, b?: History) => !!a && !!b && a.sessionId === b.sessionId && a.hasMore === b.hasMore && JSON.stringify(a.messages) === JSON.stringify(b.messages);
 
 export function useConversationHistory(conversationId: string, version: string | number, liveText?: string, active = false, sendVersion = 0, feedback = '') {
+  const { connectionVersion } = useApp(), seenConnection = useRef(connectionVersion);
+  const controller = useRef<AbortController | undefined>(undefined);
   const [pages, setPages] = useState<History[]>([]), [cached, setCached] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(''), [newMessages, setNewMessages] = useState(false);
   const root = useRef<HTMLDivElement>(null), end = useRef<HTMLDivElement>(null);
   const currentPages = useRef(pages); currentPages.current = pages;
@@ -52,6 +54,7 @@ export function useConversationHistory(conversationId: string, version: string |
       window.removeEventListener('wheel', gesture); window.removeEventListener('touchmove', gesture); window.removeEventListener('keydown', key);
       window.removeEventListener('pointerdown', pointerDown); window.removeEventListener('pointerup', pointerUp); window.removeEventListener('scroll', onScroll);
       request.current++;
+      controller.current?.abort();
     };
   }, [conversationId]);
   useLayoutEffect(() => {
@@ -66,14 +69,17 @@ export function useConversationHistory(conversationId: string, version: string |
     following.current = true; gestureUntil.current = 0; setNewMessages(false); showBuffered(); scrollLatest();
   }, [sendVersion]);
   async function fetchPage(offset: number) {
-    return cacheRead(`history:${conversationId}:latest:${offset}`, () => api(`/conversations/${encodeURIComponent(conversationId)}/history?order=latest&offset=${offset}`));
+    controller.current?.abort(); controller.current = new AbortController();
+    const signal = controller.current.signal;
+    return cacheRead(`history:${conversationId}:latest:${offset}`, () => api(`/conversations/${encodeURIComponent(conversationId)}/history?order=latest&offset=${offset}`, undefined, 'GET', 45000, signal));
   }
-  async function refreshTail(explicit = false) {
-    if (!explicit && (loading.current || document.hidden || !navigator.onLine)) return;
+  async function refreshTail(explicit = false, recover = false) {
+    if (!explicit && ((!recover && loading.current) || document.hidden || !navigator.onLine)) return;
     const generation = ++request.current; loading.current = true;
     if (explicit) { setBusy(true); setError(''); }
     try {
       const result = await fetchPage(0); if (generation !== request.current) return;
+      setError(''); setCached(result.cached);
       if (sameTail(currentPages.current.at(-1), result.value)) { setCached(result.cached); return; }
       if (following.current || !currentPages.current.length) {
         pendingScroll.current = { kind: 'latest' }; setPages([result.value]); setCached(result.cached); setNewMessages(false); buffered.current = undefined;
@@ -98,6 +104,12 @@ export function useConversationHistory(conversationId: string, version: string |
   }
   useEffect(() => { void latest(); }, [conversationId]);
   useEffect(() => {
+    if (seenConnection.current === connectionVersion) return;
+    seenConnection.current = connectionVersion;
+    // Refresh idle conversations too, preserving the reader's scroll position.
+    void refreshTail(false, true);
+  }, [conversationId, connectionVersion]);
+  useEffect(() => {
     if (seenVersion.current === version) return;
     seenVersion.current = version;
     // Read after event/receipt changes, then again after persistence has caught
@@ -106,12 +118,10 @@ export function useConversationHistory(conversationId: string, version: string |
     return () => timers.forEach(clearTimeout);
   }, [conversationId, version]);
   useEffect(() => {
-    if (!active) return;
-    const timer = setInterval(() => void refreshTail(), 2000);
-    const visible = () => { if (!document.hidden) void refreshTail(); };
-    document.addEventListener('visibilitychange', visible); window.addEventListener('online', visible);
-    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', visible); window.removeEventListener('online', visible); };
-  }, [conversationId, active]);
+    if (!active && !cached && !error) return;
+    const timer = setInterval(() => void refreshTail(), active ? 2000 : 8000);
+    return () => clearInterval(timer);
+  }, [conversationId, active, cached, error]);
   async function older() {
     if (loading.current) return;
     const first = currentPages.current[0]; if (!first?.hasMore || first.order !== 'latest') return;

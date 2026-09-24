@@ -89,6 +89,7 @@ export interface State {
     visibilityPending: PendingVisibility[];
     settingsPending?: PendingSettings[];
     online: boolean;
+    connectionVersion: number;
     loaded: boolean;
     defaultsReady: boolean;
     gateway: {
@@ -106,9 +107,10 @@ export interface State {
     outgoing: OutgoingMessage[];
 }
 const empty = (): CoreSnapshot => ({ revision: 0, contexts: [], hiddenConversations: [] });
-let state: State = { snapshot: empty(), remote: empty(), actions: [], bindings: {}, plugins: emptyCatalogue(), pluginData: {}, pluginRemote: {}, pluginPending: [], visibilityPending: [], online: false, loaded: false, defaultsReady: false, gateway: { online: false, configured: false }, error: '', pushKey: '', localSubmissions: [], outgoing: [] };
+let state: State = { snapshot: empty(), remote: empty(), actions: [], bindings: {}, plugins: emptyCatalogue(), pluginData: {}, pluginRemote: {}, pluginPending: [], visibilityPending: [], online: false, connectionVersion: 0, loaded: false, defaultsReady: false, gateway: { online: false, configured: false }, error: '', pushKey: '', localSubmissions: [], outgoing: [] };
 const listeners = new Set<() => void>();
 let refreshing = false, lastOrder = Date.now();
+let refreshAgain = false, recoverAfterRefresh = false, refreshRequest: AbortController | undefined;
 const definitions = new Map<string, ClientPlugin>();
 export function getState() { return state; }
 export function publish(patch: Partial<State> = {}) { state = { ...state, ...patch }; Dexie.ignoreTransaction(() => { for (const listener of listeners)
@@ -121,15 +123,17 @@ else
 export class ApiError extends Error {
     constructor(message: string, public status: number, public data: any) { super(message); }
 }
-export async function api(path: string, body?: unknown, method?: string, timeout = 190000): Promise<any> {
+export async function api(path: string, body?: unknown, method?: string, timeout = 190000, signal?: AbortSignal): Promise<any> {
     let r: Response;
+    const requestSignal = AbortSignal.any([AbortSignal.timeout(timeout), ...(signal ? [signal] : [])]);
     try {
-        r = await fetch(`/api/v1${path}`, { method: method || (body === undefined ? 'GET' : 'POST'), headers: { 'X-Herts-Plugin-API': '1', ...(body === undefined ? {} : { 'Content-Type': 'application/json', 'X-Herts-Request': '1' }) }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(timeout), cache: 'no-store' });
+        r = await fetch(`/api/v1${path}`, { method: method || (body === undefined ? 'GET' : 'POST'), headers: { 'X-Herts-Plugin-API': '1', ...(body === undefined ? {} : { 'Content-Type': 'application/json', 'X-Herts-Request': '1' }) }, body: body === undefined ? undefined : JSON.stringify(body), signal: requestSignal, cache: 'no-store' });
     }
     catch {
         throw new ApiError('Connection lost. Your saved work is still on this device.', 0, null);
     }
     const data = await r.json().catch(() => ({}));
+    if (requestSignal.aborted) throw new ApiError('Connection lost. Your saved work is still on this device.', 0, null);
     if (!r.ok)
         throw new ApiError(data.error || `Request failed (${r.status})`, r.status, data);
     return data;
@@ -241,11 +245,15 @@ export async function initialise() {
         if (navigator.storage?.persist)
             void navigator.storage.persist();
         void refresh().finally(() => publish({ defaultsReady: true }));
-        window.addEventListener('online', () => void refresh());
-        window.addEventListener('offline', () => publish({ online: false }));
+        const recover = () => { if (navigator.onLine && !document.hidden) void refresh(true); };
+        window.addEventListener('online', recover);
+        window.addEventListener('offline', () => { publish({ online: false }); refreshRequest?.abort(); });
+        window.addEventListener('pageshow', recover);
+        window.addEventListener('focus', recover);
         document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible')
-            void refresh(); });
+            recover(); });
         const events = new EventSource('/api/v1/events');
+        events.addEventListener('open', recover);
         let timer: ReturnType<typeof setTimeout> | undefined;
         events.addEventListener('refresh', () => { if (timer)
             return; timer = setTimeout(() => { timer = undefined; void refresh(); }, 150); });
@@ -256,19 +264,26 @@ export async function initialise() {
         publish({ loaded: true, defaultsReady: true, error: 'Device storage is unavailable. Changes cannot be safely saved. Check browser storage settings.' });
     }
 }
-export async function refresh() {
-    if (refreshing)
+export async function refresh(recover = false) {
+    if (refreshing) {
+        refreshAgain = true; recoverAfterRefresh ||= recover;
+        // Only abandon the read-only status request, never a submitted action.
+        if (recover) refreshRequest?.abort();
         return;
+    }
     refreshing = true;
+    const controller = new AbortController(); refreshRequest = controller;
     try {
-        const data = await api('/state'), actions = new Map(state.actions.map(a => [a.id, a]));
+        const data = await api('/state', undefined, 'GET', 10000, controller.signal), actions = new Map(state.actions.map(a => [a.id, a]));
+        refreshRequest = undefined;
         for (const action of data.actions as Action[])
             if (!actions.has(action.id) || actions.get(action.id)!.updatedAt < action.updatedAt)
                 actions.set(action.id, action);
         data.actions = [...actions.values()].sort((a, b) => b.createdAt - a.createdAt);
         await acceptSnapshot(data.snapshot, data.actions);
         await acceptPlugins(data.plugins, data.pluginData);
-        publish({ actions: data.actions, bindings: data.bindings, gateway: data.gateway, online: navigator.onLine, pushKey: data.pushKey, error: '' });
+        const recovered = recover || !state.online || (!state.gateway.online && data.gateway.online);
+        publish({ actions: data.actions, bindings: data.bindings, gateway: data.gateway, online: navigator.onLine, connectionVersion: state.connectionVersion + (recovered ? 1 : 0), pushKey: data.pushKey, error: '' });
         for (const s of await db.submissions.toArray())
             if (data.actions.some((a: Action) => a.id === s.id))
                 await db.submissions.update(s.id, { confirmed: true });
@@ -276,10 +291,12 @@ export async function refresh() {
         void sync();
     }
     catch (e) {
-        publish({ online: false, error: e instanceof ApiError && e.status === 403 ? e.message : '' });
+        if (!controller.signal.aborted) publish({ online: false, error: e instanceof ApiError && e.status === 403 ? e.message : '' });
     }
     finally {
         refreshing = false;
+        refreshRequest = undefined;
+        if (refreshAgain) { const recovery = recoverAfterRefresh; refreshAgain = false; recoverAfterRefresh = false; void refresh(recovery); }
     }
 }
 export async function acceptSnapshot(snapshot: CoreSnapshot, actions = state.actions) {

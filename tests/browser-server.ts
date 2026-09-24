@@ -32,11 +32,13 @@ rows.set('spaces-conversation', {id:'spaces-conversation',title:'Shared spaces c
 for (const id of ['settings-390', 'settings-1280', 'settings-shared', 'settings-confirm', 'settings-offline']) rows.set(id, { id, title: id, source: 'telegram', started_at: Date.now()/1000, settings: { ...profileSettings, model: 'existing-model', reasoning_effort: 'high', cwd: '/projects/existing' }, messages: [{ id: 1, role: 'assistant', content: 'A saved [article](https://example.com/settings-shared).' }] });
 rows.get('settings-confirm').messages = structuredClone(rows.get('long-history').messages);
 const runtimes = new Map<string, any>();
+let hermesUnavailable = false;
 const server = createServer(async (req, res) => {
   const url = new URL(req.url!, 'http://localhost'); res.setHeader('Content-Type', 'application/json');
   if (url.pathname === '/calls') return res.end(JSON.stringify(calls));
   if (url.pathname === '/call-details') return res.end(JSON.stringify(callDetails));
   if (req.headers['x-hermes-session-token'] !== 'fixture-token') { res.statusCode = 403; return res.end('{}'); }
+  if (hermesUnavailable) { res.statusCode = 503; return res.end('{}'); }
   if (url.pathname === '/api/sessions') return res.end(JSON.stringify({ sessions: [...rows.values()], total: rows.size }));
   if (url.pathname === '/api/sessions/search') {
     const query = (url.searchParams.get('q') || '').toLowerCase();
@@ -59,6 +61,7 @@ const server = createServer(async (req, res) => {
 });
 const wss = new WebSocketServer({ server });
 wss.on('connection', ws => {
+  if (hermesUnavailable) { ws.close(); return; }
   const emit = (type: string, id?: string, payload: any = {}) => {
     const r = id && runtimes.get(id); const event = { type, session_id: id, payload, ...(r ? { seq: ++r.seq } : {}) }; if (r) r.events.push(event);
     if (ws.readyState === 1) ws.send(JSON.stringify({ jsonrpc: '2.0', method: 'event', params: event }));
@@ -142,7 +145,21 @@ const fixtureRoot=await mkdtemp('/tmp/herts-browser-');
 const themesDir=fixtureRoot+'/themes';await mkdir(themesDir);
 const pluginsDir=fixtureRoot+'/plugins';await mkdir(pluginsDir);
 for(const id of ['tasks','reading'])await cp('plugins/'+id,pluginsDir+'/'+id,{recursive:true});
-const { app, articles, store, plugins } = await createApp({ dataDir: fixtureRoot+'/data', pluginsDir, themesDir, origin: 'http://127.0.0.1:8790', identity: 'fixture', dev: true, hermesBase: 'http://127.0.0.1:8791', hermesToken: 'fixture-token' });
+const { app, articles, store, plugins, gateway } = await createApp({ dataDir: fixtureRoot+'/data', pluginsDir, themesDir, origin: 'http://127.0.0.1:8790', identity: 'fixture', dev: true, hermesBase: 'http://127.0.0.1:8791', hermesToken: 'fixture-token' });
+// Recovery fixtures never affect a real Hermes instance or submit agent work.
+app.post('/__test/hermes-connection', async req => {
+  hermesUnavailable = !(req.body as { online: boolean }).online;
+  if (hermesUnavailable) for (const ws of wss.clients) ws.terminate();
+  else void gateway.connect().catch(() => {});
+  return { ok: true };
+});
+app.post('/__test/conversation-message', async req => {
+  const { id, title, text } = req.body as { id: string; title: string; text: string };
+  if (!rows.has(id)) rows.set(id, { id, title, source: 'telegram', started_at: Date.now()/1000, messages: [] });
+  rows.get(id).messages.push({ id: Date.now(), role: 'assistant', content: text });
+  if (!hermesUnavailable) gateway.metadata = undefined;
+  return { ok: true };
+});
 await plugins.activate('tasks');await plugins.activate('reading');plugins.reorder(['tasks','conversations','reading']);
 // Simulate a client on a previous release without intercepting browser traffic
 // while real service workers install and take control. Their cached index stays new.

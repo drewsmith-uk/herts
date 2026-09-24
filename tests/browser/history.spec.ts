@@ -4,6 +4,7 @@ for (const width of [390, 1280]) test(`opens latest history on ${width}px screen
   await page.setViewportSize({width,height:844});
   const before = await (await request.get('http://127.0.0.1:8791/calls')).json();
   await page.goto('/#/conversation/long-history');
+  await expect(page.getByLabel('Message Hermes')).toBeVisible();
   const recent = page.locator('[data-history-message="long-history:450"]');
   await expect(recent).toBeInViewport();
   await expect(page.locator('[data-history-message="long-history:1"]')).toHaveCount(0);

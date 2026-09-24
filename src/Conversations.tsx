@@ -13,6 +13,7 @@ const time = (at: number) => new Date(at).toLocaleString(undefined, { dateStyle:
 async function savedConversations(query: string, known: Conversation[] = []) { const entries = await db.kv.toArray(), lists = entries.filter(r => r.key.startsWith('conversations:')); const matches = new Set(known.map(c => c.key)); const all = [...new Map(lists.flatMap(r => r.value.conversations || []).map((c: Conversation) => [c.key, c])).values()] as Conversation[]; return all.filter(c => matches.has(c.key) || `${c.title} ${c.preview} ${entries.filter(e => c.aliases.some(id => e.key.startsWith(`history:${id}:`))).flatMap(e => e.value.messages || []).map(messageText).join(' ')}`.toLowerCase().includes(query.toLowerCase())).sort((a, b) => b.updatedAt - a.updatedAt); }
 export function Conversations() {
     const state = useApp(), plugins = usePlugins();
+    const [retry, setRetry] = useState(0);
     const [query, setQuery] = useState(''), [includeHidden, setIncludeHidden] = useState(false), [filters, setFilters] = useState<Record<string, boolean>>({}), [rows, setRows] = useState<Conversation[]>([]), [offset, setOffset] = useState(0), [more, setMore] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(''), [cached, setCached] = useState(false), [notice, setNotice] = useState<{
         text: string;
         route?: string;
@@ -23,10 +24,11 @@ export function Conversations() {
     useEffect(() => { setOffset(0); setRows([]); }, [query, includeHidden, filterKey]);
     useEffect(() => {
         let alive = true;
+        const controller = new AbortController();
         setBusy(true);
         const timer = setTimeout(() => {
             const activeFilters = filterPlugins.filter(p => !filters[p.id]).map(p => `${p.id}:${p.definition.filter!.id}`).join(',');
-            void Promise.all(Array.from({ length: offset / 50 + 1 }, (_, i) => cacheRead(`conversations:plugins:${activeFilters}:${includeHidden}:${query}:${i * 50}`, () => api(`/conversations?q=${encodeURIComponent(query)}&offset=${i * 50}&includeLinked=true&includeHidden=${includeHidden}&filters=${encodeURIComponent(activeFilters)}`).then(value => ({ ...value, query }))))).then(async (pages) => {
+            void Promise.all(Array.from({ length: offset / 50 + 1 }, (_, i) => cacheRead(`conversations:plugins:${activeFilters}:${includeHidden}:${query}:${i * 50}`, () => api(`/conversations?q=${encodeURIComponent(query)}&offset=${i * 50}&includeLinked=true&includeHidden=${includeHidden}&filters=${encodeURIComponent(activeFilters)}`, undefined, 'GET', 45000, controller.signal).then(value => ({ ...value, query }))))).then(async (pages) => {
                 const offline = pages.some(p => p.cached), next = pages.flatMap(p => p.value.conversations) as Conversation[];
                 const found = offline ? await savedConversations(query, next) : next;
                 if (alive) {
@@ -44,8 +46,13 @@ export function Conversations() {
             } }).finally(() => { if (alive)
                 setBusy(false); });
         }, 250);
-        return () => { alive = false; clearTimeout(timer); };
-    }, [query, offset, includeHidden, filterKey, listVersion]);
+        return () => { alive = false; controller.abort(); clearTimeout(timer); };
+    }, [query, offset, includeHidden, filterKey, listVersion, state.connectionVersion, retry]);
+    useEffect(() => {
+        if (busy || (!cached && !error) || !state.online) return;
+        const timer = setInterval(() => { if (!document.hidden && navigator.onLine) setRetry(n => n + 1); }, 8000);
+        return () => clearInterval(timer);
+    }, [busy, cached, error, state.online]);
     async function hide(c: Conversation) { setWorking(c.key); setError(''); try {
         await setConversationHidden(c, !c.hidden);
         setNotice({ text: c.hidden ? 'Conversation unhidden.' : 'Conversation hidden.', undo: c.hidden ? undefined : c });
@@ -94,7 +101,7 @@ export function ConversationView({ id }: {
         setConversation(c); }); return () => { alive = false; }; }, [id]);
     useEffect(() => { if (context || !state.online)
         return; let alive = true; void openConversation(id).catch(e => { if (alive)
-        setError(e.message); }); return () => { alive = false; }; }, [id, !!context, state.online, attempt]);
+        setError(e.message); }); return () => { alive = false; }; }, [id, !!context, state.online, state.connectionVersion, attempt]);
     const current = { ...(conversation || { id: context?.link?.storedId || id, key: context?.link?.key || id, aliases: context?.aliases || [id], title: 'Conversation', preview: '', source: context?.link?.source || '', updatedAt: 0 }), ...(context ? { title: context.link?.title || context.title } : {}) };
     const hidden = conversationHidden(current, state.snapshot.hiddenConversations || []);
     async function hide() { setBusy(true); try {

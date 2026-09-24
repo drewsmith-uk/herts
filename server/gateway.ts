@@ -49,6 +49,8 @@ export class Gateway extends EventEmitter {
         if (frame.method === 'event') {
           const event = frame.params;
           if (event?.type === 'gateway.ready') {
+            // Session changes may have been missed while disconnected.
+            this.metadata = undefined;
             clearTimeout(readyTimer); this.epoch = event.payload?.replay_epoch || ''; this.online = !!this.epoch;
             if (!this.epoch) { reject(new GatewayError('Hermes event identity is unavailable.')); ws.close(); return; }
             this.connecting = undefined; resolve(); this.emit('connected');
