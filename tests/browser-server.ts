@@ -84,8 +84,13 @@ wss.on('connection', ws => {
     else if (method === 'model.options') result = { model: profileSettings.model, provider: profileSettings.provider, providers: [{ slug: 'configured', name: 'Configured provider', authenticated: true, models: ['profile-model', 'existing-model', 'chosen-model', 'confirm-model', 'simple-model'], capabilities: Object.fromEntries(['profile-model', 'existing-model', 'chosen-model', 'confirm-model', 'simple-model'].map(model => [model, { reasoning: model !== 'simple-model', fast: model !== 'simple-model', can_disable_reasoning: true }])) }] };
     else if (method === 'config.get') result = p.key === 'reasoning' ? { value: profileSettings.reasoning_effort } : p.key === 'fast' ? { value: profileSettings.fast ? 'fast' : 'normal' } : { cwd: profileSettings.cwd };
     else if (method === 'config.set') {
+      // Hermes tokenizes by whitespace; quotes remain part of model/provider names.
+      const modelArgs = p.key === 'model' ? p.value.split(/\s+/) : [];
+      if (p.key === 'model' && (modelArgs.length !== 4 || modelArgs[1] !== '--provider' || modelArgs[2] !== 'configured' || modelArgs[3] !== '--session')) {
+        ws.send(JSON.stringify({ jsonrpc: '2.0', id, error: { code: 5001, message: `Unknown provider '${modelArgs[2]}'. Check 'hermes model' for available providers, or define it in config.yaml under 'providers:'.` } })); return;
+      }
       if (p.key === 'model' && p.value.includes('confirm-model') && !p.confirm_expensive_model) result = { confirm_required: true, confirm_message: 'This model switch needs confirmation from Hermes.' };
-      else { if (p.key === 'model') { r.settings.model = p.value.match(/^'([^']+)'/)[1]; r.settings.reasoning_effort = 'medium'; r.settings.fast = false; } if (p.key === 'reasoning') r.settings.reasoning_effort = p.value; if (p.key === 'fast') r.settings.fast = p.value === 'fast'; result = { value: p.key === 'model' ? r.settings.model : p.value, scope: 'session' }; emit('session.info', p.session_id, info(r)); }
+      else { if (p.key === 'model') { r.settings.model = modelArgs[0]; r.settings.provider = modelArgs[2]; r.settings.reasoning_effort = 'medium'; r.settings.fast = false; } if (p.key === 'reasoning') r.settings.reasoning_effort = p.value; if (p.key === 'fast') r.settings.fast = p.value === 'fast'; result = { value: p.key === 'model' ? r.settings.model : p.value, scope: 'session' }; emit('session.info', p.session_id, info(r)); }
     }
     else if (method === 'session.cwd.set') { r.settings.cwd = p.cwd; result = info(r); emit('session.info', p.session_id, info(r)); }
     else if (method === 'session.activate') result = { session_id: p.session_id, session_key: r.stored, info: info(r), running: r.running, status: r.running ? 'working' : 'idle',queued:r.queued?{text:r.queued}:undefined };

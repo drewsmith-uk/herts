@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 import { Conflict, type Action, type Binding } from '../shared/core.js';
-import { efforts, settingKeys, sameSetting, hasSettings, type SessionValues, type SettingsView, type ModelOption, type SettingsRecord, type SendSettings, type SettingKey } from '../shared/sessionSettings.js';
+import { efforts, settingKeys, sameSetting, hasSettings, type ModelChoice, type SessionValues, type SettingsView, type ModelOption, type SettingsRecord, type SendSettings, type SettingKey } from '../shared/sessionSettings.js';
 import { Gateway, GatewayError } from './gateway.js';
 import { Store } from './store.js';
 
@@ -9,7 +9,14 @@ const text = z.string().trim().min(1).max(1000).refine(s => !/[\x00-\x1f\x7f]/.t
 export const valuesSchema = z.object({ model: z.object({ provider: text, id: text }).strict().optional(), effort: z.enum(efforts).optional(), fast: z.boolean().optional(), cwd: text.optional() }).strict();
 const recordInput = z.object({ id: z.string().uuid(), revision: z.number().int().nonnegative(), values: valuesSchema, baseline: valuesSchema.optional(), reviewed: z.boolean().optional() }).strict();
 const blank = (): SettingsRecord => ({ revision: 0, values: {} });
-const quote = (value: string) => `'${value.replaceAll("'", "'\"'\"'")}'`; // Hermes parses argv; this is never a shell command.
+function modelSwitchValue(model: ModelChoice) {
+  // Hermes splits this value on whitespace; shell quotes are literal characters.
+  // Keep each identifier a single non-flag token, including Hermes' smart-dash flags.
+  if ([model.id, model.provider].some(value => !value || /\s/u.test(value) || /^[-\u2012-\u2015]/u.test(value))) {
+    throw new GatewayError('Hermes cannot switch to this model/provider name. Choose another model in conversation settings.');
+  }
+  return `${model.id} --provider ${model.provider} --session`;
+}
 function object(value: unknown): any { if (typeof value === 'string') { try { return JSON.parse(value); } catch { return {}; } } return value && typeof value === 'object' ? value : {}; }
 export function sessionValues(info: any, stored = false): SessionValues {
   const cfg = stored ? object(info.model_config) : info;
@@ -164,6 +171,7 @@ export class SessionSettings {
     for (const key of settingKeys) {
       const desired = settings.values[key]; if (desired === undefined) continue;
       if (sameSetting(current[key], desired)) { settings.applied.push(key); continue; }
+      const modelValue = key === 'model' ? modelSwitchValue(settings.values.model!) : undefined;
       await ready(); // Never modify an earlier/recovered active turn.
       settings.inFlight = key; save();
       try {
@@ -171,7 +179,7 @@ export class SessionSettings {
           ? await step('setting working folder', 'session.cwd.set', { session_id: binding.runtimeId, cwd: desired })
           : await step(`setting ${key === 'effort' ? 'reasoning effort' : key}`, 'config.set', {
             session_id: binding.runtimeId, profile: this.gateway.profile, key: key === 'effort' ? 'reasoning' : key,
-            value: key === 'model' ? `${quote(settings.values.model!.id)} --provider ${quote(settings.values.model!.provider)} --session` : key === 'fast' ? desired ? 'fast' : 'normal' : desired,
+            value: key === 'model' ? modelValue : key === 'fast' ? desired ? 'fast' : 'normal' : desired,
             ...(key === 'effort' ? { scope: 'session' } : {}), ...(key === 'model' && settings.confirmedModel ? { confirm_expensive_model: true } : {}) });
         if (result.confirm_required) { delete settings.inFlight; settings.confirmation = String(result.confirm_message || result.warning || 'Hermes asks you to confirm this model switch.'); save(); throw new GatewayError(settings.confirmation!); }
         if (result.deferred) throw new GatewayError('Hermes deferred the settings change while work was active. Review its status before sending again.', true);
@@ -181,6 +189,11 @@ export class SessionSettings {
         // A model change can reset dependent settings. Read again before applying the next field.
         const checked = await ready(); current = sessionValues(checked.info || {}); this.observe(action.taskId, checked.info, binding);
       } catch (e) {
+        // Hermes wraps this pre-switch validation failure in its generic 5001 code.
+        // It did not change the model; other 5001 failures remain uncertain.
+        if (key === 'model' && e instanceof GatewayError && e.code === 5001 && e.message.startsWith(`Unknown provider '${settings.values.model!.provider}'. Check 'hermes model'`)) {
+          e = new GatewayError(e.message, false, e.code);
+        }
         if (e instanceof GatewayError && !e.uncertain) { delete settings.inFlight; save(); }
         throw e;
       }

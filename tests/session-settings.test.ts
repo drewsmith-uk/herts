@@ -11,6 +11,8 @@ class SettingsGateway extends EventEmitter {
   profile = 'research'; epoch = 'settings-epoch'; online = true; metadata = undefined;
   calls: { method: string; params: any }[] = []; running = false; seq = 0; confirm = false;
   lost?: string; applyBeforeLoss = true; rejectFolder = false; resumeBusy = false; lazy = false;
+  modelError?: string;
+  models = ['existing-model', 'profile-model', 'chosen-model', 'simple-model'];
   current: SessionValues = { model: { id: 'existing-model', provider: 'configured' }, effort: 'high', fast: false, cwd: '/projects/old' };
   profileValues: SessionValues = { model: { id: 'profile-model', provider: 'configured' }, effort: 'medium', fast: false, cwd: '/projects' };
   async connect() {}
@@ -25,7 +27,7 @@ class SettingsGateway extends EventEmitter {
   }
   async rpc(method: string, p: any): Promise<any> {
     this.calls.push({ method, params: p });
-    if (method === 'model.options') return { model: this.profileValues.model!.id, provider: this.profileValues.model!.provider, providers: [{ slug: 'configured', name: 'Configured provider', authenticated: true, models: ['existing-model', 'profile-model', 'chosen-model', 'simple-model'], capabilities: Object.fromEntries(['existing-model', 'profile-model', 'chosen-model', 'simple-model'].map(id => [id, { reasoning: id !== 'simple-model', fast: id !== 'simple-model', can_disable_reasoning: true }])) }] };
+    if (method === 'model.options') return { model: this.profileValues.model!.id, provider: this.profileValues.model!.provider, providers: [{ slug: 'configured', name: 'Configured provider', authenticated: true, models: this.models, capabilities: Object.fromEntries(this.models.map(id => [id, { reasoning: id !== 'simple-model', fast: id !== 'simple-model', can_disable_reasoning: true }])) }] };
     if (method === 'config.get') return p.key === 'reasoning' ? { value: this.profileValues.effort } : p.key === 'fast' ? { value: this.profileValues.fast ? 'fast' : 'normal' } : { cwd: this.profileValues.cwd };
     if (method === 'session.create') { this.current = { ...this.profileValues, ...(p.model ? { model: { id: p.model, provider: p.provider } } : {}), ...(p.reasoning_effort ? { effort: p.reasoning_effort } : {}), ...(p.fast !== undefined ? { fast: p.fast } : {}), ...(p.cwd ? { cwd: p.cwd } : {}) }; return { session_id: 'runtime', stored_session_id: 'stored', info: this.info() }; }
     if (method === 'session.resume') { this.running = this.resumeBusy; return { session_id: 'runtime', session_key: 'stored', info: this.info(), messages_omitted: true, resumed: true, running: this.running, status: this.running ? 'working' : 'idle' }; }
@@ -37,9 +39,17 @@ class SettingsGateway extends EventEmitter {
     if (method === 'session.cwd.set') { if (this.rejectFolder) throw new GatewayError('Folder refused', false, 4017); this.current.cwd = p.cwd; return this.info(); }
     if (method === 'config.set') {
       expect(p.session_id).toBe('runtime'); expect(p.profile).toBe(this.profile);
+      if (p.key === 'model' && this.modelError) throw new GatewayError(this.modelError, true, 5001);
       if (p.key === 'model' && this.confirm && !p.confirm_expensive_model) return { confirm_required: true, confirm_message: 'Hermes asks before this model switch.' };
       const apply = () => {
-        if (p.key === 'model') { expect(p.value).toContain('--session'); this.current.model = { id: p.value.match(/^'([^']+)'/)[1], provider: 'configured' }; this.current.effort = 'medium'; this.current.fast = false; }
+        if (p.key === 'model') {
+          // Match Hermes' whitespace tokenization, which does not strip shell quotes.
+          const [model, flag, provider, scope, ...rest] = p.value.split(/\s+/);
+          expect([flag, scope, ...rest]).toEqual(['--provider', '--session']);
+          if (provider !== 'configured') throw new GatewayError(`Unknown provider '${provider}'. Check 'hermes model' for available providers, or define it in config.yaml under 'providers:'.`, true, 5001);
+          if (!this.models.includes(model)) throw new GatewayError(`Unknown model '${model}'.`, true, 5001);
+          this.current.model = { id: model, provider }; this.current.effort = 'medium'; this.current.fast = false;
+        }
         if (p.key === 'reasoning') { expect(p.scope).toBe('session'); this.current.effort = p.value; }
         if (p.key === 'fast') this.current.fast = p.value === 'fast';
       };
@@ -91,11 +101,46 @@ describe('settings staged until Send', () => {
     expect(writes(gateway)).toEqual([]);
     const first = send(); await expect.poll(() => store.action(first)?.receipt).toBe('accepted');
     expect(gateway.current).toMatchObject({ model: { id: 'chosen-model', provider: 'configured' }, effort: 'high', cwd: '/projects/new' });
+    expect(writes(gateway).find(c => c.method === 'config.set' && c.params.key === 'model')?.params.value).toBe('chosen-model --provider configured --session');
     const history = writes(gateway); expect(history.at(-1)?.method).toBe('prompt.submit'); expect(history.some(c => c.method === 'session.cwd.set')).toBe(true);
     expect(actions.settings.record(id).values).toEqual({}); await actions.reconcile(id);
     const count = writes(gateway).filter(c => c.method === 'config.set').length;
     const next = send(); await expect.poll(() => store.action(next)?.receipt).toBe('accepted');
     expect(writes(gateway).filter(c => c.method === 'config.set')).toHaveLength(count);
+  });
+  it('allows a deliberate retry after Hermes definitively rejects the provider', async () => {
+    const { store, gateway, actions, stage, send, id } = fixture();
+    stage({ model: { id: 'chosen-model', provider: 'configured' }, fast: true });
+    gateway.modelError = "Unknown provider 'configured'. Check 'hermes model' for available providers, or define it in config.yaml under 'providers:'.";
+    const first = send(); await expect.poll(() => store.action(first)?.receipt).toBe('rejected');
+    expect(store.action(first)).toMatchObject({ state: 'failed', sendStage: 'preparing', text: 'Keep this message' });
+    expect(store.action(first)?.settings?.inFlight).toBeUndefined();
+    expect((await actions.settings.view(id)).uncertain).toBe(false);
+    expect(writes(gateway).some(c => c.method === 'prompt.submit')).toBe(false);
+    expect(gateway.current.model?.id).toBe('existing-model');
+    gateway.modelError = undefined;
+    const next = send(); await expect.poll(() => store.action(next)?.receipt).toBe('accepted');
+    expect(gateway.current).toMatchObject({ model: { id: 'chosen-model', provider: 'configured' }, fast: true });
+    expect(writes(gateway).filter(c => c.method === 'prompt.submit')).toHaveLength(1);
+  });
+  it('keeps other model setter failures uncertain until reviewed', async () => {
+    const { store, gateway, stage, send } = fixture();
+    stage({ model: { id: 'chosen-model', provider: 'configured' } });
+    gateway.modelError = 'Model changed but persistence failed';
+    const first = send(); await expect.poll(() => store.action(first)?.receipt).toBe('unknown');
+    expect(store.action(first)?.settings?.inFlight).toBe('model');
+    gateway.modelError = undefined;
+    const next = send(); await expect.poll(() => store.action(next)?.receipt).toBe('rejected');
+    expect(writes(gateway).filter(c => c.method === 'config.set')).toHaveLength(1);
+    expect(writes(gateway).some(c => c.method === 'prompt.submit')).toBe(false);
+  });
+  it.each(['chosen-model --global', '--once', '—global'])('rejects an ambiguous model identifier %s before changing settings', async model => {
+    const { store, gateway, stage, send } = fixture(); gateway.models.push(model);
+    stage({ model: { id: model, provider: 'configured' } });
+    const sent = send(); await expect.poll(() => store.action(sent)?.receipt).toBe('rejected');
+    expect(store.action(sent)?.error).toContain('cannot switch to this model/provider name');
+    expect(store.action(sent)?.settings?.inFlight).toBeUndefined();
+    expect(writes(gateway).filter(c => c.method !== 'session.resume')).toEqual([]);
   });
   it('applies Herts defaults on creation with per-conversation precedence and freezes them once', async () => {
     const { store, gateway, actions, id, stage, send } = fixture(false);

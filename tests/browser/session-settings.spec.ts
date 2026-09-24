@@ -45,7 +45,7 @@ for (const width of [390, 1280]) test(`stages actual conversation settings witho
   const sent = (await writes(request)).slice(before.length);
   expect(sent.at(-1)?.method).toBe('prompt.submit');
   expect(sent.filter(c => c.method === 'config.set').map(c => c.params.key)).toEqual(['model', 'reasoning', 'fast']);
-  expect(sent.find(c => c.method === 'config.set' && c.params.key === 'model')?.params.value).toContain('--session');
+  expect(sent.find(c => c.method === 'config.set' && c.params.key === 'model')?.params.value).toBe('chosen-model --provider configured --session');
   expect(sent.find(c => c.method === 'session.cwd.set')?.params.cwd).toBe('/projects/work');
   await expect(page.locator('.session-settings-note').first()).toHaveText('Current session settings');
   await open(page);
