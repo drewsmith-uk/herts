@@ -1,6 +1,7 @@
 import { useRef, useState, type PointerEvent, type ReactNode } from 'react';
-import { ArrowRight, Eye, EyeOff, LoaderCircle, MessageSquare, Plus } from 'lucide-react';
+import { ArrowRight, Eye, EyeOff, LoaderCircle, Plus } from 'lucide-react';
 import type { Conversation } from '../shared/core';
+import { ItemRow, ItemMeta } from './ui';
 
 export function ConversationRow({ conversation: c, updatedAt, online, busy, onAction, actionLabel, badges, canActOffline }: {
   conversation: Conversation; updatedAt: string; online: boolean; busy: boolean; actionLabel?:string;badges?:ReactNode;canActOffline?:boolean;
@@ -45,9 +46,10 @@ export function ConversationRow({ conversation: c, updatedAt, online, busy, onAc
       {offset > 0 ? <><Plus size={20}/>{label}</> : <>{c.hidden ? <Eye size={20}/> : <EyeOff size={20}/>}{visibilityLabel}</>}
     </div>
     <div className={`conversation-item-content ${offset ? 'swiping' : ''}`} style={{ transform: `translateX(${offset}px)` }}>
-      <a className="conversation-row" draggable={false} onDragStart={e => e.preventDefault()} href={`#/conversation/${encodeURIComponent(c.key)}`}>
-        <div className="conversation-avatar"><MessageSquare size={20}/></div><div className="conversation-row-body"><h2>{c.title}</h2><p>{c.preview || 'Open to read available history.'}</p><div className="task-meta"><span>{c.source}</span><span>{updatedAt}</span>{badges}{c.hidden && <span className="hidden-item-badge"><EyeOff size={12}/>Hidden</span>}</div></div>{busy ? <LoaderCircle size={17} className="spin"/> : <ArrowRight size={17}/>}
-      </a>
+      <ItemRow variant="preview" className="conversation-row" draggable={false} onDragStart={e => e.preventDefault()} href={`#/conversation/${encodeURIComponent(c.key)}`}
+        trailing={busy ? <LoaderCircle size={17} className="spin"/> : <ArrowRight size={17}/>}>
+        <h2 className="item-title">{c.title}</h2>{c.preview?.trim() && <p className="item-preview">{c.preview}</p>}<ItemMeta><span>{c.source}</span><span>{updatedAt}</span>{badges}{c.hidden && <span className="hidden-item-badge"><EyeOff size={12}/>Hidden</span>}</ItemMeta>
+      </ItemRow>
     </div>
   </div>;
 }

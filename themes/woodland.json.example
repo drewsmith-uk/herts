@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "woodland",
+  "name": "Woodland",
+  "description": "A softer green variation of Fieldwork.",
+  "extends": "fieldwork",
+  "colors": {
+    "background": "#EEF1E9",
+    "primaryAction": "#34513B",
+    "primaryActionHover": "#263E2C",
+    "primaryActionText": "#FFFFFF"
+  },
+  "typography": {
+    "headingFont": "Georgia, serif"
+  }
+}

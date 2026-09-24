@@ -1,3 +1,4 @@
+import { SettingsSection } from './ui';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Bell } from 'lucide-react';
 import { api, useApp } from './data';
@@ -119,17 +120,17 @@ export function NotificationSettings() {
     unknown: 'Notification registration could not be verified. Connect to the app to check it.'
   };
   const disabled = !online || !pushKey || busy || view.kind === 'checking';
-  return <section className="settings-card"><div className="settings-icon"><Bell size={22}/></div><div>
-    <h2>Notifications on this device</h2><p>Approval requests, completed work and failures for conversations you send messages to in Herts, plus reminders from enabled plugins.</p>
+  const currentStatus = [descriptions[view.kind], view.error].filter(Boolean).join(' ');
+  return <SettingsSection title="Notifications on this device" icon={<Bell size={22}/>} description="Approval requests, completed work and failures for conversations you send messages to in Herts, plus reminders from enabled plugins.">
     <p className="subtle-note">Alerts include the conversation or item title. Open the app to view the details.</p>
-    <p role="status">{descriptions[view.kind]}{view.error && <span> {view.error}</span>}</p>
+    <p role="status">{currentStatus}</p>
     <div className="notification-actions">
       {['off', 'repair'].includes(view.kind) && <button disabled={disabled} onClick={() => void run(enable)}>{view.kind === 'repair' ? 'Repair notifications' : 'Enable notifications'}</button>}
       {view.kind === 'enabled' && <button disabled={disabled} onClick={() => void run(sendTest)}>Send test notification</button>}
       {view.subscribed && <button disabled={disabled} onClick={() => void run(disable)}>Turn off notifications</button>}
       {view.kind === 'unknown' && <button disabled={!online || busy} onClick={() => void check()}>Check again</button>}
     </div>
-    {message && <p role="status">{message}</p>}
+    {message && message !== currentStatus && <p role="status">{message}</p>}
     {lastTest && <p role="status">{test?.shownAt ? 'This device confirmed showing the test notification.' : test?.state === 'failed' ? test.error : waiting ? test?.state === 'accepted' ? 'Test accepted by the push service. Waiting for this device to confirm showing it…' : 'Waiting for the test result…' : test?.state === 'accepted' ? 'The push service accepted the test, but this device has not confirmed showing it. Check Android’s app/browser notification settings and Do Not Disturb.' : 'Test delivery is unconfirmed. It will not be sent again automatically.'}</p>}
-  </div></section>;
+  </SettingsSection>;
 }

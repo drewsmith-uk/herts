@@ -96,6 +96,7 @@ node --env-file=/private/path/app.env --import tsx server/index.ts
 | `HERTS_IDENTITY` | Required exact Tailscale user login. |
 | `HERTS_DATA_DIR` | Persistent private data directory; default `./data`. Prefer an absolute path for services. |
 | `HERTS_PLUGINS_DIR` | Prepared plugin folder directory; default `./plugins`. The installer also accepts `--plugins-dir`. |
+| `HERTS_THEMES_DIR` | Custom theme JSON/font directory; default `./themes`. Adding or editing files needs no rebuild or restart. |
 | `HERTS_PORT` | Loopback port; default `8787`. |
 | `HERTS_DEV` | `1` bypasses Tailscale identity on loopback for development only; default off. |
 | `HERMES_BASE_URL` | Backend HTTP(S) origin. HTTP is allowed only on loopback. |
@@ -123,6 +124,12 @@ In Android Chrome, open the HTTPS URL and choose **Install app** / **Add to Home
 - Inbox tasks can be snoozed from their page or by swiping the row. The server returns them to Inbox at the chosen time, even when Hermes is offline; notification delivery also depends on browser/OS push support.
 
 See [behaviour and data ownership](docs/decisions.md) for conversation linking, offline work and deliberate agent execution.
+
+## Appearance and themes
+
+**Fieldwork** is the default appearance. Choose Fieldwork, Edition, Signal, Nocturne, Studio or **Press** in **Settings → General → Appearance**. Press combines paper and ink, heavy headings, cobalt actions and yellow selections. The choice is remembered per browser/device, applied before the app renders, and available offline. Themes change colours, typography, corners, borders and surface depth while preserving layouts and features.
+
+Add a custom JSON file to `themes/` (or `HERTS_THEMES_DIR`) and refresh the app to make it available. Themes can inherit an existing theme and override selected values, including fonts. See [theme configuration and local fonts](themes/README.md) and the [example config](themes/woodland.json.example). Plugins can use the same shared styling variables.
 
 ## Manage plugins
 

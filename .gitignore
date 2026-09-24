@@ -33,3 +33,6 @@ plugins/*/client.js
 plugins/*/server.mjs
 examples/*/client.js
 examples/*/server.mjs
+
+# Local design captures and verification output may contain personal data.
+/output/

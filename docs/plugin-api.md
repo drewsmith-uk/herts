@@ -4,6 +4,8 @@ Develop against the SDK in a Herts source checkout. `@herts/plugin-api/client`, 
 
 Tasks and Reading under `plugins/` are full examples. `examples/notes/` is deliberately independent: it stores notes in its own namespace and embeds core conversations, including other enabled plugins’ actions and link buttons. It is built for tests but is not installed by default.
 
+Use Herts' [shared theme variables](../themes/README.md#plugin-styling) for colours, typography, borders and shadows. Core components and existing shared classes already follow the selected theme; plugin-specific UI should use the same variables to support light, dark and custom themes.
+
 ## Start a package
 
 ```sh
@@ -84,6 +86,12 @@ Core context APIs allow read-only conversation resolution, creation of local con
 
 Export a default factory returning `ClientPlugin`. Its exact contribution interfaces are in [pluginContract.ts](../src/pluginContract.ts); public services are exported by [sdk/client.ts](../sdk/client.ts).
 
+The client API also exports the shared UI components in [src/ui.tsx](../src/ui.tsx): `PageHeader`, `Button`, `ButtonLink`, `IconButton`, `SectionNav`, `SectionLink`, `ItemList`, `ItemRow`, `ItemMeta`, `SettingsSection`, `SettingRow`, `FormField`, `EmptyState`, `StatusMessage` and `DialogFrame`. Use them for new plugin screens so typography, spacing, responsive behaviour and theme treatment remain consistent. `Button` defaults to `type="button"`; use `type="submit"` for form submission. `IconButton` requires an accessible label.
+
+`ItemRow` provides leading/content/trailing slots; its default is a card, while `variant="preview"` supports conversation-style lists. An `href` renders a link row; put no interactive children inside a link row. Rows without an `href` render a div and accept a DOM ref and event handlers for plugin-owned drag/drop. Keep mutations, gestures and sorting in the plugin. `SettingsSection` automatically becomes a flat subsection when nested inside another section, including the host's plugin settings container. `FormField` provides an associated label (explicit when `htmlFor` is supplied, otherwise wrapping its input); associate help/error text with the input's `aria-describedby` when present. `DialogFrame` handles native modal focus and Escape; pass `busy` to prevent dismissal while saving, and opt into `dismissOnBackdrop` only where appropriate. It does not submit or save anything.
+
+Older cached app versions may not expose these UI helpers. Check for `PageHeader` in the plugin factory before returning components that use them, and explain that the user can update Herts through Settings → App updates. This keeps recovery available when another device activates an updated plugin before that browser has updated its app shell.
+
 | Contribution | Use |
 | --- | --- |
 | `tab`, `routes` | Navigation and plugin screens. Match only your manifest routes. |
@@ -107,6 +115,8 @@ Plugin capture drafts must be JSON-serializable. The host keeps a synchronous br
 `pluginLocal(ID).hasRecording(owner)` checks whether a plugin's `Voice` capture owner has a saved recording on this device. Use it before removing a capture location, so dictation remains reachable. Older hosts may not expose this helper; feature-detect it and ask for a Herts update before allowing removal.
 
 Embed `<ConversationPanel context={context}/>` for the complete chat experience. Use the canonical context returned by the server; an unsent local item can supply `{id, title, link: null, aliases: []}`. Do not build a separate send loop or automatically resume on mount. The panel preserves unconfirmed submissions and reuses the same Hermes context across every view. It also includes shared session settings (model/provider, effort, fast mode and server folder); edits remain staged until the next Send. New conversations inherit core Herts defaults automatically. Plugins do not need their own settings API or Hermes access.
+
+The panel defaults to showing its Conversation section heading and the first-send explanation for an unlinked item. Use `showHeading={false}` when the entire page is already a conversation. Use `showEmptyNotice={false}` only when the parent supplies the same first-send explanation. These options affect presentation; the composer, history and execution/recovery controls remain available.
 
 `useDraftPersistence`, `useUpdateWork` and `useUpdatePreparation` help save forms before app/plugin changes. Register blockers for active recordings or unfinished forms, and clean up timers/subscriptions. Core voice support uses `Voice`; plugin capture recordings are tagged with the current plugin generation, while conversation recordings remain core-owned.
 

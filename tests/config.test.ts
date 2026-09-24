@@ -19,6 +19,7 @@ describe('portable configuration and safe upgrades', () => {
     expect(() => configuration({HERTS_ORIGIN:prod.HERTS_ORIGIN})).toThrow('HERTS_IDENTITY');
     for (const origin of ['http://herts.example.com','https://herts.example.com/','https://herts.example.com/path','https://user:fixture@herts.example.com','https://herts.example.com#fragment']) expect(() => configuration({...prod,HERTS_ORIGIN:origin})).toThrow('HERTS_ORIGIN');
     expect(configuration({HERTS_DEV:'1',HERTS_PORT:'9000'})).toMatchObject({dev:true,port:9000,origin:'http://127.0.0.1:9000',hermesBase:'',hermesProfile:'default'});
+    expect(configuration({ ...prod, HERTS_THEMES_DIR: '/tmp/custom-herts-themes' }).themesDir).toBe('/tmp/custom-herts-themes');
     for (const port of ['0','65536','bad','1.5']) expect(() => configuration({...prod,HERTS_PORT:port})).toThrow('HERTS_PORT');
   });
   it('retains legacy configuration while new settings take precedence', () => {

@@ -31,7 +31,7 @@ for (const width of [390, 1280]) test(`filters linked conversations, search and 
   await filter.uncheck(); await expect(row).toHaveCount(0);
   await expect(page.getByText('Turn on “Show linked conversations” to include them.')).toBeVisible();
   await context.setOffline(false); await page.reload();
-  await expect(page.getByText('HERMES CONVERSATIONS', { exact: true })).toBeVisible(); await expect(row).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Conversations', exact: true })).toBeVisible(); await expect(row).toHaveCount(0);
   await page.getByRole('textbox', { name: 'Search conversations' }).fill(`Saved filter response ${width}`);
   await expect(page.getByRole('heading', { name: 'No conversations found' })).toBeVisible();
   await filter.check(); await expect(row).toContainText('Task created');

@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "id": "studio",
+  "name": "Studio",
+  "description": "Porcelain, terracotta and a warm umber frame.",
+  "extends": "fieldwork",
+  "colors": {
+    "background": "#F7F2EF",
+    "surface": "#FFFCFA",
+    "surfaceMuted": "#F0E5DF",
+    "surfaceHover": "#F5EBE5",
+    "text": "#302828",
+    "textSecondary": "#74635F",
+    "border": "#DDD0CA",
+    "controlBorder": "#A48A80",
+    "link": "#A74832",
+    "primaryAction": "#A74832",
+    "primaryActionHover": "#883A28",
+    "primaryActionText": "#FFFFFF",
+    "selected": "#F3E0D8",
+    "selectedText": "#923C29",
+    "focus": "#A74832",
+    "sidebar": "#352D2B",
+    "sidebarText": "#FFF5EF",
+    "sidebarMuted": "#CDBEB6",
+    "sidebarSelected": "#504039",
+    "sidebarSelectedText": "#FFF5EF",
+    "sidebarBorder": "#76625B",
+    "userMessage": "#F3E4DE",
+    "code": "#EEDFD8",
+    "danger": "#942F56",
+    "dangerSurface": "#FBE7F0",
+    "dangerBorder": "#BF7390",
+    "shadow": "#352D2B20"
+  },
+  "typography": {
+    "bodyFont": "Avenir Next, Avenir, Century Gothic, ui-sans-serif, system-ui, sans-serif",
+    "headingFont": "Avenir Next, Avenir, Century Gothic, ui-sans-serif, system-ui, sans-serif",
+    "headingWeight": 600
+  },
+  "radii": {
+    "control": 8,
+    "panel": 12,
+    "small": 5
+  },
+  "elevation": "soft"
+}

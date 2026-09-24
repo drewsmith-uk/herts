@@ -24,7 +24,7 @@ export function configuration(env: NodeJS.ProcessEnv = process.env) {
   }
   if (!!hermesBase !== !!hermesToken) throw new Error('Configure both HERMES_BASE_URL and HERMES_TOKEN_FILE (or HERMES_TOKEN), or leave both unset for tasks-only use.');
   if (/[\r\n]/.test(hermesToken)) throw new Error('The Hermes token must be a single line.');
-  return { pluginsDir:resolve(setting('PLUGINS_DIR')||'plugins'), dataDir: resolve(setting('DATA_DIR') || 'data'), origin, identity, dev, port, hermesBase, hermesToken, hermesProfile, excluded: (env.HERMES_EXCLUDED_CONVERSATIONS || '').split(',').map(v => v.trim()).filter(Boolean) };
+  return { themesDir: resolve(setting('THEMES_DIR') || 'themes'), pluginsDir:resolve(setting('PLUGINS_DIR')||'plugins'), dataDir: resolve(setting('DATA_DIR') || 'data'), origin, identity, dev, port, hermesBase, hermesToken, hermesProfile, excluded: (env.HERMES_EXCLUDED_CONVERSATIONS || '').split(',').map(v => v.trim()).filter(Boolean) };
 }
 export function validateProfile(profile: string) {
   if (!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(profile)) throw new Error('HERMES_PROFILE must be a Hermes profile name (lowercase letters, digits, underscores and hyphens).');

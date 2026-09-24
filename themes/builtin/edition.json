@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "id": "edition",
+  "name": "Edition",
+  "description": "Ivory, ink and editorial serif headings.",
+  "extends": "fieldwork",
+  "colors": {
+    "background": "#F7F4EE",
+    "surface": "#FFFDF8",
+    "surfaceMuted": "#EEEAE2",
+    "surfaceHover": "#F2EEE6",
+    "text": "#252623",
+    "textSecondary": "#69645B",
+    "border": "#DCD6CC",
+    "controlBorder": "#948778",
+    "link": "#795836",
+    "primaryAction": "#252623",
+    "primaryActionHover": "#44433C",
+    "primaryActionText": "#FFFDF8",
+    "selected": "#EAE3D7",
+    "selectedText": "#684827",
+    "focus": "#795836",
+    "sidebar": "#EEEAE2",
+    "sidebarText": "#252623",
+    "sidebarMuted": "#69645B",
+    "sidebarSelected": "#E0D9CC",
+    "sidebarSelectedText": "#252623",
+    "sidebarBorder": "#D5CDBF",
+    "userMessage": "#EEEAE2",
+    "code": "#EBE6DD",
+    "shadow": "#25262320"
+  },
+  "typography": {
+    "headingFont": "Iowan Old Style, Palatino Linotype, Book Antiqua, Georgia, serif",
+    "headingWeight": 500
+  },
+  "radii": {
+    "control": 4,
+    "panel": 4,
+    "small": 3
+  },
+  "elevation": "flat"
+}

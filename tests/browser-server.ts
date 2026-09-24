@@ -1,6 +1,6 @@
 import webpush from 'web-push';
 import { createServer } from 'node:http';
-import { mkdtemp, readFile, cp, mkdir, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, cp, mkdir, rm } from 'node:fs/promises';
 import { WebSocketServer } from 'ws';
 import { createApp } from '../server/app';
 const browserRoot = process.env.HERTS_BROWSER_ROOT || process.env.TASKS_BROWSER_ROOT;
@@ -134,9 +134,10 @@ webpush.sendNotification=async(_subscription,payload)=>{
   return {statusCode:201,headers:{},body:''};
 };
 const fixtureRoot=await mkdtemp('/tmp/herts-browser-');
+const themesDir=fixtureRoot+'/themes';await mkdir(themesDir);
 const pluginsDir=fixtureRoot+'/plugins';await mkdir(pluginsDir);
 for(const id of ['tasks','reading'])await cp('plugins/'+id,pluginsDir+'/'+id,{recursive:true});
-const { app, articles, store, plugins } = await createApp({ dataDir: fixtureRoot+'/data', pluginsDir, origin: 'http://127.0.0.1:8790', identity: 'fixture', dev: true, hermesBase: 'http://127.0.0.1:8791', hermesToken: 'fixture-token' });
+const { app, articles, store, plugins } = await createApp({ dataDir: fixtureRoot+'/data', pluginsDir, themesDir, origin: 'http://127.0.0.1:8790', identity: 'fixture', dev: true, hermesBase: 'http://127.0.0.1:8791', hermesToken: 'fixture-token' });
 await plugins.activate('tasks');await plugins.activate('reading');plugins.reorder(['tasks','conversations','reading']);
 // Simulate a client on a previous release without intercepting browser traffic
 // while real service workers install and take control. Their cached index stays new.
@@ -150,6 +151,8 @@ app.get('/', async (req, reply) => {
 });
 app.get('/__test/old-sw.js',async(_req,reply)=>reply.type('application/javascript').header('Service-Worker-Allowed','/').send("self.addEventListener('install',event=>event.waitUntil(self.skipWaiting()));self.addEventListener('activate',event=>event.waitUntil(self.clients.claim()));"));
 app.get('/__test/failed-sw.js',async(_req,reply)=>reply.type('application/javascript').header('Service-Worker-Allowed','/').send("self.addEventListener('install',event=>event.waitUntil(Promise.reject(new Error('Fixture install failure'))));"));
+// Theme files live only in this temporary fixture, never the installation folder.
+app.post('/__test/theme-file',async req=>{const {content}=req.body as {content:string|null};if(content===null)await rm(themesDir+'/custom.json',{force:true});else await writeFile(themesDir+'/custom.json',content);return{ok:true};});
 app.post('/__test/notes',async req=>{if((req.body as any).present)await cp('examples/notes',pluginsDir+'/notes',{recursive:true});else await rm(pluginsDir+'/notes',{recursive:true,force:true});await plugins.scan();return{ok:true};});
 app.post('/__test/push-status',async req=>{const input=req.body as {status:number;kind?:string};pushStatus=input.status;pushFailureKind=input.kind;return{ok:true};});
 app.get('/__test/push-calls',async()=>pushCalls);

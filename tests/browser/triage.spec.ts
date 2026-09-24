@@ -14,7 +14,8 @@ async function changeVisibilityFromView(page: Page, id: string, hidden: boolean)
 
 test('phone swipes respect scrolling and cancellation, hide with undo, and create exactly one task', async ({ browser, request }) => {
   const before: string[] = await (await request.get('http://127.0.0.1:8791/calls')).json();
-  const context = await browser.newContext({ baseURL: 'http://127.0.0.1:8790', viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  // The compact three-row result fits taller phones; use a short viewport to exercise scrolling.
+  const context = await browser.newContext({ baseURL: 'http://127.0.0.1:8790', viewport: { width: 390, height: 600 }, isMobile: true, hasTouch: true });
   try {
     const page = await context.newPage(); let writes = 0;
     page.on('request', r => { if (r.method() === 'POST' && !/\/plugins\/[^/]+\/queries\//.test(new URL(r.url()).pathname)) writes++; });
@@ -32,6 +33,7 @@ test('phone swipes respect scrolling and cancellation, hide with undo, and creat
     }
     await swipe(item, 35); await expect(item).toBeVisible(); expect(writes).toBe(0); await expect(page).toHaveURL(/#\/conversations$/);
     const scrollBefore = await page.evaluate(() => scrollY);
+    expect(await page.evaluate(() => document.documentElement.scrollHeight > innerHeight)).toBe(true);
     await swipe(item, 4, -120); await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(scrollBefore);
     expect(writes).toBe(0); await expect(item).toBeVisible();
     await swipe(item, -150, 0, true); expect(writes).toBe(0); await expect(item).toBeVisible();

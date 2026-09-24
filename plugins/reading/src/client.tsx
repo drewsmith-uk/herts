@@ -1,11 +1,12 @@
 import { BookOpen } from 'lucide-react';
-import { type ClientPlugin, type RouteProps } from '@herts/plugin-api/client';
+import { PageHeader, type ClientPlugin, type RouteProps } from '@herts/plugin-api/client';
 import { ReadingList, ReadingCapture, ReadingDetail, Reader, BookmarkLink, ReadingSettings } from './Reading';
 import { applyReadingOp, emptyReading, type ReadingState, type ReadingOp } from './model';
 import { useApp, resolveReadingConflict, startReading, db } from './data';
 function Screen({ parts, path, shared }: RouteProps) { const [screen, id] = parts; return screen === 'reading-item' ? <ReadingDetail key={id} id={id}/> : screen === 'reader' ? <Reader key={id} id={id}/> : id === 'add' ? <ReadingCapture sharedContent={shared}/> : <ReadingList read={id === 'read'}/>; }
 function Conflicts() { const state = useApp(); return <>{state.readingPending.filter(p => p.conflict).map(p => <div className="conflict-banner" key={p.op.id}><strong>A reading-list change needs your choice</strong><p>{p.conflict}</p>{p.op.kind === 'title' && <><p>Your title: {p.op.title}</p><p>Synced title: {state.remote.reading.items.find(i => i.id === p.op.itemId)?.title}</p></>}<div className="button-row"><button onClick={() => void resolveReadingConflict(p.op.id, true)}>Keep my change</button><button onClick={() => void resolveReadingConflict(p.op.id, false)}>Use synced version</button></div></div>)}</>; }
 export default function activate(): ClientPlugin {
+    if (!PageHeader) throw new Error('Update Herts in Settings → App updates to use this version of Reading.');
     return {
         tab: { title: 'Reading', path: '/reading', icon: BookOpen }, routes: [{ match: path => /^\/(reading|reading-item|reader)(\/|$)/.test(path), component: Screen }],
         Settings: ReadingSettings, Conflicts, MessageLink: BookmarkLink,

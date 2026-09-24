@@ -1,3 +1,4 @@
+import { PageHeader, Button, ButtonLink, IconButton, SectionNav, SectionLink, ItemList, ItemRow, ItemMeta, EmptyState, StatusMessage, SettingsSection, SettingRow, FormField } from '@herts/plugin-api/client';
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { BookOpen, Bookmark, BookmarkCheck, Plus, Check, Circle, ArrowUp, ArrowDown, Pencil, ChevronLeft, ExternalLink, Download, Trash2, LoaderCircle, Send } from 'lucide-react';
 import { DndContext, closestCenter, type DragEndEvent } from '@dnd-kit/core';
@@ -30,11 +31,11 @@ export function ReadingList({ read }: {
         const from = items.findIndex(i => i.id === active.id), to = items.findIndex(i => i.id === over.id);
         run(() => readingChange(String(active.id), { kind: 'reorder', beforeId: from < to ? items[to + 1]?.id || null : String(over.id) }));
     }
-    return <><div className="page-heading"><div><div className="eyebrow">YOUR READING</div><h1>Reading list <span className="heading-count">{items.length}</span></h1><p>Links to return to, in your order.</p></div><button className={`quiet-button ${edit ? 'selected' : ''}`} onClick={() => setEdit(!edit)}><Pencil size={15}/>{edit ? 'Finish editing' : 'Edit list'}</button></div>
-    <div className="reading-toolbar"><div className="reading-tabs"><a href="#/reading" className={!read ? 'active' : ''}>Unread <small>{reading.unread.ids.length}</small></a><a href="#/reading/read" className={read ? 'active' : ''}>Read <small>{reading.items.length - reading.unread.ids.length}</small></a></div><a className="primary-button reading-add" href="#/reading/add"><Plus size={17}/> Add link</a></div>
-    {error && <p role="alert" className="inline-error">{error}</p>}<div className="list-summary"><span>{read ? 'READ' : 'MANUAL ORDER'}</span><span>{read ? 'Most recently read first' : 'New links at the top'}</span></div>
-    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={drag} onDragStart={clickGuard.start} onDragCancel={clickGuard.end}><SortableContext items={items.map(i => i.id)} strategy={verticalListSortingStrategy}><div className="task-list">{items.map((item, index) => <ReadingRow key={item.id} item={item} index={index} items={items} edit={edit}/>)}</div></SortableContext></DndContext>
-    {!items.length && <div className="empty"><div className="empty-icon"><BookOpen size={30}/></div><h2>{read ? 'Nothing marked read yet' : 'Your next good read'}</h2><p>{read ? 'Finished articles will appear here.' : 'Add a link, share one from another app, or bookmark a link in a conversation.'}</p></div>}
+    return <><PageHeader title="Reading list" count={items.length} actions={(items.length > 0 || edit) && <Button variant="quiet" className={edit ? 'selected' : ''} onClick={() => setEdit(!edit)}><Pencil size={15}/>{edit ? 'Finish editing' : 'Edit list'}</Button>}/>
+    <div className="reading-toolbar"><SectionNav className="reading-tabs" aria-label="Reading lists"><SectionLink href="#/reading" active={!read}>Unread <small>{reading.unread.ids.length}</small></SectionLink><SectionLink href="#/reading/read" active={read}>Read <small>{reading.items.length - reading.unread.ids.length}</small></SectionLink></SectionNav><ButtonLink variant="primary" className="reading-add" href="#/reading/add"><Plus size={17}/> Add link</ButtonLink></div>
+    {error && <StatusMessage>{error}</StatusMessage>}{items.length > 0 && <div className="list-summary">{!read && <span className="list-summary-label">MANUAL ORDER</span>}<span>{read ? 'Most recently read first' : 'New links at the top'}</span></div>}
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={drag} onDragStart={clickGuard.start} onDragCancel={clickGuard.end}><SortableContext items={items.map(i => i.id)} strategy={verticalListSortingStrategy}><ItemList className="task-list">{items.map((item, index) => <ReadingRow key={item.id} item={item} index={index} items={items} edit={edit}/>)}</ItemList></SortableContext></DndContext>
+    {!items.length && <EmptyState icon={<BookOpen size={30}/>} title={read ? 'Nothing marked read yet' : 'Your next good read'} description={read ? 'Finished articles will appear here.' : 'Add a link, share one from another app, or bookmark a link in a conversation.'}/>}
   </>;
 }
 function ReadingRow({ item, index, items, edit }: {
@@ -46,13 +47,13 @@ function ReadingRow({ item, index, items, edit }: {
     const state = useApp(), { run, error } = useReadingAction(), title = useReadingTitle(item);
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id, disabled: item.readAt !== null });
     const article = state.articleCopies[item.id], pending = state.readingPending.some(p => p.op.itemId === item.id);
-    return <div><div ref={setNodeRef} className={`task-row reading-row ${isDragging ? 'dragging' : ''}`} style={{ transform: CSS.Transform.toString(transform), transition }} {...(item.readAt === null ? attributes : {})} {...holdListeners(listeners)} role="group" aria-label={item.title} aria-roledescription={item.readAt === null ? 'sortable reading item' : undefined} onContextMenu={e => { if (!(e.target as Element).closest('input,textarea'))
-        e.preventDefault(); }} onDragStart={e => e.preventDefault()}>
-    <button className="completion-button" aria-label={`${item.readAt === null ? 'Mark read' : 'Mark unread'}: ${item.title}`} onClick={() => run(() => readingChange(item.id, { kind: 'read', read: item.readAt === null }))}>{item.readAt === null ? <Circle size={21}/> : <Check size={18}/>}</button>
-    <div className="task-row-body">{edit ? <input className="inline-title" aria-label="Edit reading title" value={title.text} maxLength={2000} onChange={e => title.setText(e.target.value)} onBlur={() => void title.save()} onKeyDown={e => { if (e.key === 'Enter')
-        e.currentTarget.blur(); }}/> : <a className="task-title" draggable={false} href={`#/reading-item/${item.id}`}>{item.title}</a>}<div className="task-meta"><span>{new URL(item.url).hostname}</span>{pending && <span>Saved on device</span>}{item.readAt !== null ? <span>{date(item.readAt)}</span> : article?.html ? <span><Download size={11}/> Available offline{article.status === 'excerpt' ? ' · excerpt' : ''}</span> : null}</div></div>
-    {edit && item.readAt === null && <div className="reorder-controls"><button className="icon-button" aria-label={`Move ${item.title} up`} disabled={!index} onClick={() => run(() => readingChange(item.id, { kind: 'reorder', beforeId: items[index - 1].id }))}><ArrowUp size={16}/></button><button className="icon-button" aria-label={`Move ${item.title} down`} disabled={index === items.length - 1} onClick={() => run(() => readingChange(item.id, { kind: 'reorder', beforeId: items[index + 2]?.id || null }))}><ArrowDown size={16}/></button></div>}
-  </div>{(error || title.error) && <p role="alert" className="inline-error">{error || title.error}</p>}</div>;
+    return <div><ItemRow ref={setNodeRef} className={`task-row reading-row ${isDragging ? 'dragging' : ''}`} style={{ transform: CSS.Transform.toString(transform), transition }} {...(item.readAt === null ? attributes : {})} {...holdListeners(listeners)} role="group" aria-label={item.title} aria-roledescription={item.readAt === null ? 'sortable reading item' : undefined} onContextMenu={e => { if (!(e.target as Element).closest('input,textarea'))
+        e.preventDefault(); }} onDragStart={e => e.preventDefault()} leading={<IconButton className="completion-button" aria-label={`${item.readAt === null ? 'Mark read' : 'Mark unread'}: ${item.title}`} onClick={() => run(() => readingChange(item.id, { kind: 'read', read: item.readAt === null }))}>{item.readAt === null ? <Circle size={21}/> : <Check size={18}/>}</IconButton>} trailing={edit && item.readAt === null && <div className="reorder-controls"><IconButton aria-label={`Move ${item.title} up`} disabled={!index} onClick={() => run(() => readingChange(item.id, { kind: 'reorder', beforeId: items[index - 1].id }))}><ArrowUp size={16}/></IconButton><IconButton aria-label={`Move ${item.title} down`} disabled={index === items.length - 1} onClick={() => run(() => readingChange(item.id, { kind: 'reorder', beforeId: items[index + 2]?.id || null }))}><ArrowDown size={16}/></IconButton></div>}>
+
+    {edit ? <input className="inline-title" aria-label="Edit reading title" value={title.text} maxLength={2000} onChange={e => title.setText(e.target.value)} onBlur={() => void title.save()} onKeyDown={e => { if (e.key === 'Enter')
+        e.currentTarget.blur(); }}/> : <a className="task-title" draggable={false} href={`#/reading-item/${item.id}`}>{item.title}</a>}<ItemMeta><span>{new URL(item.url).hostname}</span>{pending && <span>Saved on device</span>}{item.readAt !== null ? <span>{date(item.readAt)}</span> : article?.html ? <span><Download size={11}/> Available offline{article.status === 'excerpt' ? ' · excerpt' : ''}</span> : null}</ItemMeta>
+
+  </ItemRow>{(error || title.error) && <StatusMessage>{error || title.error}</StatusMessage>}</div>;
 }
 export function ReadingCapture({ sharedContent }: {
     sharedContent?: import('@herts/plugin-api/types').SharedContent;
@@ -105,10 +106,10 @@ export function ReadingCapture({ sharedContent }: {
     }
     function cancel() { if (shared)
         history.replaceState(null, '', '/'); navigate('/reading'); }
-    return <><a href="#/reading" className="back-link" onClick={e => { e.preventDefault(); cancel(); }}><ChevronLeft size={17}/> Reading list</a><div className="page-heading"><div><div className="eyebrow">SAVE SOMETHING TO READ</div><h1>Add a link</h1><p>Save it to Reading and send the link to Hermes.</p></div></div>
+    return <><a href="#/reading" className="back-link" onClick={e => { e.preventDefault(); cancel(); }}><ChevronLeft size={17}/> Reading list</a><PageHeader title="Add a link" description="Save it to Reading and send the link to Hermes."/>
     <form className="reading-capture" onSubmit={capture}>{candidates.length > 1 && <fieldset><legend>Choose the link to save</legend>{candidates.map(candidate => <label className="share-choice" key={candidate}><input type="radio" name="shared-link" value={candidate} checked={url === candidate} onChange={() => update(candidate, title)}/><span>{candidate}</span></label>)}</fieldset>}
-      <label>Link<input type="url" aria-label="Article link" value={url} disabled={!loaded || busy} onChange={e => update(e.target.value, title)} placeholder="https://…" required maxLength={8192}/></label>
-      <label>Title <span className="subtle-note">(optional)</span><input aria-label="Reading title" value={title} disabled={!loaded || busy} onChange={e => update(url, e.target.value)} maxLength={2000}/></label>
+      <FormField label="Link"><input type="url" aria-label="Article link" value={url} disabled={!loaded || busy} onChange={e => update(e.target.value, title)} placeholder="https://…" required maxLength={8192}/></FormField>
+      <FormField label={<>Title <span className="subtle-note">(optional)</span></>}><input aria-label="Reading title" value={title} disabled={!loaded || busy} onChange={e => update(url, e.target.value)} maxLength={2000}/></FormField>
       <div className="button-row"><button className="primary-button" disabled={!loaded || busy || !url.trim()}>{busy ? <LoaderCircle className="spin" size={16}/> : <Plus size={16}/>} {state.online && state.gateway.online ? 'Add & send' : 'Save link'}</button><button type="button" onClick={cancel}>Cancel</button></div>
       {(!state.online || !state.gateway.online) && <p>Hermes is unavailable. Save the link now and use Send to Hermes when connected.</p>}{error && <p role="alert" className="inline-error">{error}</p>}
     </form></>;
@@ -127,14 +128,14 @@ export function ReadingDetail({ id }: {
         return <div className="empty"><p>This reading item is not available on this device yet.</p><a href="#/reading">Reading list</a></div>;
     const article = state.articleCopies[id];
     const hasSubmission = state.actions.some(a => a.taskId === item.contextId && !a.cancelled) || state.localSubmissions.some(s => s.taskId === item.contextId);
+    const showSendNote = !!context && !context.link && !hasSubmission;
     return <div className="reading-detail"><ConversationHeader><a href={item.readAt === null ? '#/reading' : '#/reading/read'} className="back-link"><ChevronLeft size={17}/> Reading list</a><ReadingTitle item={item}/><div className="reading-detail-controls">
     <a className="primary-button" href={!state.online && article?.html ? `#/reader/${id}` : item.url} {...(state.online || !article?.html ? { target: '_blank', rel: 'noopener noreferrer' } : {})}><BookOpen size={16}/> Read article</a>
     <a className="quiet-button" href={`#/reader/${id}`}>Reading mode</a><button onClick={() => run(() => readingChange(id, { kind: 'read', read: item.readAt === null }))}><Check size={16}/>{item.readAt === null ? 'Mark read' : 'Mark unread'}</button>
-  </div>{error && <p role="alert">{error}</p>}</ConversationHeader>
+  </div>{error && <StatusMessage>{error}</StatusMessage>}</ConversationHeader>
     <div className="article-status"><a href={item.url} target="_blank" rel="noopener noreferrer"><ExternalLink size={14}/> {new URL(item.url).hostname}</a><OfflineControls item={item}/></div>
-    {error && <p role="alert" className="inline-error">{error}</p>}
-    {context && !context.link && !hasSubmission && <div className="reading-send-note"><p>Your link is saved. Send it to start its Hermes conversation.</p><button className="primary-button" disabled={!state.online || !state.gateway.online || busy} onClick={() => { setBusy(true); run(() => sync().then(() => sendReadingLink(id)).finally(() => setBusy(false))); }}><Send size={16}/> Send to Hermes</button></div>}
-    {context && <ConversationPanel key={context.id} context={context} initialText={!context.link && !hasSubmission ? item.url : ''}/>}
+    {showSendNote && <div className="reading-send-note"><p>Your link is saved. Send it to start its Hermes conversation.</p><button className="primary-button" disabled={!state.online || !state.gateway.online || busy} onClick={() => { setBusy(true); run(() => sync().then(() => sendReadingLink(id)).finally(() => setBusy(false))); }}><Send size={16}/> Send to Hermes</button></div>}
+    {context && <ConversationPanel key={context.id} context={context} initialText={showSendNote ? item.url : ''} showEmptyNotice={!showSendNote}/>}
   </div>;
 }
 function useReadingTitle(item: ReadingItem) {
@@ -232,5 +233,5 @@ export function BookmarkLink({ href, conversationId, children }: {
 }
 export function ReadingSettings() {
     const state = useApp(), { run, error } = useReadingAction();
-    return <section className="settings-card"><div className="settings-icon"><Download size={22}/></div><div><h2>Offline reading</h2><label className="reading-setting"><input type="checkbox" checked={state.snapshot.reading?.autoDownload ?? true} onChange={e => run(() => readingChange(crypto.randomUUID(), { kind: 'settings', autoDownload: e.target.checked }))}/> Automatically download unread articles</label><p>Article text is saved on this device when Herts is reachable. Marking an item read removes its download; other devices clean up when they next sync.</p><p className="subtle-note">Some websites only provide an excerpt. Open the original link if the saved article is incomplete.</p>{error && <p className="inline-error" role="alert">{error}</p>}</div></section>;
+    return <SettingsSection title="Offline reading" icon={<Download size={22}/>}><SettingRow label="Automatically download unread articles" htmlFor="reading-auto-download" control={<input id="reading-auto-download" type="checkbox" checked={state.snapshot.reading?.autoDownload ?? true} onChange={e => run(() => readingChange(crypto.randomUUID(), { kind: 'settings', autoDownload: e.target.checked }))}/>}/><p>Article text is saved on this device when Herts is reachable. Marking an item read removes its download; other devices clean up when they next sync.</p><p className="subtle-note">Some websites only provide an excerpt. Open the original link if the saved article is incomplete.</p>{error && <StatusMessage>{error}</StatusMessage>}</SettingsSection>;
 }

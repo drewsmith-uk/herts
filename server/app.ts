@@ -16,6 +16,7 @@ import { Actions } from './actions.js';
 import { registerSessionSettings } from './sessionSettings.js';
 import { Notifications } from './notifications.js';
 import { bindHermesTarget } from './config.js';
+import { registerThemes } from './themes.js';
 import { mediaRefs } from '../shared/media.js';
 
 const uuid = z.string().uuid();
@@ -25,7 +26,7 @@ const actionSchema = z.object({ id: uuid, taskId: uuid.optional(), contextId: uu
   if (v.kind === 'send' && !v.text?.trim() && !v.uploadIds?.length) ctx.addIssue({ code: 'custom', message: 'Write a message or attach a file.' });
   if (v.kind === 'clarify' && !v.text?.trim()) ctx.addIssue({ code: 'custom', message: 'An answer is required.' });
 });
-export interface Config { pluginsDir?: string; dataDir: string; origin: string; identity: string; dev?: boolean; hermesBase: string; hermesToken: string; excluded?: string[]; hermesProfile?: string }
+export interface Config { themesDir?: string; pluginsDir?: string; dataDir: string; origin: string; identity: string; dev?: boolean; hermesBase: string; hermesToken: string; excluded?: string[]; hermesProfile?: string }
 export async function createApp(config: Config) {
   await mkdir(config.dataDir, { recursive: true, mode: 0o700 });
   const uploadDir = join(config.dataDir, 'uploads'); await mkdir(uploadDir, { recursive: true, mode: 0o700 });
@@ -65,6 +66,7 @@ export async function createApp(config: Config) {
     if(e.statusCode===409)return reply.code(409).send({error:e.message,snapshot:clientSnapshot(store,req),pluginData:plugins.data()});
     reply.code(e.statusCode && e.statusCode < 500 ? e.statusCode : 500).send({ error: e.statusCode && e.statusCode < 500 ? e.message : 'The request could not be completed. Your saved work is retained.' });
   });
+  registerThemes(app, config.themesDir || resolve('themes'));
   app.get('/api/v1/state', async req => ({ snapshot: clientSnapshot(store,req), actions: store.actions(), bindings: Object.fromEntries(store.bindings()), gateway: { online: gateway.online, configured: !!config.hermesToken, profile }, plugins:plugins.catalogue(), pluginData:plugins.data(), pushKey: notifications.keys.publicKey }));
 
   app.get('/manifest.webmanifest',async(_req,reply)=>{const manifest=JSON.parse(await readFile(resolve('public/manifest.webmanifest'),'utf8'));manifest.description='Private Hermes conversations with optional plugins';manifest.shortcuts=plugins.catalogue().entries.filter(e=>plugins.enabled(e.manifest.id)).flatMap(e=>(e.manifest.shortcuts||[]));return reply.type('application/manifest+json').header('Cache-Control','no-cache').send(manifest);});

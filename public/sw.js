@@ -1,4 +1,17 @@
 // Preserve the cache namespace used by installed clients during upgrades.
+// Theme fonts use immutable content hashes, including when a theme is updated.
+self.addEventListener('fetch', event => {
+ const url = new URL(event.request.url);
+ if (url.origin !== self.location.origin || event.request.method !== 'GET' || !/^\/_themes\/[a-f0-9]{64}\.woff2$/.test(url.pathname)) return;
+ event.respondWith((async () => {
+  const cache = await caches.open('herts-theme-fonts-v1');
+  const saved = await cache.match(event.request);
+  if (saved) return saved;
+  const response = await fetch(event.request);
+  if (response.ok) await cache.put(event.request, response.clone());
+  return response;
+ })());
+});
 const CACHE='tasks-shell-dev';
 const PRECACHE=['/index.html','/icon.svg','/manifest.webmanifest'];
 self.addEventListener('install',event=>{event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(PRECACHE)));});

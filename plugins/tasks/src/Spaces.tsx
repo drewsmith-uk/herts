@@ -1,3 +1,4 @@
+import { SettingsSection, DialogFrame, FormField } from '@herts/plugin-api/client';
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import { Layers, Plus, Trash2 } from 'lucide-react';
 import { liveQuery } from '@herts/plugin-api/client';
@@ -54,10 +55,8 @@ export function SpaceTabs({ spaceId }: {
 function CreateSpaceDialog({ close }: {
     close: () => void;
 }) {
-    const { online } = useApp(), dialog = useRef<HTMLDialogElement>(null);
+    const { online } = useApp();
     const [name, setName] = useState(''), [error, setError] = useState(''), [busy, setBusy] = useState(false);
-    useLayoutEffect(() => { const node = dialog.current!; node.showModal(); return () => { if (node.open)
-        node.close(); }; }, []);
     async function save(event: FormEvent) {
         event.preventDefault();
         if (busy || !name.trim())
@@ -75,20 +74,13 @@ function CreateSpaceDialog({ close }: {
             setBusy(false);
         }
     }
-    return <dialog ref={dialog} className="space-dialog" aria-labelledby="create-space-heading" onCancel={event => { event.preventDefault(); if (!busy)
-        close(); }} onClick={event => {
-            if (event.target !== event.currentTarget || busy)
-                return;
-            const r = event.currentTarget.getBoundingClientRect();
-            if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom)
-                close();
-        }}><form onSubmit={save}>
+    return <DialogFrame className="space-dialog" aria-labelledby="create-space-heading" close={close} busy={busy} dismissOnBackdrop><form onSubmit={save}>
     <h2 id="create-space-heading"><Layers size={21}/>Create space</h2><p>Keep a separate set of task lists for work, family or anything else.</p>
-    <label>Space name<input aria-label="New space name" placeholder="e.g. Work" value={name} onChange={event => setName(event.target.value)} maxLength={80} required disabled={busy}/></label>
+    <FormField label="Space name"><input aria-label="New space name" placeholder="e.g. Work" value={name} onChange={event => setName(event.target.value)} maxLength={80} required disabled={busy}/></FormField>
     {!online && <p>Saved on this device and synced when you reconnect.</p>}
     {error && <p className="inline-error" role="alert">{error}</p>}
     <div className="button-row"><button type="button" disabled={busy} onClick={close}>Cancel</button><button className="primary-button" disabled={busy || !name.trim()}>{busy ? 'Creating…' : 'Create space'}</button></div>
-  </form></dialog>;
+  </form></DialogFrame>;
 }
 export function SpaceSettings() {
     const state = useApp(), [name, setName] = useState(''), [error, setError] = useState(''), [busy, setBusy] = useState(false);
@@ -108,12 +100,12 @@ export function SpaceSettings() {
             setBusy(false);
         }
     }
-    return <section className="settings-card spaces-settings"><div className="settings-icon"><Layers size={22}/></div><div><h2>Task spaces</h2><p>Each space has its own Inbox, Next, Waiting, Parked and Done. Conversations and Reading are shared.</p>
-    <label className="default-space-label">Default space<select aria-label="Default space" value={state.snapshot.defaultSpaceId} onChange={e => { setError(''); void setDefaultSpace(e.target.value).catch(e => setError(e.message)); }}>{state.snapshot.spaces?.map(space => <option key={space.id} value={space.id}>{space.name}</option>)}</select></label><p className="subtle-note">New tasks from conversations and the home-screen voice shortcut go to this space’s Inbox. Capture on a task-list screen uses the space you are viewing.</p>
+    return <SettingsSection className="spaces-settings" title="Task spaces" icon={<Layers size={22}/>} description="Each space has its own Inbox, Next, Waiting, Parked and Done. Conversations and Reading are shared.">
+    <FormField className="default-space-label" label="Default space"><select aria-label="Default space" value={state.snapshot.defaultSpaceId} onChange={e => { setError(''); void setDefaultSpace(e.target.value).catch(e => setError(e.message)); }}>{state.snapshot.spaces?.map(space => <option key={space.id} value={space.id}>{space.name}</option>)}</select></FormField><p className="subtle-note">New tasks from conversations and the home-screen voice shortcut go to this space’s Inbox. Capture on a task-list screen uses the space you are viewing.</p>
     <p className="subtle-note">Empty added spaces can be deleted. The original space is kept as a fallback and can be renamed.</p><div className="space-management-list">{state.snapshot.spaces?.map(space => <SpaceName key={space.id} space={space}/>)}</div>
-    <form className="new-space-form" onSubmit={add}><label>New space<input aria-label="New space name" placeholder="e.g. Work" value={name} onChange={e => setName(e.target.value)} maxLength={80}/></label><button disabled={busy || !name.trim()}><Plus size={16}/> Create space</button></form>
+    <form className="new-space-form" onSubmit={add}><FormField label="New space"><input aria-label="New space name" placeholder="e.g. Work" value={name} onChange={e => setName(e.target.value)} maxLength={80}/></FormField><button disabled={busy || !name.trim()}><Plus size={16}/> Create space</button></form>
     {error && <p role="alert" className="inline-error">{error}</p>}
-  </div></section>;
+  </SettingsSection>;
 }
 function SpaceName({ space }: {
     space: Space;
@@ -137,21 +129,20 @@ function SpaceName({ space }: {
     {error && <p role="alert" className="inline-error">{error}</p>}{deleting && <DeleteSpaceDialog space={space} close={() => setDeleting(false)}/>}</div>;
 }
 function DeleteSpaceDialog({ space, close }: { space: Space; close: () => void }) {
-    const { snapshot, online } = useApp(), dialog = useRef<HTMLDialogElement>(null);
+    const { snapshot, online } = useApp();
     const [busy, setBusy] = useState(false), [error, setError] = useState('');
-    useLayoutEffect(() => { const node = dialog.current!; node.showModal(); return () => { if (node.open) node.close(); }; }, []);
     async function remove(event: FormEvent) {
         event.preventDefault(); if (busy) return; setBusy(true); setError('');
         try { await deleteSpace(space.id); close(); }
         catch (e) { setError((e as Error).message); setBusy(false); }
     }
-    return <dialog ref={dialog} className="space-dialog" aria-labelledby="delete-space-heading" onCancel={event => { event.preventDefault(); if (!busy) close(); }}><form onSubmit={remove}>
+    return <DialogFrame className="space-dialog" aria-labelledby="delete-space-heading" close={close} busy={busy}><form onSubmit={remove}>
       <h2 id="delete-space-heading">Delete “{space.name}”?</h2><p>This removes the empty space and its list tabs. You can create a new space again later.</p>
       {snapshot.defaultSpaceId === space.id && <p>Your default space will become {spaceName(snapshot, originalSpaceId)}.</p>}
       {!online && <p>The deletion will sync when you reconnect. If another device has added tasks, the space will be kept.</p>}
       {error && <p className="inline-error" role="alert">{error}</p>}
       <div className="button-row"><button type="button" disabled={busy} onClick={close}>Cancel</button><button className="danger-button" disabled={busy}>{busy ? 'Deleting…' : 'Delete space'}</button></div>
-    </form></dialog>;
+    </form></DialogFrame>;
 }
 export function SpaceConflict({ pending }: {
     pending: PendingSpace;

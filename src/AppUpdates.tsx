@@ -1,3 +1,4 @@
+import { SettingsSection } from './ui';
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { prepareForUpdate } from './updateSafety';
@@ -164,7 +165,7 @@ export function AppUpdates({ children }: { children: ReactNode }) {
   return <UpdateContext.Provider value={{ available: !!update, busy, checking: manualChecking, message, checkError, check: manualCheck, apply }}>
     {children}
     {showToast && <section className="update-toast" aria-label="App update">
-    <div className="update-toast-message" role="status"><RefreshCw size={18} className={busy ? 'spin' : ''}/><div><strong>{busy ? 'Updating Herts…' : 'Update available'}</strong><p>{busy ? 'Saving your changes and reloading.' : 'A new version of Herts is ready.'}</p></div></div>
+    <div className="update-toast-message" role="status"><RefreshCw size={18} className={busy ? 'spin' : ''}/><div><strong>{busy ? 'Updating Herts…' : 'Update available'}</strong>{busy && <p>Saving your changes and reloading.</p>}</div></div>
     {error && <p role="alert" className="update-toast-error">{error}</p>}
     <div className="button-row"><button type="button" className="primary-button" disabled={busy} onClick={() => void apply()}>Update now</button><button type="button" disabled={busy} onClick={() => { if (update) dismissed.current.add(update.version || update.worker); setToastDismissed(true); setError(''); }}>Later</button></div>
   </section>}
@@ -174,13 +175,12 @@ export function AppUpdates({ children }: { children: ReactNode }) {
 export function AppUpdateSettings() {
   const controls = useContext(UpdateContext);
   if (!controls) return null;
-  return <section className="settings-card app-update-settings" aria-labelledby="app-updates-heading"><div className="settings-icon"><RefreshCw size={22}/></div><div>
-    <h2 id="app-updates-heading">App updates</h2>
+  return <SettingsSection className="app-update-settings" title="App updates" headingId="app-updates-heading" icon={<RefreshCw size={22}/>}>
     {pageVersion && <p className="subtle-note">App version: {pageVersion.replace(/^tasks-shell-/, '')}</p>}
     <p role="status">{controls.checking ? 'Checking for updates…' : controls.available ? 'An update is ready to install.' : controls.message || 'Herts checks automatically when you open or return to the app.'}</p>
     {controls.checkError && <p role="alert">{controls.checkError}</p>}
     <div className="button-row"><button disabled={!supported() || controls.checking || controls.busy} onClick={() => void controls.check()}>Check for updates</button>{controls.available && <button className="primary-button" disabled={controls.checking || controls.busy} onClick={() => void controls.apply()}>Update now</button>}</div>
     <p className="subtle-note">Android’s launcher name, icon and shortcuts update separately through Chrome.</p>
     {!supported() && <p>Update checks are available in the installed or hosted app on a supported browser.</p>}
-  </div></section>;
+  </SettingsSection>;
 }

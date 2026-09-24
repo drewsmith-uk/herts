@@ -1,5 +1,6 @@
 import { Inbox, Link2 } from 'lucide-react';
 import type { ClientPlugin } from '@herts/plugin-api/client';
+import { PageHeader } from '@herts/plugin-api/client';
 import { applyTaskOp, applySpaceOp, emptySnapshot, conversationTaskId, type Snapshot } from './model';
 import { TasksScreen, TasksSidebar, TaskActions, TaskConflicts } from './Tasks';
 import { TaskDragging } from './TaskDragging';
@@ -7,6 +8,7 @@ import { SpaceSettings } from './Spaces';
 import { createTaskFromConversation, initialiseTasks, linkedTaskId, taskInboxName, useApp } from './data';
 function TaskBadge({conversation}:import('@herts/plugin-api/client').ConversationActionProps){useApp();return linkedTaskId(conversation)?<span><Link2 size={12}/>Task created</span>:null;}
 export default function activate(): ClientPlugin {
+    if (!PageHeader) throw new Error('Update Herts in Settings → App updates to use this version of Tasks.');
     return {
         tab: { title: 'Tasks', path: '/tasks', icon: Inbox },
         routes: [{ match: path => /^\/(tasks|task|spaces)(\/|$)/.test(path) || path.startsWith('/plugins/tasks/'), component: TasksScreen }],

@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "id": "signal",
+  "name": "Signal",
+  "description": "Cobalt, porcelain and a precise navy frame.",
+  "extends": "fieldwork",
+  "colors": {
+    "background": "#F3F5F9",
+    "surface": "#FFFFFF",
+    "surfaceMuted": "#E8EDF5",
+    "surfaceHover": "#EDF1F8",
+    "text": "#1D2737",
+    "textSecondary": "#5C687B",
+    "border": "#D8DFEB",
+    "controlBorder": "#7C8AA2",
+    "link": "#2758D8",
+    "primaryAction": "#2758D8",
+    "primaryActionHover": "#2046AD",
+    "primaryActionText": "#FFFFFF",
+    "selected": "#E3EBFE",
+    "selectedText": "#214DBB",
+    "focus": "#2758D8",
+    "sidebar": "#172438",
+    "sidebarText": "#EDF2FA",
+    "sidebarMuted": "#B3BFD1",
+    "sidebarSelected": "#293D5B",
+    "sidebarSelectedText": "#FFFFFF",
+    "sidebarBorder": "#4C5D75",
+    "userMessage": "#E8EEF8",
+    "code": "#E7ECF4",
+    "shadow": "#172B4D24"
+  },
+  "typography": {
+    "bodyFont": "Arial, Helvetica, ui-sans-serif, sans-serif",
+    "headingFont": "Arial, Helvetica, ui-sans-serif, sans-serif",
+    "headingWeight": 650
+  },
+  "radii": {
+    "control": 5,
+    "panel": 6,
+    "small": 3
+  },
+  "elevation": "flat"
+}

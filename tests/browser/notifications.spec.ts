@@ -45,6 +45,8 @@ test('detects the stale enabled setting, repairs it, confirms a test and persist
   await expect(page.getByRole('button',{name:'Repair notifications',exact:true})).toHaveCount(0);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   await page.getByRole('button',{name:'Turn off notifications'}).click();await expect(settings(page)).toContainText('Notifications are off on this device.');expect((await status(after)).registered).toBe(false);
+  await expect(settings(page).getByText('Notifications are off on this device.', { exact: true })).toHaveCount(1);
+  await expect(settings(page).getByRole('status').filter({ hasText: 'Notifications are off on this device.' })).toHaveCount(1);
 });
 
 test('an expired provider subscription becomes repairable, and a test never silently retries',async({page,request})=>{

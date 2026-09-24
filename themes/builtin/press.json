@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "id": "press",
+  "name": "Press",
+  "description": "Paper, ink and bold type. Cobalt actions and yellow highlights.",
+  "extends": "fieldwork",
+  "colors": {
+    "background": "#F7F5F0",
+    "surface": "#FFFDF8",
+    "surfaceMuted": "#ECEAE4",
+    "surfaceHover": "#F0EEE7",
+    "text": "#151515",
+    "textSecondary": "#54514B",
+    "border": "#151515",
+    "controlBorder": "#151515",
+    "link": "#1D3CFF",
+    "primaryAction": "#1D3CFF",
+    "primaryActionHover": "#162BC4",
+    "primaryActionText": "#FFFFFF",
+    "selected": "#FFE600",
+    "selectedText": "#151515",
+    "focus": "#1D3CFF",
+    "sidebar": "#F7F5F0",
+    "sidebarText": "#151515",
+    "sidebarMuted": "#54514B",
+    "sidebarSelected": "#FFE600",
+    "sidebarSelectedText": "#151515",
+    "sidebarBorder": "#151515",
+    "userMessage": "#ECEAE4",
+    "code": "#ECEAE4",
+    "backdrop": "#15151588",
+    "shadow": "#151515"
+  },
+  "typography": {
+    "bodyFont": "Arial, Helvetica, ui-sans-serif, sans-serif",
+    "headingFont": "\"Arial Black\", \"Helvetica Neue\", Arial, sans-serif",
+    "monoFont": "ui-monospace, SFMono-Regular, Consolas, \"Liberation Mono\", monospace",
+    "headingWeight": 900
+  },
+  "radii": { "control": 2, "panel": 2, "small": 2 },
+  "elevation": "flat",
+  "treatment": {
+    "borderWidth": 2,
+    "actionShadow": 3,
+    "labels": "mono",
+    "navigation": "filled"
+  }
+}
