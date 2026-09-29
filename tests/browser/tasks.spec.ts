@@ -18,10 +18,10 @@ test('phone capture, edit mode, priority, completion and offline reload', async 
 });
 test('preview and convert an existing conversation without starting work', async ({ page, request }) => {
   const before: string[] = await (await request.get('http://127.0.0.1:8791/calls')).json();
-  await page.goto('/#/conversations'); await page.getByRole('link', { name: /Plan the autumn trip/ }).click();
+  await page.goto('/#/conversations'); await page.getByRole('link', { name: /Preview conversion example/ }).click();
   await expect(page.getByText('We could visit the coast.', { exact: false })).toBeVisible();
   await page.getByRole('button', { name: 'Make a task' }).click(); await page.getByRole('button', { name: 'Create task', exact: true }).click();
-  await expect(page.getByLabel('Task title', { exact: true })).toHaveValue('Plan the autumn trip');
+  await expect(page.getByLabel('Task title', { exact: true })).toHaveValue('Preview conversion example');
   const after: string[] = await (await request.get('http://127.0.0.1:8791/calls')).json();
   expect(after.slice(before.length).filter(m => ['session.resume','session.create','prompt.submit'].includes(m))).toEqual([]);
   await expect(page.getByRole('button', { name: 'Continue', exact: true })).toHaveCount(0);

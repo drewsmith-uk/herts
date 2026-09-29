@@ -62,7 +62,12 @@ test('typed reset removes offline plugin edits without erasing core conversation
     await other.goto('/#/settings/plugins');const card=other.locator('.plugin-card').filter({has:other.getByRole('checkbox',{name:'Enable Tasks',exact:true})});
     await card.getByRole('button',{name:'Reset data',exact:true}).click();
     await expect(other.getByRole('button',{name:'Permanently reset data',exact:true})).toBeDisabled();
-    await other.getByLabel('Confirm plugin name').fill('Tasks');await other.getByRole('button',{name:'Permanently reset data',exact:true}).click();
+    await other.getByLabel('Confirm plugin name').fill('Tasks');
+    // The generation changes before reset finishes reloading the plugin.
+    // Wait for its response so cleanup cannot race the catalogue revision.
+    const resetResponse=other.waitForResponse(response=>response.url().endsWith('/api/v1/plugins/tasks/manage')&&response.request().method()==='POST');
+    await other.getByRole('button',{name:'Permanently reset data',exact:true}).click();
+    expect((await resetResponse).ok()).toBe(true);
     await expect.poll(async()=>{const {catalogue}=await(await request.get('/api/v1/plugins')).json();return catalogue.entries.find((e:any)=>e.manifest.id==='tasks').generation;}).toBeGreaterThan(0);
     await context.setOffline(false);await expect(page.locator('.save-state')).toContainText('All changes saved');
     await page.goto('/#/tasks');await expect(page.getByRole('link',{name:'Late offline rename',exact:true})).toHaveCount(0);

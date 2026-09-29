@@ -9,7 +9,7 @@ async function changeVisibilityFromView(page: Page, id: string, hidden: boolean)
   await page.goto(`/#/conversation/${id}`);
   await page.getByRole('button', { name: hidden ? 'Hide conversation' : 'Unhide conversation', exact: true }).click();
   await expect(page.getByRole('button', { name: hidden ? 'Unhide conversation' : 'Hide conversation', exact: true })).toBeEnabled();
-  await page.locator('.back-link').click();
+  await page.getByRole('link', { name: 'Back to Conversations', exact: true }).click();
 }
 
 test('phone swipes respect scrolling and cancellation, hide with undo, and create exactly one task', async ({ browser, request }) => {
@@ -117,6 +117,8 @@ test('recovering task creation after a lost response and reload reuses the saved
   await page.evaluate(() => window.dispatchEvent(new Event('online')));
   await expect(page.locator('.save-state')).toContainText('All changes saved');
   await page.getByLabel('Show linked conversations').check();
+  // Reload clears the search; unrelated fixtures can fill the first page.
+  await page.getByLabel('Search conversations').fill('Receipt triage');
   await expect(item).toContainText('Task created');
   expect(new Set(ids).size).toBe(1);
   const final = await (await request.get('/api/v1/state')).json();

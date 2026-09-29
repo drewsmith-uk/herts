@@ -42,7 +42,8 @@ test('offline-created spaces and tasks survive reload and sync in dependency ord
   await page.setViewportSize({width:390,height:844});await page.goto('/#/settings/plugins');await expect(page.locator('.save-state')).toContainText('All changes saved');await page.evaluate(()=>navigator.serviceWorker.ready);await page.reload();
   await context.setOffline(true);await page.getByLabel('New space name',{exact:true}).fill('Offline work');await page.getByRole('button',{name:'Create space',exact:true}).click();const work=await idFor(page,'Offline work');await page.getByLabel('Default space',{exact:true}).selectOption(work);
   await page.goto(`#${spacePath(work)}`);await capture(page,'Saved in offline space');await page.reload();await expect(page.getByRole('link',{name:'Saved in offline space',exact:true})).toBeVisible();
-  await context.setOffline(false);await expect(page.locator('.save-state')).toContainText('All changes saved');const s=await state(request);expect(s.defaultSpaceId).toBe(work);expect(s.tasks.find((t:any)=>t.title==='Saved in offline space').spaceId).toBe(work);
+  // Reconnection plus three dependent writes can span more than one poll cycle.
+  await context.setOffline(false);await expect(page.locator('.save-state')).toContainText('All changes saved',{timeout:30000});const s=await state(request);expect(s.defaultSpaceId).toBe(work);expect(s.tasks.find((t:any)=>t.title==='Saved in offline space').spaceId).toBe(work);
 });
 
 test('a duplicate offline space can be renamed without losing its pending tasks',async({page,context,request})=>{
@@ -93,5 +94,10 @@ test('an unconfirmed conversion keeps and displays its saved destination after t
   await addSpace(page,'Pinned destination');const work=await idFor(page,'Pinned destination');await page.getByLabel('Default space',{exact:true}).selectOption(work);await expect(page.locator('.save-state')).toContainText('All changes saved');
   await page.goto('/#/conversations');await page.getByRole('link',{name:/Space retry conversation/}).click();await page.getByRole('button',{name:'Make a task',exact:true}).click();
   const payloads:any[]=[];await page.route('**/api/v1/plugins/tasks/commands',route=>{payloads.push(route.request().postDataJSON());return payloads.length===1?route.abort():route.continue();});
-  await page.getByRole('button',{name:'Create task',exact:true}).click();await expect(page.getByRole('alert')).toContainText('request is saved');await resetDefault(request);await page.reload();await expect(page.locator('.save-state')).toContainText('All changes saved');await page.getByRole('button',{name:'Open task',exact:true}).click();await expect(page.getByLabel('Task space',{exact:true})).toHaveValue(work);expect(payloads).toHaveLength(2);expect(payloads[1]).toEqual(payloads[0]);
+  await page.getByRole('button',{name:'Create task',exact:true}).click();await expect(page.getByRole('alert')).toContainText('request is saved');await resetDefault(request);await page.reload();await expect(page.locator('.save-state')).toContainText('All changes saved');await page.getByRole('button',{name:'Open task',exact:true}).click();await expect(page.getByLabel('Task space',{exact:true})).toHaveValue(work);
+  // Background recovery may also retry. Every attempt must keep the same ID,
+  // content and destination, and the server must create only one task.
+  expect(payloads.length).toBeGreaterThanOrEqual(2);
+  for (const payload of payloads.slice(1)) expect(payload).toEqual(payloads[0]);
+  expect((await state(request)).tasks.filter((task:any)=>task.id===payloads[0].input.taskId)).toHaveLength(1);
 });

@@ -1,6 +1,7 @@
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 const state = async (request: APIRequestContext) => (await request.get('/api/v1/state', { headers: { 'x-herts-plugin-api': '1' } })).json();
-const writes = async (request: APIRequestContext): Promise<{ method: string; params: any }[]> => ((await (await request.get('http://127.0.0.1:8791/call-details')).json()) as any[]).filter(c => ['session.create', 'session.resume', 'config.set', 'session.cwd.set', 'prompt.submit'].includes(c.method));
+// A reused fixture socket can reset; retry only this read-only observation.
+const writes = async (request: APIRequestContext): Promise<{ method: string; params: any }[]> => ((await (await request.get('http://127.0.0.1:8791/call-details', { maxRetries: 2 })).json()) as any[]).filter(c => ['session.create', 'session.resume', 'config.set', 'session.cwd.set', 'prompt.submit'].includes(c.method));
 const model = (id: string) => JSON.stringify({ id, provider: 'configured' });
 const settingsButton = (page: Page) => page.getByRole('button', { name: /^Conversation settings:/ });
 async function open(page: Page) { await settingsButton(page).click(); await expect(page.getByRole('dialog')).toBeVisible(); }

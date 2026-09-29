@@ -10,6 +10,7 @@ const callDetails: { method: string; params: any }[] = [];
 const profileSettings = { model: 'profile-model', provider: 'configured', reasoning_effort: 'medium', fast: false, cwd: '/projects' };
 const info = (r: any) => ({ profile_name: 'default', ...r.settings });
 const rows = new Map<string, any>([['existing', { id: 'existing', title: 'Plan the autumn trip', source: 'telegram', preview: 'A quiet week away', started_at: Date.now()/1000, messages: [{ id: 1, role: 'user', content: 'Help me plan a trip.' }, { id: 2, role: 'assistant', content: 'We could visit the coast.\n\nA slower pace sounds good.' }] }]]);
+rows.set('task-preview', { ...rows.get('existing'), id: 'task-preview', title: 'Preview conversion example', messages: structuredClone(rows.get('existing').messages) });
 rows.set('long-history', { id: 'long-history', title: 'Long conversation', source: 'desktop', started_at: Date.now()/1000, messages: Array.from({length:450}, (_, i) => ({id:i+1,role:i%2 ? 'assistant' : 'user',content:`History message ${i+1}. ${'Conversation detail. '.repeat(8)}`})) });
 for (const width of [390,1280]) rows.set(`live-history-${width}`, { ...rows.get('long-history'), id: `live-history-${width}`, title: `Live history ${width}`, messages: structuredClone(rows.get('long-history').messages) });
 rows.set('header-history', { ...rows.get('long-history'), id: 'header-history', title: 'Header conversation' });
@@ -33,6 +34,7 @@ rows.set('spaces-conversation', {id:'spaces-conversation',title:'Shared spaces c
 for (const id of ['settings-390', 'settings-1280', 'settings-shared', 'settings-confirm', 'settings-offline']) rows.set(id, { id, title: id, source: 'telegram', started_at: Date.now()/1000, settings: { ...profileSettings, model: 'existing-model', reasoning_effort: 'high', cwd: '/projects/existing' }, messages: [{ id: 1, role: 'assistant', content: 'A saved [article](https://example.com/settings-shared).' }] });
 rows.get('settings-confirm').messages = structuredClone(rows.get('long-history').messages);
 const runtimes = new Map<string, any>();
+const liveTranscriptSteps = new Map<string, { next: () => void; finish: () => void }>();
 let hermesUnavailable = false;
 let modernPrompts = false;
 const server = createServer(async (req, res) => {
@@ -136,8 +138,14 @@ wss.on('connection', ws => {
         const round = (n: number) => { const callId = `live-call-${n}`, at=Date.now(); rows.get(r.stored).messages.push(
           { id: at, role: 'assistant', content: '', tool_calls: [{ id: callId, type: 'function', function: { name: 'terminal', arguments: JSON.stringify({ command: `check step ${n}` }) } }], timestamp: at/1000 },
           { id: at+1, role: 'tool', tool_call_id: callId, content: `Step ${n} finished.\n${'Saved tool detail.\n'.repeat(40)}`, timestamp: at/1000 }); emit('tool.end',p.session_id,{name:'terminal'}); };
-        setTimeout(() => round(1), 3300); setTimeout(() => round(2), 6500);
-        setTimeout(() => finish(p.session_id), 14000);
+        setTimeout(() => round(1), 3300);
+        // Let the test expand the first round before introducing the next one.
+        // Fixed timers can race browser rendering on a busy CI worker.
+        let advanced = false;
+        liveTranscriptSteps.set(r.stored, {
+          next: () => { if (!advanced) { advanced = true; round(2); } },
+          finish: () => { finish(p.session_id); liveTranscriptSteps.delete(r.stored); },
+        });
         ws.send(JSON.stringify({jsonrpc:'2.0',id,result:{status:'streaming'}})); return;
       }
 
@@ -186,6 +194,12 @@ app.post('/__test/prompt-protocol', async req => {
   return { ok: true };
 });
 // Recovery fixtures never affect a real Hermes instance or submit agent work.
+app.post('/__test/live-transcript/:id/:step', async (req, reply) => {
+  const { id, step } = req.params as { id: string; step: string };
+  const run = liveTranscriptSteps.get(id);
+  if (!run || !['next', 'finish'].includes(step)) return reply.code(404).send({ error: 'Fixture step unavailable' });
+  run[step as 'next' | 'finish'](); return { ok: true };
+});
 app.post('/__test/saved-message', async req => {
   const { contextId, text, uploadIds = [], submitted = false } = req.body as { contextId: string; text: string; uploadIds?: string[]; submitted?: boolean };
   const action = { id: crypto.randomUUID(), taskId: contextId, kind: 'send' as const, text, uploadIds, createdAt: Date.now(), updatedAt: Date.now(), state: 'unknown' as const, phase: 'unknown', receipt: 'unknown' as const, sendStage: submitted ? 'submitted' as const : 'preparing' as const };
