@@ -132,7 +132,13 @@ export class Store extends LegacyFeatures {
   bumpRevision() { const meta = this.getMeta('snapshot'); meta.revision++; this.setMeta('snapshot', meta); }
   actions(taskId?: string): Action[] { return (taskId ? this.db.prepare('SELECT data FROM actions WHERE task_id=? ORDER BY rowid DESC').all(this.context(taskId)?.id || taskId) : this.db.prepare('SELECT data FROM actions ORDER BY rowid DESC').all()).map((r: any) => JSON.parse(r.data)); }
   action(id: string): Action | undefined { const r = this.db.prepare('SELECT data FROM actions WHERE id=?').get(id) as any; return r && JSON.parse(r.data); }
-  saveAction(action: Action) { action.updatedAt = Date.now(); this.db.prepare('INSERT INTO actions VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').run(action.id, action.taskId, JSON.stringify(action)); this.emit('change', { type: 'action', action }); }
+  saveAction(action: Action) {
+    const previous = this.action(action.id);
+    // Late execution updates must not bring a deleted saved copy back.
+    if (previous?.savedMessageDeletedAt) action.savedMessageDeletedAt = previous.savedMessageDeletedAt;
+    action.updatedAt = Math.max(Date.now(), (previous?.updatedAt || 0) + 1);
+    this.db.prepare('INSERT INTO actions VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').run(action.id, action.taskId, JSON.stringify(action)); this.emit('change', { type: 'action', action });
+  }
   binding(taskId: string): Binding | undefined { const r = this.db.prepare('SELECT data FROM bindings WHERE task_id=?').get(this.context(taskId)?.id || taskId) as any; return r && JSON.parse(r.data); }
   bindings(): [string, Binding][] { return (this.db.prepare('SELECT * FROM bindings').all() as any[]).map(r => [r.task_id, JSON.parse(r.data)]); }
   saveBinding(taskId: string, binding: Binding) { this.db.prepare('INSERT OR REPLACE INTO bindings VALUES (?,?)').run(taskId, JSON.stringify(binding)); }

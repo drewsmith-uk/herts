@@ -109,7 +109,7 @@ export function ReadingCapture({ sharedContent }: {
     return <><a href="#/reading" className="back-link" onClick={e => { e.preventDefault(); cancel(); }}><ChevronLeft size={17}/> Reading list</a><PageHeader title="Add a link" description="Save it to Reading and send the link to Hermes."/>
     <form className="reading-capture" onSubmit={capture}>{candidates.length > 1 && <fieldset><legend>Choose the link to save</legend>{candidates.map(candidate => <label className="share-choice" key={candidate}><input type="radio" name="shared-link" value={candidate} checked={url === candidate} onChange={() => update(candidate, title)}/><span>{candidate}</span></label>)}</fieldset>}
       <FormField label="Link"><input type="url" aria-label="Article link" value={url} disabled={!loaded || busy} onChange={e => update(e.target.value, title)} placeholder="https://…" required maxLength={8192}/></FormField>
-      <FormField label={<>Title <span className="subtle-note">(optional)</span></>}><input aria-label="Reading title" value={title} disabled={!loaded || busy} onChange={e => update(url, e.target.value)} maxLength={2000}/></FormField>
+      <FormField label={<>Title <span className="subtle-note">(optional)</span></>}><input aria-label="Reading title" placeholder="A name for this link" value={title} disabled={!loaded || busy} onChange={e => update(url, e.target.value)} maxLength={2000}/></FormField>
       <div className="button-row"><button className="primary-button" disabled={!loaded || busy || !url.trim()}>{busy ? <LoaderCircle className="spin" size={16}/> : <Plus size={16}/>} {state.online && state.gateway.online ? 'Add & send' : 'Save link'}</button><button type="button" onClick={cancel}>Cancel</button></div>
       {(!state.online || !state.gateway.online) && <p>Hermes is unavailable. Save the link now and use Send to Hermes when connected.</p>}{error && <p role="alert" className="inline-error">{error}</p>}
     </form></>;
@@ -129,13 +129,13 @@ export function ReadingDetail({ id }: {
     const article = state.articleCopies[id];
     const hasSubmission = state.actions.some(a => a.taskId === item.contextId && !a.cancelled) || state.localSubmissions.some(s => s.taskId === item.contextId);
     const showSendNote = !!context && !context.link && !hasSubmission;
-    return <div className="reading-detail"><ConversationHeader><a href={item.readAt === null ? '#/reading' : '#/reading/read'} className="back-link"><ChevronLeft size={17}/> Reading list</a><ReadingTitle item={item}/><div className="reading-detail-controls">
+    return <div className="reading-detail"><ConversationHeader title={item.title} backHref={item.readAt === null ? '#/reading' : '#/reading/read'} backLabel="Reading list" context={context}><ReadingTitle item={item}/><div className="reading-detail-controls">
     <a className="primary-button" href={!state.online && article?.html ? `#/reader/${id}` : item.url} {...(state.online || !article?.html ? { target: '_blank', rel: 'noopener noreferrer' } : {})}><BookOpen size={16}/> Read article</a>
     <a className="quiet-button" href={`#/reader/${id}`}>Reading mode</a><button onClick={() => run(() => readingChange(id, { kind: 'read', read: item.readAt === null }))}><Check size={16}/>{item.readAt === null ? 'Mark read' : 'Mark unread'}</button>
   </div>{error && <StatusMessage>{error}</StatusMessage>}</ConversationHeader>
     <div className="article-status"><a href={item.url} target="_blank" rel="noopener noreferrer"><ExternalLink size={14}/> {new URL(item.url).hostname}</a><OfflineControls item={item}/></div>
     {showSendNote && <div className="reading-send-note"><p>Your link is saved. Send it to start its Hermes conversation.</p><button className="primary-button" disabled={!state.online || !state.gateway.online || busy} onClick={() => { setBusy(true); run(() => sync().then(() => sendReadingLink(id)).finally(() => setBusy(false))); }}><Send size={16}/> Send to Hermes</button></div>}
-    {context && <ConversationPanel key={context.id} context={context} initialText={showSendNote ? item.url : ''} showEmptyNotice={!showSendNote}/>}
+    {context && <ConversationPanel key={context.id} context={context} initialText={showSendNote ? item.url : ''} showActions={false} showEmptyNotice={!showSendNote}/>}
   </div>;
 }
 function useReadingTitle(item: ReadingItem) {

@@ -58,7 +58,7 @@ function Preferences({ plugins }: { plugins: boolean }) {
     return <><PageHeader title="Settings"/>
       <SectionNav variant="sections" className="settings-tabs" aria-label="Settings sections"><SectionLink active={!plugins} href="#/settings">General</SectionLink><SectionLink active={plugins} href="#/settings/plugins">Plugins</SectionLink></SectionNav>
       {plugins ? <PluginSettings /> : <><AppearanceSettings /><AppUpdateSettings /><NewConversationDefaults /><NotificationSettings />
-        <SettingsSection title="Hermes connection" icon={<Link2 size={22}/>} description={state.gateway.online ? `Connected to your ${state.gateway.profile || 'default'} profile.` : state.gateway.configured ? 'Hermes is currently unavailable. Saved data remains usable.' : 'The Hermes connection has not been configured yet.'}/>
+        <SettingsSection title="Hermes connection" icon={<Link2 size={22}/>} description={state.gateway.promptError || (state.gateway.online ? `Connected to your ${state.gateway.profile || 'default'} profile.` : state.gateway.configured ? 'Hermes is currently unavailable. Saved data remains usable.' : 'The Hermes connection has not been configured yet.')} >{state.gateway.promptWarning && <p role="status">{state.gateway.promptWarning}</p>}</SettingsSection>
         <SettingsSection title="Saved on this device" icon={<WifiOff size={22}/>} description="Drafts, recordings and viewed conversations remain available offline. Plugin changes sync when you return. Hermes messages are never automatically resent.">
           <p className="subtle-note">Clearing browser storage removes unsynced work.</p><Button onClick={() => void refresh()} disabled={!navigator.onLine}>Sync now</Button>
         </SettingsSection>

@@ -25,11 +25,11 @@ test('core conversations work with every plugin disabled; Settings controls tabs
     await expect(page.getByRole('button',{name:'Make a task',exact:true})).toHaveCount(0);
     await expect(page.getByRole('button',{name:/Save to reading list/})).toHaveCount(0);
     await page.getByLabel('Message Hermes').fill('Core survives without plugins.');
-    await page.getByRole('button',{name:'Send',exact:true}).click();await expect(page.locator('.execution-title')).toContainText('complete');
+    await page.getByRole('button',{name:'Send',exact:true}).click();await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
     const beforeNew=await agentWrites(request);
     await page.goto('/#/new');await expect(page.getByLabel('Message Hermes')).toBeEnabled();
     expect(await agentWrites(request)).toEqual(beforeNew);
-    await page.getByLabel('Message Hermes').fill('A new core-only conversation.');await page.getByRole('button',{name:'Send',exact:true}).click();await expect(page.locator('.execution-title')).toContainText('complete');
+    await page.getByLabel('Message Hermes').fill('A new core-only conversation.');await page.getByRole('button',{name:'Send',exact:true}).click();await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
     await page.goto('/#/settings/plugins');await page.getByRole('checkbox',{name:'Enable Tasks',exact:true}).click();
     await page.getByRole('button',{name:'Move Conversations up',exact:true}).click();
     await page.goto('/');await expect(page.getByRole('heading',{name:'Conversations',exact:true})).toBeVisible();

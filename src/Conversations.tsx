@@ -1,7 +1,8 @@
-import { PageHeader, ButtonLink, ItemList, EmptyState, StatusMessage } from './ui';
+import { PageHeader, Button, ButtonLink, DialogFrame, ItemList, ItemRow, ItemMeta, EmptyState, StatusMessage } from './ui';
 import { useEffect, useRef, useState } from 'react';
-import { Search, X, MessageSquare, LoaderCircle, Plus, ChevronLeft, Eye, EyeOff } from 'lucide-react';
-import { db, useApp, cacheRead, api, setConversationHidden, contextForConversation, openConversation, createLocalConversation } from './data';
+import { liveQuery } from 'dexie';
+import { Search, X, MessageSquare, LoaderCircle, Plus, Trash2, Eye, EyeOff } from 'lucide-react';
+import { db, useApp, cacheRead, api, setConversationHidden, contextForConversation, openConversation, createLocalConversation, deleteConversationDraft, saveConversationDraft, type Draft } from './data';
 import { conversationHidden, messageText, type Conversation } from '../shared/core';
 import { ConversationPanel, HistoryView } from './Conversation';
 import { ConversationHeader } from './ConversationHeader';
@@ -18,7 +19,20 @@ export function Conversations() {
         text: string;
         route?: string;
         undo?: Conversation;
-    }>(), [working, setWorking] = useState(''), [chooser, setChooser] = useState<Conversation>(), [draftIds, setDraftIds] = useState<string[]>([]);
+    }>(), [working, setWorking] = useState(''), [chooser, setChooser] = useState<Conversation>();
+    const [savedDrafts, setSavedDrafts] = useState<{ ids: string[]; deleted: string[]; messages: Draft[] }>({ ids: [], deleted: [], messages: [] });
+    const [draftError, setDraftError] = useState(''), [showAllDrafts, setShowAllDrafts] = useState(false);
+    const [deletingDraft, setDeletingDraft] = useState<{ id: string; title: string }>(), [deleting, setDeleting] = useState(false), [deleteError, setDeleteError] = useState(''), [draftNotice, setDraftNotice] = useState('');
+    async function removeDraft() {
+        if (!deletingDraft || deleting) return;
+        setDeleting(true); setDeleteError('');
+        try {
+            await deleteConversationDraft(deletingDraft.id);
+            setDeletingDraft(undefined); setDraftNotice('Draft deleted from this device.');
+            requestAnimationFrame(() => (document.querySelector<HTMLElement>('.conversation-drafts .draft-open') || document.querySelector<HTMLElement>('a[href="#/new"]'))?.focus());
+        } catch (e) { setDeleteError((e as Error).message); }
+        finally { setDeleting(false); }
+    }
     const filterPlugins = plugins.filter(p => p.definition.filter), swipes = plugins.filter(p => p.definition.swipe);
     const filterKey = JSON.stringify(filters), listVersion = JSON.stringify([state.snapshot.hiddenConversations, state.plugins.revision, ...plugins.map(p => state.pluginData[p.id]?.revision), state.pluginPending.map(p => p.id)]);
     useEffect(() => { setOffset(0); setRows([]); }, [query, includeHidden, filterKey]);
@@ -79,17 +93,54 @@ export function Conversations() {
         setWorking('');
     } }
     const visible = rows.map(c => ({ ...c, hidden: conversationHidden(c, state.snapshot.hiddenConversations || []) })).filter(c => (includeHidden || !c.hidden) && filterPlugins.every(p => filters[p.id] || pluginHook(p, () => p.definition.filter!.visible(c, state.pluginData[p.id]?.records || {}, state.snapshot.contexts), true)));
-    useEffect(() => { void db.kv.where('key').startsWith('context-draft:').toArray().then(rows => setDraftIds(rows.map(r => r.key.slice('context-draft:'.length)))); }, [state.snapshot.contexts.length]);
-    const drafts = state.snapshot.contexts.filter(c => !c.link && (draftIds.includes(c.id) || state.actions.some(a => !a.cancelled && a.taskId === c.id)));
+    useEffect(() => {
+        const subscription = liveQuery(async () => ({
+            ids: (await db.kv.where('key').startsWith('context-draft:').primaryKeys()).map(key => key.slice('context-draft:'.length)),
+            deleted: (await db.kv.where('key').startsWith('context-draft-deleted:').primaryKeys()).map(key => key.slice('context-draft-deleted:'.length)),
+            messages: await db.drafts.toArray(),
+        })).subscribe({ next: value => { setSavedDrafts(value); setDraftError(''); }, error: () => setDraftError('Saved drafts could not be loaded. Reload to try again.') });
+        return () => subscription.unsubscribe();
+    }, []);
+    const messages = new Map(savedDrafts.messages.map(draft => [draft.id, draft]));
+    const drafts = state.snapshot.contexts.filter(c => !c.link && !savedDrafts.deleted.includes(c.id) && (savedDrafts.ids.includes(c.id) || state.actions.some(a => !a.cancelled && a.taskId === c.id))).map(context => {
+        const message = messages.get(context.id);
+        const attempt = state.actions.filter(a => !a.cancelled && a.kind === 'send' && a.taskId === context.id).sort((a, b) => b.createdAt - a.createdAt)[0];
+        const hasDraft = !!message?.text.trim() || !!message?.files.length;
+        return { ...context, preview: hasDraft ? message!.text : attempt?.text || '', files: hasDraft ? message!.files.length : attempt?.uploadIds.length || 0 };
+    });
+    const draftQuery = query.trim().toLowerCase();
+    const matchingDrafts = drafts.filter(c => `${c.title} ${c.preview}`.toLowerCase().includes(draftQuery));
+    const displayedDrafts = showAllDrafts || draftQuery ? matchingDrafts : matchingDrafts.slice(0, 3);
     return <><PageHeader title="Conversations" actions={<ButtonLink variant="primary" href="#/new"><Plus size={16}/> New conversation</ButtonLink>}/>
     <div className="search-field"><Search size={19}/><input aria-label="Search conversations" placeholder="Search conversations…" value={query} onChange={e => setQuery(e.target.value)}/>{query && <button className="icon-button" aria-label="Clear search" onClick={() => setQuery('')}><X size={16}/></button>}</div>
+    {draftError && <StatusMessage>{draftError}</StatusMessage>}
+    {draftNotice && <StatusMessage tone="notice">{draftNotice}</StatusMessage>}
+    {drafts.length > 0 && <section className="conversation-drafts" aria-labelledby="conversation-drafts-heading">
+      <h2 id="conversation-drafts-heading">Drafts <span className="heading-count">{matchingDrafts.length}</span></h2>
+      <p className="conversation-drafts-note">Not sent to Hermes. Draft text is saved on this device.</p>
+      <ItemList id="conversation-drafts-list">{displayedDrafts.map(c => <ItemRow key={c.id} trailing={<Button variant="quiet" aria-label={`Delete draft: ${c.title}`} onClick={() => { setDeleteError(''); setDraftNotice(''); setDeletingDraft({ id: c.id, title: c.title }); }}><Trash2 size={16} aria-hidden="true"/> Delete</Button>}>
+        <a className="draft-open" href={`#/draft/${encodeURIComponent(c.id)}`}><h3 className="item-title">{c.title}</h3><p className="item-preview">{c.preview || (c.files ? `${c.files} attachment${c.files === 1 ? '' : 's'}` : 'No message yet')}</p>
+        {!!c.files && !!c.preview && <ItemMeta><span>{c.files} attachment{c.files === 1 ? '' : 's'}</span></ItemMeta>}
+        </a>
+      </ItemRow>)}</ItemList>
+      {!matchingDrafts.length && <p className="conversation-drafts-note">No drafts match this search.</p>}
+      {!draftQuery && drafts.length > 3 && <Button variant="quiet" aria-expanded={showAllDrafts} aria-controls="conversation-drafts-list" onClick={() => setShowAllDrafts(value => !value)}>{showAllDrafts ? 'Show fewer drafts' : `Show all ${drafts.length} drafts`}</Button>}
+    </section>}
+    {deletingDraft && <DialogFrame aria-labelledby="delete-draft-heading" aria-describedby="delete-draft-description" busy={deleting} close={() => setDeletingDraft(undefined)}>
+      <form onSubmit={event => { event.preventDefault(); void removeDraft(); }}>
+        <h2 id="delete-draft-heading">Delete draft?</h2>
+        <p id="delete-draft-description">Delete “{deletingDraft.title}” and its saved text and attachments from this device? This cannot be undone.</p>
+        {deleteError && <StatusMessage>{deleteError}</StatusMessage>}
+        <div className="button-row"><Button autoFocus disabled={deleting} onClick={() => setDeletingDraft(undefined)}>Cancel</Button><Button type="submit" variant="danger" disabled={deleting}>{deleting ? 'Deleting…' : 'Delete draft'}</Button></div>
+      </form>
+    </DialogFrame>}
+    {drafts.length > 0 && <h2 className="conversation-list-heading">Hermes conversations</h2>}
     <div className="conversation-filters">{filterPlugins.map(p => <label className="conversation-filter" key={p.id}><input type="checkbox" checked={!!filters[p.id]} onChange={e => setFilters({ ...filters, [p.id]: e.target.checked })}/>{p.definition.filter!.label}</label>)}<label className="conversation-filter"><input type="checkbox" checked={includeHidden} onChange={e => setIncludeHidden(e.target.checked)}/>Show hidden items</label></div>
     <p className="conversation-gesture-hint">{swipes.length ? 'Swipe right for conversation actions, left to hide.' : 'Swipe left to hide.'}</p>
     {notice && <StatusMessage tone="notice" className="conversation-notice"><span>{notice.text}</span>{notice.route && <a href={`#${notice.route}`}>Open</a>}{notice.undo && <button onClick={() => void hide({ ...notice.undo!, hidden: true })}>Undo</button>}</StatusMessage>}
     {error && <StatusMessage>{error}</StatusMessage>}{cached && <div><span className="eyebrow">SAVED ON THIS DEVICE</span><p>Offline results cover conversations previously viewed on this device.</p></div>}
     <ItemList divided className="conversation-list">{visible.map(c => <ConversationRow key={c.key} conversation={c} badges={<ConversationBadges conversation={c}/>} canActOffline={swipes.some(p=>pluginHook(p,()=>p.definition.swipe?.canRunOffline?.(c)||false,false))} updatedAt={time(c.updatedAt)} online={state.online} busy={working === c.key} actionLabel={swipes.length === 1 ? pluginHook(swipes[0], () => swipes[0].definition.swipe!.label(c), 'Actions') : swipes.length ? 'Actions' : undefined} onAction={kind => kind === 'visibility' ? hide(c) : swipe(c)}/>)}</ItemList>
-    {busy && <p className="loading"><LoaderCircle className="spin" size={17}/> Loading conversations…</p>}{!busy && !visible.length && !error && <EmptyState icon={<MessageSquare size={30}/>} title="No conversations found" description={query ? 'Try a different search.' : 'Your personal Hermes conversations will appear here.'}>{filterPlugins.filter(p=>!filters[p.id]&&p.definition.filter?.hiddenMessage&&rows.some(c=>!pluginHook(p,()=>p.definition.filter!.visible(c,state.pluginData[p.id]?.records||{},state.snapshot.contexts),true))).map(p=><p key={p.id}>{p.definition.filter!.hiddenMessage}</p>)}</EmptyState>}{more && !busy && <button className="load-more" onClick={() => setOffset(offset + 50)}>Load more conversations</button>}
-    {drafts.length > 0 && <div className="conversation-drafts"><h2>Saved conversation drafts</h2>{drafts.map(c => <p key={c.id}><a href={`#/draft/${c.id}`}>{c.title}</a></p>)}</div>}
+    {busy && <p className="loading"><LoaderCircle className="spin" size={17}/> Loading conversations…</p>}{!busy && !visible.length && !error && <EmptyState icon={<MessageSquare size={30}/>} title={drafts.length ? 'No Hermes conversations found' : 'No conversations found'} description={query ? 'Try a different search.' : 'Your personal Hermes conversations will appear here.'}>{filterPlugins.filter(p=>!filters[p.id]&&p.definition.filter?.hiddenMessage&&rows.some(c=>!pluginHook(p,()=>p.definition.filter!.visible(c,state.pluginData[p.id]?.records||{},state.snapshot.contexts),true))).map(p=><p key={p.id}>{p.definition.filter!.hiddenMessage}</p>)}</EmptyState>}{more && !busy && <button className="load-more" onClick={() => setOffset(offset + 50)}>Load more conversations</button>}
     {chooser && <div className="action-chooser" role="dialog" aria-label="Conversation actions">{swipes.map(p => <button key={p.id} onClick={() => void swipe(chooser, p)}>{pluginHook(p, () => p.definition.swipe!.label(chooser), 'Actions')}</button>)}<button onClick={() => setChooser(undefined)}>Cancel</button></div>}</>;
 }
 export function ConversationView({ id }: {
@@ -113,17 +164,19 @@ export function ConversationView({ id }: {
     finally {
         setBusy(false);
     } }
-    return <div className="conversation-detail"><ConversationHeader><a className="back-link" href="#/conversations"><ChevronLeft size={17}/> Conversations</a><div className="page-heading conversation-detail-heading">{context ? <ConversationTitle context={context}/> : <h1>{current.title}</h1>}</div><div className="conversation-header-actions"><ConversationContributions context={context} conversation={current}/><button disabled={busy} onClick={() => void hide()}>{hidden ? <Eye size={16}/> : <EyeOff size={16}/>} {hidden ? 'Unhide conversation' : 'Hide conversation'}</button></div></ConversationHeader>
+    return <div className="conversation-detail"><ConversationHeader title={current.title} backHref="#/conversations" backLabel="Conversations" context={context} conversation={current}><div className="page-heading conversation-detail-heading">{context ? <ConversationTitle context={context}/> : <h1>{current.title}</h1>}</div><div className="conversation-header-actions"><button disabled={busy} onClick={() => void hide()}>{hidden ? <Eye size={16}/> : <EyeOff size={16}/>} {hidden ? 'Unhide conversation' : 'Hide conversation'}</button></div></ConversationHeader>
     {context ? <ConversationPanel key={context.id} context={context} showActions={false} showHeading={false}/> : <><HistoryView conversationId={id}/><p role="status">{state.online ? error || 'Opening conversation…' : 'Connect once to enable messaging for this conversation.'}</p>{state.online && error && <button onClick={() => setAttempt(n => n + 1)}>Try again</button>}</>}{context && error && <p role="alert">{error}</p>}</div>;
 }
 export function NewConversation({ id, shared }: {
     id?: string;
     shared?: SharedContent;
 }) {
-    const state = useApp(), [draftId] = useState(() => id || crypto.randomUUID()), [error, setError] = useState('');
+    const state = useApp(), [draftId] = useState(() => id || crypto.randomUUID()), [error, setError] = useState(''), [deleted, setDeleted] = useState<boolean | null>(null);
     const context = state.snapshot.contexts.find(c => c.id === draftId);
-    useEffect(() => { if (context)
+    useEffect(() => { const subscription = liveQuery(() => db.kv.get(`context-draft-deleted:${draftId}`)).subscribe({ next: row => setDeleted(!!row), error: () => setError('This draft could not be opened. Reload to try again.') }); return () => subscription.unsubscribe(); }, [draftId]);
+    useEffect(() => { if (id || context)
         return; let active = true; void createLocalConversation(shared?.title || 'New conversation', draftId).then(async () => { if (shared)
-        await db.drafts.put({ id: draftId, text: [shared.text, shared.url].filter((v, i, a) => v && a.indexOf(v) === i).join('\n'), files: [] }); if (active) { history.replaceState(null, '', `/#/draft/${draftId}`); dispatchEvent(new PopStateEvent('popstate')); } }).catch(e => { if (active) setError(e.message); }); return () => { active = false; }; }, [draftId]);
-    return <div className="conversation-detail"><ConversationHeader><a href="#/conversations" className="back-link"><ChevronLeft size={17}/> Conversations</a>{context ? <ConversationTitle context={context}/> : <h1>New conversation</h1>}</ConversationHeader>{context && <ConversationPanel context={context} showHeading={false}/>} {error && <p role="alert">{error}</p>}</div>;
+        await saveConversationDraft({ id: draftId, text: [shared.text, shared.url].filter((v, i, a) => v && a.indexOf(v) === i).join('\n'), files: [] }); if (active) { history.replaceState(null, '', `/#/draft/${draftId}`); dispatchEvent(new PopStateEvent('popstate')); } }).catch(e => { if (active) setError(e.message); }); return () => { active = false; }; }, [draftId]);
+    if (deleted && !context?.link || id && state.loaded && !context) return <><PageHeader title="Draft unavailable" description={deleted ? 'This draft was deleted from this device.' : 'This draft is not saved on this device.'}/><ButtonLink href="#/conversations">Back to conversations</ButtonLink></>;
+    return <div className="conversation-detail"><ConversationHeader title={context?.title || 'New conversation'} backHref="#/conversations" backLabel="Conversations" context={context}>{context ? <ConversationTitle context={context}/> : <h1>New conversation</h1>}</ConversationHeader>{context && deleted !== null && <ConversationPanel context={context} showActions={false} showHeading={false}/>} {error && <p role="alert">{error}</p>}</div>;
 }

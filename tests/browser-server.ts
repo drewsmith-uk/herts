@@ -13,6 +13,7 @@ const rows = new Map<string, any>([['existing', { id: 'existing', title: 'Plan t
 rows.set('long-history', { id: 'long-history', title: 'Long conversation', source: 'desktop', started_at: Date.now()/1000, messages: Array.from({length:450}, (_, i) => ({id:i+1,role:i%2 ? 'assistant' : 'user',content:`History message ${i+1}. ${'Conversation detail. '.repeat(8)}`})) });
 for (const width of [390,1280]) rows.set(`live-history-${width}`, { ...rows.get('long-history'), id: `live-history-${width}`, title: `Live history ${width}`, messages: structuredClone(rows.get('long-history').messages) });
 rows.set('header-history', { ...rows.get('long-history'), id: 'header-history', title: 'Header conversation' });
+for (const width of [390,1280,'fieldwork','press','nocturne']) rows.set(`controls-${width}`, { ...rows.get('long-history'), id: `controls-${width}`, title: `Conversation controls ${width}`, messages: [...structuredClone(rows.get('long-history').messages), { id: 451, role: 'assistant', content: `Read [the article](https://example.com/controls-${width}).` }] });
 rows.set('standalone-unavailable', { ...rows.get('long-history'), id: 'standalone-unavailable', title: 'Conversation retry' });
 for (const width of [390,1280]) rows.set(`filter-${width}`, { id: `filter-${width}`, title: `Filter conversation ${width}`, source: 'desktop', started_at: Date.now()/1000, messages: [{ id: 1, role: 'assistant', content: `Saved filter response ${width}` }] });
 for (const id of ['standalone-390', 'standalone-1280', 'standalone-shared', 'standalone-recovery']) rows.set(id, { id, title: `Direct conversation ${id}`, source: 'telegram', started_at: Date.now()/1000, messages: [{ id: 1, role: 'assistant', content: `Continue this conversation or bookmark [this article](https://example.com/${id}).` }] });
@@ -33,6 +34,7 @@ for (const id of ['settings-390', 'settings-1280', 'settings-shared', 'settings-
 rows.get('settings-confirm').messages = structuredClone(rows.get('long-history').messages);
 const runtimes = new Map<string, any>();
 let hermesUnavailable = false;
+let modernPrompts = false;
 const server = createServer(async (req, res) => {
   const url = new URL(req.url!, 'http://localhost'); res.setHeader('Content-Type', 'application/json');
   if (url.pathname === '/calls') return res.end(JSON.stringify(calls));
@@ -62,14 +64,37 @@ const server = createServer(async (req, res) => {
 const wss = new WebSocketServer({ server });
 wss.on('connection', ws => {
   if (hermesUnavailable) { ws.close(); return; }
+  const modern = modernPrompts; let promptCapable = false;
   const emit = (type: string, id?: string, payload: any = {}) => {
     const r = id && runtimes.get(id); const event = { type, session_id: id, payload, ...(r ? { seq: ++r.seq } : {}) }; if (r) r.events.push(event);
     if (ws.readyState === 1) ws.send(JSON.stringify({ jsonrpc: '2.0', method: 'event', params: event }));
   };
   emit('gateway.ready', undefined, { replay_epoch: 'fixture-epoch' });
   const finish = (id: string) => { const r = runtimes.get(id); r.running = false; r.approvals = []; const text = 'Here is your answer. Your work continued after leaving the app.'; rows.get(r.stored).messages.push({ id: Date.now(), role: 'assistant', content: text, timestamp: Date.now()/1000 }); emit('message.complete', id, { status: 'complete', text }); emit('session.info', id, info(r)); };
+  const prompt = (sid: string, method: string, params: any) => {
+    if (!promptCapable) throw new Error('Fixture client failed to negotiate prompts before starting work');
+    const r = runtimes.get(sid), frame = { id: `srq-${crypto.randomUUID()}`, method, params: { session_id: sid, ...params } };
+    (r.openRequests ||= []).push(frame); ws.send(JSON.stringify({ jsonrpc: '2.0', ...frame }));
+    return frame;
+  };
   ws.on('message', raw => {
-    const { id, method, params: p } = JSON.parse(raw.toString()); calls.push(method); callDetails.push({ method, params: p }); let result: any = {};
+    const frame = JSON.parse(raw.toString());
+    const { id, method, params: p } = frame;
+    if (!method) {
+      callDetails.push({ method: 'server-response', params: frame });
+      for (const [sid, r] of runtimes) if (r.openRequests?.some((q: any) => q.id === id)) { r.openRequests = r.openRequests.filter((q: any) => q.id !== id); setTimeout(() => finish(sid), 100); }
+      return;
+    }
+    calls.push(method); callDetails.push({ method, params: p }); let result: any = {};
+    if (method === 'client.capabilities') {
+      promptCapable = modern && p.server_requests === true;
+      ws.send(JSON.stringify({ id, ...(modern ? { result: { server_requests: ['approval', 'clarify', 'sudo'] } } : { error: { code: -32601, message: 'Method not found' } }) })); return;
+    }
+    if (method === 'request.answer') {
+      const entry = [...runtimes.entries()].find(([, r]) => r.openRequests?.some((q: any) => q.id === p.id));
+      if (entry) { const [sid, r] = entry; r.openRequests = r.openRequests.filter((q: any) => q.id !== p.id); r.approvals = []; r.clarification = undefined; setTimeout(() => finish(sid), 100); }
+      ws.send(JSON.stringify({ id, result: { status: entry ? 'ok' : 'expired' } })); return;
+    }
     const r = runtimes.get(p.session_id);
     if (method === 'session.create' || method === 'session.resume') {
       const stored = p.session_id || `stored-${rows.size}`, runtime = `runtime-${stored}`;
@@ -96,10 +121,10 @@ wss.on('connection', ws => {
       else { if (p.key === 'model') { r.settings.model = modelArgs[0]; r.settings.provider = modelArgs[2]; r.settings.reasoning_effort = 'medium'; r.settings.fast = false; } if (p.key === 'reasoning') r.settings.reasoning_effort = p.value; if (p.key === 'fast') r.settings.fast = p.value === 'fast'; result = { value: p.key === 'model' ? r.settings.model : p.value, scope: 'session' }; emit('session.info', p.session_id, info(r)); }
     }
     else if (method === 'session.cwd.set') { r.settings.cwd = p.cwd; result = info(r); emit('session.info', p.session_id, info(r)); }
-    else if (method === 'session.activate') result = { session_id: p.session_id, session_key: r.stored, info: info(r), running: r.running, status: r.running ? 'working' : 'idle',queued:r.queued?{text:r.queued}:undefined };
+    else if (method === 'session.activate') result = { session_id: p.session_id, session_key: r.stored, info: info(r), running: r.running, pending_clarify: r.clarification, ...(modern && r.openRequests?.length ? { open_requests: r.openRequests } : {}), status: r.running ? 'working' : 'idle',queued:r.queued?{text:r.queued}:undefined };
     else if (method === 'approval.pending') result = { approvals: r.approvals };
     else if (method === 'session.control.read') result = { control: {} };
-    else if (method === 'session.events.since') result = { epoch: 'fixture-epoch', events: r.events.filter((e: any) => e.seq > p.last_seen), latest_seq: r.seq, truncated: false };
+    else if (method === 'session.events.since') result = { epoch: 'fixture-epoch', events: r.events.filter((e: any) => e.seq > p.last_seen), ...(modern && r.openRequests?.length ? { open_requests: r.openRequests } : {}), latest_seq: r.seq, truncated: false };
     else if (method === 'file.attach') result = { ref_text: `@file:/tmp/${p.name}`, path: `/tmp/${p.name}` };
     else if (method === 'prompt.submit') {
       if (p.text.startsWith('Live transcript')) {
@@ -123,10 +148,19 @@ wss.on('connection', ws => {
         ws.send(JSON.stringify({jsonrpc:'2.0',id,result:{status:'queued'}})); return;
       }
       r.running = true; rows.get(r.stored).messages.push({ id: Date.now(), role: 'user', content: p.text, timestamp: Date.now()/1000 }); emit('message.start', p.session_id); emit('message.delta', p.session_id, { text: 'Here is your answer.' });
-      if (p.text.includes('ask approval')) { r.approvals = [{ request_id: `approval-${id}`, command: 'echo approved', description: 'Allow this command?' }]; emit('approval.request', p.session_id, r.approvals[0]); }
+      if (p.text.includes('ask approval')) { r.approvals = [{ request_id: `approval-${id}`, command: 'echo approved', description: 'Allow this command?' }]; if (modern) {
+          const q = prompt(p.session_id, 'approval', { ...r.approvals[0], choices: ['once', 'deny'] });
+          if (p.text.includes('expire')) setTimeout(() => { r.openRequests = r.openRequests.filter((x: any) => x.id !== q.id); r.approvals = []; emit('request.cancel', p.session_id, { id: q.id, method: 'approval', reason: 'timeout' }); finish(p.session_id); }, 3000);
+        } else emit('approval.request', p.session_id, r.approvals[0]); }
+      else if (modern && p.text.includes('ask batch')) prompt(p.session_id, 'clarify', { questions: [{ qid: 'a', question: 'Which folder?', choices: ['Home', 'Work'] }, { qid: 'b', question: 'Which checks?', choices: ['Files', 'Storage'], multi_select: true }], answers: { a: 'Work' } });
+      else if (modern && p.text.includes('ask unsupported')) prompt(p.session_id, 'sudo', { command: 'fixture command' });
+      else if (modern && p.text.includes('ask preview read')) prompt(p.session_id, 'preview.read', { start: 0, count: 1000 });
+      else if (p.text.includes('ask clarification')) { r.clarification = { request_id: `question-${id}`, question: 'Which detail should I check first?' }; if (modern) prompt(p.session_id, 'clarify', { question: r.clarification.question, choices: ['Article', 'Notes'] }); else emit('session.info', p.session_id, info(r)); }
+      else if (p.text === 'Report a failed run') { r.running = false; emit('message.complete', p.session_id, { status: 'error' }); emit('session.info', p.session_id, info(r)); }
       else if (p.text !== 'Standalone wait for stop') setTimeout(() => finish(p.session_id), 1800);
       result = { status: 'streaming' };
     } else if (method === 'approval.respond') { r.approvals = []; result = { resolved: 1 }; setTimeout(() => finish(p.session_id), 100); }
+    else if (method === 'clarify.respond') { r.clarification = undefined; result = { resolved: 1 }; setTimeout(() => finish(p.session_id), 100); }
     else if (method === 'session.interrupt') { result = { status: 'interrupted' }; setTimeout(() => { r.running = false; emit('message.complete', p.session_id, { status: 'interrupted' }); emit('session.info', p.session_id); }, 300); }
     ws.send(JSON.stringify({ jsonrpc: '2.0', id, result }));
   });
@@ -146,7 +180,17 @@ const themesDir=fixtureRoot+'/themes';await mkdir(themesDir);
 const pluginsDir=fixtureRoot+'/plugins';await mkdir(pluginsDir);
 for(const id of ['tasks','reading'])await cp('plugins/'+id,pluginsDir+'/'+id,{recursive:true});
 const { app, articles, store, plugins, gateway } = await createApp({ dataDir: fixtureRoot+'/data', pluginsDir, themesDir, origin: 'http://127.0.0.1:8790', identity: 'fixture', dev: true, hermesBase: 'http://127.0.0.1:8791', hermesToken: 'fixture-token' });
+app.post('/__test/prompt-protocol', async req => {
+  modernPrompts = (req.body as { modern: boolean }).modern;
+  for (const ws of wss.clients) ws.terminate();
+  return { ok: true };
+});
 // Recovery fixtures never affect a real Hermes instance or submit agent work.
+app.post('/__test/saved-message', async req => {
+  const { contextId, text, uploadIds = [], submitted = false } = req.body as { contextId: string; text: string; uploadIds?: string[]; submitted?: boolean };
+  const action = { id: crypto.randomUUID(), taskId: contextId, kind: 'send' as const, text, uploadIds, createdAt: Date.now(), updatedAt: Date.now(), state: 'unknown' as const, phase: 'unknown', receipt: 'unknown' as const, sendStage: submitted ? 'submitted' as const : 'preparing' as const };
+  store.saveAction(action); return { action };
+});
 app.post('/__test/hermes-connection', async req => {
   hermesUnavailable = !(req.body as { online: boolean }).online;
   if (hermesUnavailable) for (const ws of wss.clients) ws.terminate();

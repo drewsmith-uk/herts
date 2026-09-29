@@ -1,8 +1,15 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { ChevronDown, ChevronLeft, ChevronUp } from 'lucide-react';
+import type { Conversation } from '../shared/core';
+import type { ConversationContext } from '../shared/conversations';
+import { ConversationContributions } from './plugins';
 
-export function ConversationHeader({ children }: { children: ReactNode }) {
+export function ConversationHeader({ children, title, backHref, backLabel, context, conversation }: {
+  children: ReactNode; title?: string; backHref?: string; backLabel?: string;
+  context?: ConversationContext; conversation?: Conversation;
+}) {
   const header = useRef<HTMLElement>(null), start = useRef<HTMLDivElement>(null);
-  const [hidden, setHidden] = useState(false);
+  const [hidden, setHidden] = useState(false), detailsId = useId();
   useLayoutEffect(() => {
     const update = () => document.documentElement.style.setProperty('--conversation-header-space', `${header.current!.offsetHeight + (document.querySelector('.topbar')?.clientHeight || 0) + 12}px`);
     update();
@@ -12,8 +19,8 @@ export function ConversationHeader({ children }: { children: ReactNode }) {
   useEffect(() => {
     let movement = 0, touchY: number | undefined, scrollbar = false, previousY = window.scrollY;
     function move(delta: number, target: EventTarget | null) {
-      if (!delta) return;
-      if (header.current?.contains(document.activeElement) || (start.current?.getBoundingClientRect().top || 0) > 0) {
+      if (!delta || !title) return;
+      if ((header.current?.contains(document.activeElement) && document.activeElement?.matches('input, textarea, select, [contenteditable="true"]')) || (start.current?.getBoundingClientRect().top || 0) > 0) {
         movement = 0; setHidden(false); return;
       }
       // Scrolling a tool output, title or other nested scroller should not dismiss the page header.
@@ -52,6 +59,14 @@ export function ConversationHeader({ children }: { children: ReactNode }) {
       window.removeEventListener('wheel', wheel); window.removeEventListener('touchstart', touchStart); window.removeEventListener('touchmove', touchMove);
       window.removeEventListener('keydown', key); window.removeEventListener('pointerdown', pointerDown); window.removeEventListener('pointerup', pointerUp); window.removeEventListener('scroll', scroll);
     };
-  }, []);
-  return <><div ref={start} className="conversation-header-start"/><header ref={header} className={`conversation-page-header ${hidden ? 'is-hidden' : ''}`} onFocusCapture={() => setHidden(false)}>{children}</header></>;
+  }, [!!title]);
+  return <><div ref={start} className="conversation-header-start"/><header ref={header} className={`conversation-page-header ${hidden ? 'is-compact' : ''}`}>
+    {title && <div className="conversation-toolbar">
+      {backHref && <a className="conversation-back" href={backHref} aria-label={`Back to ${backLabel || 'list'}`} title={`Back to ${backLabel || 'list'}`}><ChevronLeft size={19}/><span>{backLabel}</span></a>}
+      <span className="conversation-compact-title" title={title}>{title}</span>
+      {(context || conversation) && <ConversationContributions context={context} conversation={conversation}/>}
+      <button className="icon-button conversation-details-toggle" aria-label={hidden ? 'Show page details' : 'Collapse page details'} aria-expanded={!hidden} aria-controls={detailsId} onClick={() => setHidden(value => !value)}>{hidden ? <ChevronDown size={18}/> : <ChevronUp size={18}/>}</button>
+    </div>}
+    <div id={detailsId} className="conversation-header-details" hidden={hidden}>{children}</div>
+  </header></>;
 }

@@ -21,6 +21,20 @@ The configured `HERMES_PROFILE` is passed through history, search, create/resume
 
 Continuing an existing conversation retains its settings through Hermes's resume flow unless a change has been staged in Herts. New conversations inherit the selected profile's configuration, with optional Herts defaults and per-conversation overrides. Herts does not guarantee that older settings survive every upstream compaction or version change beyond what Desktop itself preserves.
 
+## Interactive prompt compatibility
+
+Herts negotiates `client.capabilities {server_requests:true}` after every `gateway.ready`, before allowing session work. A confirmed `-32601` (method not found) selects the older event protocol; a timeout, permission error or malformed capability reply does not silently select it. The connection check reports the negotiated protocol, and Settings explains a failed handshake. Session metadata reporting a newer Desktop contract than the tested contract 8 produces an update warning.
+
+The current request protocol was checked against installed Hermes source `ba5e3bfa31`, Desktop contract 8. Herts handles `approval` and `clarify` JSON-RPC requests, restores `open_requests` from session/replay snapshots, and removes prompts on `request.cancel`. Single questions, choices, multiple-choice questions and batches use the shared conversation controls. Confirmed answers from another client remain locked. Approval choices remain **Approve once** and **Deny**, restricted to choices advertised by Hermes.
+
+Responses use Hermes's acknowledged `request.answer` proxy with the original request ID. If an earlier request-protocol backend explicitly lacks that method, approvals use the acknowledged `approval.respond` queue; clarification uses a single response frame and is labelled unconfirmed because a socket write alone cannot prove receipt. Lost acknowledgements are retained as uncertain and never automatically resent. Request IDs, session bindings and durable decision receipts prevent duplicate or stale consent.
+
+Other interactive request types (including password/secret entry and Desktop-only controls) receive an explicit unsupported-method error and a visible explanation in the conversation. Herts does not collect those secrets or substitute approval. Requests already withdrawn by Hermes cannot be restored; retrying the original work remains a deliberate user action.
+
+`preview.read` is a Desktop browser-pane tool request, not a consent prompt. Herts has no corresponding preview bridge and does not show an approval/update warning for it. When Hermes advertises `declines_not_shown`, Herts sends the Desktop-compatible `4404` decline so another attached Desktop window can still answer; if all clients decline, Hermes supplies the unavailable-preview explanation. Earlier backends receive a `ValueResult` containing a failed tool result and a clear explanation that preview reading is unavailable in Herts (plain JSON-RPC error text would be discarded before reaching the agent). Herts does not read a page or approve work in either case. Previously saved warnings mislabelling `preview.read` as an approval prompt are cleared on startup; other warnings and decision receipts are retained.
+
+Older backends keep their `approval.request` / `approval.pending` / `approval.respond` and `pending_clarify` / `clarify.respond` paths. Opening a conversation or negotiating capabilities never starts agent work.
+
 ## Session settings controls
 
 The session settings contract was also checked against Hermes Agent 0.21.3 source at `2ed6387d87b4db091af2f05db32faab6e0dbb9a2`, and catalogue/default reads were verified against the running backend without agent work.

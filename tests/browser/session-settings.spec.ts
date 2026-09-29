@@ -41,7 +41,7 @@ for (const width of [390, 1280]) test(`stages actual conversation settings witho
   expect(await writes(request)).toEqual(before);
   await page.getByLabel('Message Hermes').fill(`Send using selected settings ${width}`);
   await page.getByRole('button', { name: 'Send', exact: true }).click();
-  await expect(page.locator('.execution-title')).toContainText('complete');
+  await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
   const sent = (await writes(request)).slice(before.length);
   expect(sent.at(-1)?.method).toBe('prompt.submit');
   expect(sent.filter(c => c.method === 'config.set').map(c => c.params.key)).toEqual(['model', 'reasoning', 'fast']);
@@ -55,7 +55,7 @@ for (const width of [390, 1280]) test(`stages actual conversation settings witho
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByLabel('Message Hermes').fill(`Another message ${width}`); await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect.poll(async () => (await writes(request)).slice(before.length + sent.length).map(c => c.method)).toEqual(['prompt.submit']);
-  await expect(page.locator('.execution-title')).toContainText('complete');
+  await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
@@ -73,7 +73,7 @@ test('General Settings defaults apply to new conversations with a per-conversati
   await expect(settingsButton(page)).toContainText('chosen-model');
   await open(page); await page.getByLabel('Reasoning effort', { exact: true }).selectOption('low'); await page.getByRole('button', { name: 'Apply', exact: true }).click(); await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.getByLabel('Message Hermes').fill('Use my new conversation defaults'); await page.getByRole('button', { name: 'Send', exact: true }).click();
-  await expect(page.locator('.execution-title')).toContainText('complete');
+  await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
   const sent = (await writes(request)).slice(before.length); expect(sent.find(c => c.method === 'session.create')?.params).toMatchObject({ model: 'chosen-model', provider: 'configured', reasoning_effort: 'low', cwd: '/projects/work' });
 });
 
@@ -121,7 +121,7 @@ test('offline choices survive reload and sync before the deliberate Send', async
   await page.reload(); await expect(settingsButton(page)).toContainText('Low');
   await context.setOffline(false); await page.getByLabel('Message Hermes').fill('Use settings saved offline'); await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
   expect(await writes(request)).toEqual(before); await page.getByRole('button', { name: 'Send', exact: true }).click();
-  await expect(page.locator('.execution-title')).toContainText('complete');
+  await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
   expect((await writes(request)).slice(before.length).filter(c => c.method === 'config.set').map(c => c.params.value)).toEqual(['low']);
 });
 
@@ -134,7 +134,7 @@ test('Hermes model confirmation retains the message and requires explicit accept
   await expect(page.getByRole('button', { name: 'Switch and send saved message', exact: true })).toBeInViewport();
   expect((await writes(request)).slice(before.length).filter(c => c.method === 'prompt.submit')).toEqual([]);
   await page.reload(); await page.getByRole('button', { name: 'Switch and send saved message', exact: true }).click();
-  await expect(page.locator('.execution-title')).toContainText('complete');
+  await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
   expect((await writes(request)).slice(before.length).filter(c => c.method === 'prompt.submit')).toHaveLength(1);
 });
 

@@ -29,18 +29,18 @@ test('preview and convert an existing conversation without starting work', async
   const beforeSend: string[] = await (await request.get('http://127.0.0.1:8791/calls')).json();
   expect(beforeSend.slice(before.length).filter(m => ['session.resume','session.create','prompt.submit'].includes(m))).toEqual([]);
   await page.getByRole('button', { name: 'Send', exact: true }).click();
-  await expect(page.locator('.execution-title')).toContainText('complete');
+  await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
   const afterSend: string[] = await (await request.get('http://127.0.0.1:8791/calls')).json();
   expect(afterSend.slice(beforeSend.length).filter(m => ['session.resume','session.create','prompt.submit'].includes(m))).toEqual(['session.resume','prompt.submit']);
 });
 test('accepted work continues after closing the page; approvals are deliberate', async ({ page, context }) => {
   await capture(page, 'Draft the itinerary'); await page.getByRole('link', { name: 'Draft the itinerary', exact: true }).click();
   await page.getByLabel('Message Hermes').fill('Please draft it.'); await page.getByRole('button', { name: 'Send', exact: true }).click();
-  await expect(page.locator('.execution-card')).toBeVisible(); const url = page.url(); await page.close();
-  const next = await context.newPage(); await next.goto(url); await expect(next.locator('.execution-title')).toContainText('complete');
+  await expect(page.locator('.conversation-status')).toBeVisible(); const url = page.url(); await page.close();
+  const next = await context.newPage(); await next.goto(url); await expect(next.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
   await expect(next.getByText('Your work continued after leaving the app.', { exact: false })).toBeVisible();
   await next.getByLabel('Message Hermes').fill('ask approval'); await next.getByRole('button', { name: 'Send', exact: true }).click();
-  await next.getByRole('button', { name: 'Approve once', exact: true }).click(); await expect(next.locator('.execution-title')).toContainText('complete');
+  await next.getByRole('button', { name: 'Approve once', exact: true }).click(); await expect(next.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
   await next.screenshot({ path: 'test-results/desktop-conversation.png', fullPage: true });
 });
 test('dictation countdown cancels on editing, and saved draft reload never sends', async ({ page, request }) => {

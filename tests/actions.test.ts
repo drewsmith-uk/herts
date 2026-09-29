@@ -130,6 +130,18 @@ describe('deliberate execution and receipts', () => {
     const restarted=new Actions(store,gateway as unknown as Gateway,'/tmp');
     expect(store.action(id)?.receipt).toBe('unknown'); expect(store.action(id)?.state).toBe('running'); expect(gateway.calls).toEqual([]); restarted.close();
   });
+  it('clears only the obsolete preview approval warning at startup without starting work or changing receipts', () => {
+    const { store, gateway, engine, taskId } = fixture(); engine.close();
+    const original = { id: randomUUID(), taskId, kind: 'send' as const, text: 'Preserve the saved message', uploadIds: [], createdAt: 1, updatedAt: 1, state: 'finished' as const, phase: 'complete', receipt: 'accepted' as const };
+    store.saveAction({ ...original, promptWarning: 'Herts cannot display the Hermes “preview.read” prompt. Update Herts or use a compatible Hermes client. No approval was given.' });
+    const other = { ...original, id: randomUUID(), promptWarning: 'Herts cannot display the Hermes “sudo” prompt. Update Herts or use a compatible Hermes client. No approval was given.' };
+    store.saveAction(other);
+    const restarted = new Actions(store, gateway as unknown as Gateway, '/tmp');
+    expect(store.action(original.id)?.promptWarning).toBeUndefined();
+    expect(store.action(original.id)).toMatchObject({ text: original.text, state: 'finished', receipt: 'accepted', phase: 'complete' });
+    expect(store.action(other.id)?.promptWarning).toBe(other.promptWarning);
+    expect(gateway.calls).toEqual([]); restarted.close();
+  });
   it('cancels an unseen submission durably and rejects its later delayed arrival', () => {
     const { gateway, engine, taskId } = fixture(); const input = { id: randomUUID(), taskId, kind: 'send' as const, text: 'Keep this draft' };
     expect(engine.cancelUndispatched(input).cancelled).toBe(true);

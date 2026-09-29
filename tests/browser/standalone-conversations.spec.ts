@@ -23,19 +23,19 @@ for (const width of [390, 1280]) test(`continues a conversation directly with ap
   expect(await calls(request)).toEqual(beforeCalls);
   await page.getByLabel('Message Hermes').fill(`Please ask approval from ${width}.`);
   await page.getByRole('button', { name: 'Send', exact: true }).click();
-  await expect(page.locator('.execution-card')).toContainText('Hermes needs your input');
+  await expect(page.locator('.conversation-status')).toContainText('Needs your input');
   await expect(page.locator('.history .message.from-user')).toContainText(`Please ask approval from ${width}.`);
   await expect(page.getByRole('button', { name: 'Approve once', exact: true })).toBeEnabled();
   await expect(page.getByRole('button', { name: 'Deny', exact: true })).toBeEnabled();
   const url = page.url(); await page.goto('/#/conversations'); await page.goto(url);
   await page.getByRole('button', { name: width === 390 ? 'Deny' : 'Approve once', exact: true }).click();
-  await expect(page.locator('.execution-title')).toContainText('complete');
+  await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
   expect((await calls(request)).slice(beforeCalls.length)).toEqual(['session.resume', 'prompt.submit', 'approval.respond']);
   await page.getByLabel('Message Hermes').fill('Standalone wait for stop');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
-  await expect(page.locator('.working-feedback')).toContainText('Hermes is working');
-  await page.getByRole('button', { name: 'Request stop', exact: true }).click();
-  await expect(page.locator('.execution-title')).toContainText('stopped');
+  await expect(page.locator('.conversation-status')).toContainText('Working');
+  await page.getByRole('button', { name: 'Stop', exact: true }).click();
+  await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','stopped');
   const after = await state(request), context = after.snapshot.contexts.find((c: any) => c.aliases.includes(id));
   expect(after.snapshot.tasks).toEqual(before.snapshot.tasks);
   expect(after.snapshot.reading.items).toEqual(before.snapshot.reading.items);
@@ -77,12 +77,12 @@ test('shares an offline draft, attachment and active work with later reading and
   const taskUrl = page.url();
   await expect(page.getByRole('button', { name: 'Approve once', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Approve once', exact: true }).click();
-  await expect(page.locator('.execution-title')).toContainText('complete');
+  await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
   await page.getByLabel('Message Hermes').fill('Same draft in all three views');
   await savedDraft(page, reference.id, 'Same draft in all three views');
   for (const url of [readingUrl, `/#/conversation/${id}`, taskUrl]) {
     await page.goto(url); await expect(page.getByLabel('Message Hermes')).toHaveValue('Same draft in all three views');
-    await expect(page.locator('.execution-title')).toContainText('complete');
+    await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
   }
   const after = await state(request);
   expect(after.snapshot.contexts.filter((c: any) => c.aliases.includes(id))).toHaveLength(1);
@@ -107,7 +107,7 @@ test('recovers a lost conversation-reference response and opens its notification
     expect(await calls(request)).toEqual(before);
     await other.getByLabel('Message Hermes').fill('Finish this standalone notification check.');
     await other.getByRole('button', { name: 'Send', exact: true }).click();
-    await expect(other.locator('.execution-title')).toContainText('complete');
+    await expect(other.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
     const result = await state(request), ref = result.snapshot.contexts.find((c: any) => c.aliases.includes(id));
     const action = result.actions.find((a: any) => a.contextId === ref.id && a.kind === 'send');
     const notice = `${action.id}:complete`;
@@ -116,7 +116,7 @@ test('recovers a lost conversation-reference response and opens its notification
     const sent = await calls(request);
     await page.goto(`/?notice=${encodeURIComponent(notice)}`);
     await expect(page).toHaveURL(new RegExp(`#/conversation/${id}$`));
-    await expect(page.locator('.execution-title')).toContainText('complete');
+    await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
     expect(await calls(request)).toEqual(sent);
   } finally { await otherContext.close(); }
 });

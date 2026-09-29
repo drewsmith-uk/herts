@@ -14,13 +14,16 @@ import { MessageMedia } from './Media';
 import { useConversationHistory } from './useConversationHistory';
 import { groupHistory, type HistoryEntry, type HistoryGroup } from './historyGroups';
 import { HistoryDisclosure } from './HistoryDisclosure';
-import { ConversationHeader } from './ConversationHeader';
+import { Clarification } from './Clarification';
+import { ConversationActivity } from './ConversationActivity';
 import { ConversationRow } from './ConversationRow';
+import { SavedMessages } from './SavedMessages';
+import { copySavedMessage } from './savedMessages';
 import { useDraftPersistence, useUpdatePreparation, useUpdateWork } from './updateSafety';
 import { SessionSettingsControls } from './SessionSettings';
 
 import {messageText,type Action,type Conversation,type History} from '../shared/core';
-import {db,useApp,addFile,submit,refresh,resolveSubmission,api,cacheRead,saveSessionChoices,type Draft,type LocalFile} from './data';
+import {db,useApp,addFile,submit,refresh,resolveSubmission,api,cacheRead,saveSessionChoices,saveConversationDraft,type Draft,type LocalFile} from './data';
 import {ConversationContributions,MessageLinkContributions} from './plugins';
 
 function time(at:number){return new Date(at).toLocaleString();}
@@ -39,27 +42,42 @@ export function ConversationPanel({ context: task, initialText = '', showActions
   const active = !!main && !finished(main); const [historyVersion, setHistoryVersion] = useState(0), [sendVersion, setSendVersion] = useState(0);
   const send = state.actions.find(a => !a.cancelled && a.taskId === task.id && a.kind === 'send');
   const local = state.outgoing.filter(s => s.taskId === task.id && !state.actions.some(a => a.id === s.id && a.cancelled)).sort((a,b) => b.at - a.at)[0];
-  const outgoing: OutgoingMessage | undefined = local && (!send || local.id === send.id || local.at > send.createdAt) ? local : send ? { id: send.id, taskId: task.id, text: send.text, uploadIds: send.uploadIds, at: send.createdAt } : undefined;
-  const outgoingAction = state.actions.find(a => a.id === outgoing?.id);
+  const latestOutgoing: OutgoingMessage | undefined = local && (!send || local.id === send.id || local.at > send.createdAt) ? local : send ? { id: send.id, taskId: task.id, text: send.text, uploadIds: send.uploadIds, at: send.createdAt } : undefined;
+  const outgoingAction = state.actions.find(a => a.id === latestOutgoing?.id);
+  const outgoing = outgoingAction?.savedMessageDeletedAt ? undefined : latestOutgoing;
   const historyChange = `${historyVersion}:${main?.id}:${main?.sendStage}:${main?.receipt}:${main?.state}:${main?.phase}:${main?.terminal}`;
   useEffect(() => { if (main?.terminal || main?.state === 'finished') setHistoryVersion(v => v + 1); }, [main?.terminal, main?.state]);
-  async function control(kind: Action['kind'], approvalId?: string, text?: string) {
-    setBusy(true); setError(''); try { await submit({ id: crypto.randomUUID(), contextId: task.id, kind, generation: binding?.generation, targetId: main?.id, ...(approvalId ? { approvalId } : {}), ...(text ? { text } : {}) }); } catch(e) { setError((e as Error).message); } finally { setBusy(false); }
+  async function control(kind: Action['kind'], approvalId?: string, text?: string, answers?: Record<string, string>) {
+    setBusy(true); setError(''); try { await submit({ id: crypto.randomUUID(), contextId: task.id, kind, generation: binding?.generation, targetId: main?.id, ...(approvalId ? { approvalId } : {}), ...(text ? { text } : {}), ...(answers ? { answers } : {}) }); } catch(e) { setError((e as Error).message); } finally { setBusy(false); }
   }
-  return <>
+  const uncertainControls = state.actions.filter(a => a.taskId === task.id && !['send','continue'].includes(a.kind) && a.receipt === 'unknown');
+  const failedControls = state.actions.filter(a => a.targetId === main?.id && a.receipt === 'rejected' && a.kind !== 'send');
+  const answered = (id: string) => state.actions.some(a => a.targetId === main?.id && a.approvalId === id && a.receipt !== 'rejected');
+  const modelConfirmation = !main?.savedMessageDeletedAt && !!main?.settings?.confirmation && state.snapshot.sessionSettings?.conversations[task.id]?.revision === main.settings.revision;
+  const needsInput = active && (main.state === 'awaiting_input' || !!main.approvals?.length || !!main.clarification);
+  const attention = !!(needsInput || main?.promptWarning || failedControls.length || main?.error || main?.state === 'failed' || main?.state === 'unknown' || main?.receipt === 'unknown' || uncertainControls.length || error || modelConfirmation);
+  const statusLabel = needsInput ? 'Needs your input' : modelConfirmation ? 'Confirm model switch' : attention ? main?.sendStage === 'preparing' || main?.receipt === 'rejected' ? 'Message not sent' : main?.state === 'failed' ? 'Conversation failed' : 'Check conversation' : main?.state === 'stopping' ? 'Stopping…' : main?.phase === 'stopped' ? 'Stopped' : main?.state === 'preparing' ? 'Preparing…' : `Working${main?.phase && !['working','streaming'].includes(main.phase) ? ` · ${main.phase}` : '…'}`;
+  return <section className="conversation-panel" data-phase={main?.phase || 'idle'}>
     {showActions&&<ConversationContributions context={task}/>}
     {showHeading && <div className="conversation-heading"><span><MessageSquare size={17}/> Conversation</span></div>}
-    {main && <div className={`execution-card ${main.state === 'awaiting_input' ? 'attention' : ''}`}><div className="execution-title"><span>{main.state === 'running' || main.state === 'preparing' ? <LoaderCircle size={15} className="spin"/> : main.state === 'finished' ? <Check size={15}/> : <Circle size={14}/>} {main.state === 'unknown' ? 'Outcome unknown' : main.state === 'awaiting_input' ? 'Hermes needs your input' : main.phase}</span>{active && <button className="text-button" disabled={busy || !state.gateway.online || !binding} onClick={() => void control('stop')}><Square size={12}/> Request stop</button>}</div>{main.error && <p>{main.error}</p>}{main.receipt === 'unknown' && <p>The request will not be repeated automatically.</p>}
-      {main.approvals?.map(p => <div className="approval" key={p.request_id}><p>{p.description || 'Allow this action?'}</p>{p.command && <pre>{p.command}</pre>}<div className="button-row"><button className="primary-button" disabled={busy || !state.gateway.online} onClick={() => void control('approve', p.request_id)}>Approve once</button><button disabled={busy || !state.gateway.online} onClick={() => void control('deny', p.request_id)}>Deny</button></div></div>)}
-      {main.clarification && <Clarification question={main.clarification} disabled={busy || !state.gateway.online} onAnswer={answer => void control('clarify', main.clarification.request_id, answer)}/>}
-    </div>}
-    {state.actions.filter(a => a.taskId === task.id && !['send','continue'].includes(a.kind) && a.receipt === 'unknown').map(a => <p className="error-banner" key={a.id}>Your {a.kind === 'stop' ? 'stop request' : 'decision'} was not confirmed. Refresh to check current state; it will not be repeated.</p>)}
-    {error && <p className="inline-error" role="alert">{error}</p>}
-    {task.link ? <HistoryView key={task.link.key} conversationId={task.link.storedId} version={historyChange} liveText={main?.liveText} working={active} phase={main?.phase} outgoing={outgoing} outgoingAction={outgoingAction} sendVersion={sendVersion}/> : outgoing ? <div className="history"><OutgoingFeedback message={outgoing} action={outgoingAction}/>{active && <WorkingFeedback phase={main?.phase}/>}</div> : showEmptyNotice && <div className="unlinked-note"><p>This item is saved. Sending the first message will start a new Hermes conversation.</p></div>}
-    {main?.settings?.confirmation && state.snapshot.sessionSettings?.conversations[task.id]?.revision === main.settings.revision && <ModelSwitchConfirmation action={main}/>}
+    {task.link ? <HistoryView key={task.link.key} conversationId={task.link.storedId} version={historyChange} liveText={main?.liveText} working={active} phase={main?.phase} outgoing={outgoing} outgoingAction={outgoingAction} sendVersion={sendVersion}/> : outgoing ? <div className="history"><OutgoingFeedback message={outgoing} action={outgoingAction}/></div> : showEmptyNotice && <div className="unlinked-note"><p>This item is saved. Sending the first message will start a new Hermes conversation.</p></div>}
+    {(active || attention || main?.phase === 'stopped') && <ConversationActivity label={statusLabel} active={active} attention={attention} stopping={main?.state === 'stopping'} disabled={busy || !state.online || !state.gateway.online || !binding} onStop={() => void control('stop')} onLatest={() => setSendVersion(v => v + 1)}>
+      {attention && <>
+        {main?.error && !modelConfirmation && <p className="inline-error" role="alert">{main.error}</p>}
+        {!main?.error && main?.state === 'failed' && <p className="inline-error" role="alert">Hermes reported that this run failed.</p>}
+        {!main?.error && main?.state === 'unknown' && <p className="inline-error" role="alert">The current outcome could not be confirmed.</p>}
+        {main?.promptWarning && <p className="inline-error" role="alert">{main.promptWarning}</p>}
+        {failedControls.map(a => <p key={a.id} className="inline-error" role="alert">{a.error}</p>)}
+        {main?.receipt === 'unknown' && <p>The request will not be repeated automatically.</p>}
+        {active && main?.approvals?.map(p => <div className="approval" key={p.request_id}><p>{p.description || 'Allow this action?'}</p>{p.command && <pre>{p.command}</pre>}<div className="button-row"><button className="primary-button" disabled={busy || !state.online || !state.gateway.online || answered(p.request_id) || (p.choices !== undefined && !p.choices.includes('once'))} onClick={() => void control('approve', p.request_id)}>Approve once</button><button disabled={busy || !state.online || !state.gateway.online || answered(p.request_id) || (p.choices !== undefined && !p.choices.includes('deny'))} onClick={() => void control('deny', p.request_id)}>Deny</button></div></div>)}
+        {active && main?.clarification && <Clarification key={main.clarification.request_id} question={main.clarification} disabled={busy || !state.online || !state.gateway.online || answered(main.clarification.request_id)} onAnswer={(answer, answers) => void control('clarify', main.clarification.request_id, answer, answers)}/>}
+        {uncertainControls.map(a => <p className="error-banner" key={a.id}>Your {a.kind === 'stop' ? 'stop request' : a.kind === 'clarify' ? 'answer' : 'decision'} was not confirmed. Refresh to check current state; it will not be repeated.</p>)}
+        {error && <p className="inline-error" role="alert">{error}</p>}
+        {modelConfirmation && main && <ModelSwitchConfirmation action={main}/>}
+      </>}
+    </ConversationActivity>}
     <Composer key={task.id} task={task} initialText={initialText} canSend={state.online && state.gateway.online && !active} onSending={() => setSendVersion(v => v + 1)} onSent={() => setHistoryVersion(v => v + 1)}/>
-    {state.actions.filter(a => a.taskId === task.id && (['failed','unknown'].includes(a.state) || ['rejected','unknown'].includes(a.receipt)) && a.kind === 'send').map(a => <details className="saved-message" key={a.id}><summary>{a.sendStage === 'preparing' || a.receipt === 'rejected' ? 'Saved message · not sent' : 'Saved submitted message'} · {time(a.createdAt)}</summary><pre>{a.text}</pre>{a.uploadIds.map(id => <a key={id} href={`/api/v1/uploads/${id}`}>Download attachment</a>)}</details>)}
-  </>;
+  </section>;
 }
 function ModelSwitchConfirmation({ action }: { action: Action }) {
   const state = useApp(), [busy, setBusy] = useState(false), [error, setError] = useState('');
@@ -73,26 +91,37 @@ function ModelSwitchConfirmation({ action }: { action: Action }) {
   }
   return <section className="error-banner" role="alert"><strong>Confirm model switch</strong><p>{action.settings!.confirmation}</p><p>Your message is saved and has not been sent.</p><div className="button-row"><button disabled={busy || !state.gateway.online} onClick={() => void work(choose(true))}>Switch and send saved message</button><button disabled={busy} onClick={() => void work(choose(false))}>Keep current settings</button></div>{error && <p>{error}</p>}</section>;
 }
-function Clarification({ question, disabled, onAnswer }: { question: any; disabled: boolean; onAnswer: (text: string) => void }) { const [text, setText] = useState(''); useUpdatePreparation({ blocked: () => text ? 'Send or clear your answer to Hermes before updating.' : undefined }); return <form className="clarify-form" onSubmit={e => { e.preventDefault(); onAnswer(text); }}><p>{question.question || question.prompt || 'Hermes has a question.'}</p><input aria-label="Answer Hermes" value={text} onChange={e => setText(e.target.value)}/><button disabled={disabled || !text.trim()}>Send answer</button></form>; }
 
 function Composer({ task, canSend, onSent, onSending, initialText }: { task: ConversationContext; canSend: boolean; onSent: () => void; onSending: () => void; initialText: string }) {
   const state = useApp(); const [draft, setDraft] = useState<Draft>({ id: task.id, text: initialText, files: [] }), [files, setFiles] = useState<LocalFile[]>([]), [busy, setBusy] = useState(false), [error, setError] = useState(''), [countdown, setCountdown] = useState<number | null>(null), [loaded, setLoaded] = useState(false), [settingsOpen, setSettingsOpen] = useState(false);
   const input = useRef<HTMLInputElement>(null); const deadline = useRef(0); const draftRef = useRef(draft); draftRef.current = draft; const sending = useRef(false); const canSendRef = useRef(canSend); canSendRef.current = canSend && !settingsOpen && !state.localSubmissions.some(s => s.taskId === task.id);
   const attaching = useRef(false);
+  const restoring = useRef(false), textarea = useRef<HTMLTextAreaElement>(null);
+  const [restoreNotice, setRestoreNotice] = useState('');
   const saveDraft = useDraftPersistence();
   useUpdatePreparation({
     pause: cancelTimer,
-    blocked: () => sending.current || attaching.current ? 'Wait for the message or attachment to finish saving before updating.' : undefined,
+    blocked: () => sending.current || attaching.current || restoring.current ? 'Wait for the message or attachment to finish saving before updating.' : undefined,
   });
   useEffect(() => { const subscription = liveQuery(() => db.drafts.get(task.id)).subscribe({ next: d => { const next = d || { id: task.id, text: initialText, files: [] }; setDraft(next); draftRef.current = next; setLoaded(true); }, error: () => setError('The saved draft could not be opened. Reload to try again.') }); return () => subscription.unsubscribe(); }, [task.id]);
   useEffect(() => { void db.files.bulkGet(draft.files).then(fs => setFiles(fs.filter(Boolean) as LocalFile[])); }, [draft.files.join(',')]);
   function cancelTimer() { deadline.current = 0; setCountdown(null); }
   function update(next: Draft) { cancelTimer(); draftRef.current = next; setDraft(next); return saveDraft(next).catch(() => { setError('Could not save the draft. Do not leave this page until storage is available.'); throw new Error('Draft storage unavailable'); }); }
+  async function restore(action: Action) {
+    cancelTimer(); if (sending.current || attaching.current || restoring.current) return;
+    restoring.current = true; setBusy(true); setError(''); setRestoreNotice('');
+    try {
+      const next = await copySavedMessage(action, draftRef.current);
+      draftRef.current = next; setDraft(next); setRestoreNotice('Message added to your draft. Review it, then press Send when ready.');
+      requestAnimationFrame(() => { textarea.current?.focus(); textarea.current?.scrollIntoView({ block: 'center', behavior: 'smooth' }); });
+    } catch (e) { setError((e as Error).message); }
+    finally { cancelTimer(); restoring.current = false; setBusy(false); }
+  }
   async function send() {
-    cancelTimer(); if (sending.current || !canSendRef.current || document.hidden) return;
+    cancelTimer(); if (sending.current || restoring.current || !canSendRef.current || document.hidden) return;
     const d = draftRef.current; if (!d.text.trim() && !d.files.length) return;
     sending.current = true; setBusy(true); setError('');
-    try { await db.drafts.put(d); onSending(); await submit({ id: crypto.randomUUID(), contextId: task.id, kind: 'send', text: d.text, uploadIds: d.files }); await update({ id: task.id, text: '', files: [] }); onSent(); }
+    try { await saveConversationDraft(d); onSending(); await submit({ id: crypto.randomUUID(), contextId: task.id, kind: 'send', text: d.text, uploadIds: d.files }); await update({ id: task.id, text: '', files: [] }); onSent(); }
     catch(e) { setError((e as Error).message); }
     finally { sending.current = false; setBusy(false); }
   }
@@ -106,18 +135,20 @@ function Composer({ task, canSend, onSent, onSending, initialText }: { task: Con
   async function attach(selected: FileList | null) { cancelTimer(); if (!selected) return; attaching.current = true; setError(''); try { const ids = []; for (const file of Array.from(selected)) ids.push(await addFile(file, file.name)); await update({ ...draftRef.current, files: [...draftRef.current.files, ...ids] }); } catch(e) { setError((e as Error).message); } finally { attaching.current = false; } if (input.current) input.current.value = ''; }
   const uncertainLocal = state.localSubmissions.some(s => s.taskId === task.id);
   return <div className="composer-wrap"><SessionSettingsControls context={task} onOpen={() => { cancelTimer(); setSettingsOpen(true); }} onClose={() => setSettingsOpen(false)}/><form className="composer" onSubmit={e => { e.preventDefault(); void send(); }}>
-    <textarea aria-label="Message Hermes" placeholder={task.link ? 'Message Hermes…' : 'Tell Hermes what you want to do…'} value={draft.text} disabled={!loaded || busy} onChange={e => void update({ ...draft, text: e.target.value })} rows={3} onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); void send(); } }}/>
+    <textarea ref={textarea} aria-label="Message Hermes" placeholder={task.link ? 'Message Hermes…' : 'Tell Hermes what you want to do…'} value={draft.text} disabled={!loaded || busy} onChange={e => { setRestoreNotice(''); void update({ ...draft, text: e.target.value }); }} rows={3} onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); void send(); } }}/>
     {files.length > 0 && <div className="attachment-list">{files.map(f => <span className="attachment" key={f.id}><Paperclip size={13}/>{f.name}<small>{(f.blob.size / 1024).toFixed(0)} KB</small><button type="button" className="icon-button" aria-label={`Remove ${f.name}`} onClick={() => void update({ ...draft, files: draft.files.filter(id => id !== f.id) })}><X size={14}/></button></span>)}</div>}
     <div className="composer-tools"><div className="button-row"><button type="button" className="icon-button" aria-label="Attach files" onClick={() => input.current?.click()} disabled={busy}><Paperclip size={20}/></button><input type="file" ref={input} hidden multiple onChange={e => void attach(e.target.files)}/><Voice owner={`chat:${task.id}`} onTranscript={(text, fresh) => { return update({ ...draftRef.current, text: draftRef.current.text ? `${draftRef.current.text}\n${text}` : text }).then(() => { if (fresh && canSendRef.current && !uncertainLocal && !document.hidden) { deadline.current = Date.now() + 5000; setCountdown(5); } }); }}/></div><button className="primary-button send-button" disabled={!canSend || busy || !loaded || uncertainLocal || (!draft.text.trim() && !draft.files.length)}>{busy ? <LoaderCircle size={16} className="spin"/> : <Send size={16}/>} Send</button></div>
   </form>{countdown !== null && <div className="countdown" role="status"><span>Sending voice message in <strong>{countdown}s</strong></span><button onClick={cancelTimer}>Cancel auto-send</button></div>}
     {error && <p className="inline-error" role="alert">{error}</p>}
+    {restoreNotice && <p className="subtle-note" role="status">{restoreNotice}</p>}
     {uncertainLocal && <div className="error-banner">A submitted request has not been confirmed. Your draft is saved. <button className="text-button" onClick={() => void refresh()}>Check status</button>{state.localSubmissions.filter(s => s.taskId === task.id).map(s => <button className="text-button" key={s.id} onClick={() => void resolveSubmission(s.id).catch(e => setError(e.message))}>Cancel if not yet received</button>)}<p>This prevents a delayed request from being sent if Herts has not received it. Received work keeps its current status.</p></div>}
     <p className="composer-note">{!state.online ? 'Offline. Your draft and attachments stay on this device.' : !state.gateway.configured ? 'Hermes connection is being configured. You can keep writing.' : !state.gateway.online ? 'Hermes is unavailable. Your draft is saved; send when it reconnects.' : countdown === null ? 'Dictation sends after a cancellable 5-second countdown. Editing cancels it.' : 'You can also edit the message to cancel.'}</p>
+    <SavedMessages contextId={task.id} disabled={!loaded || busy} onCopy={restore}/>
   </div>;
 }
 
 export function HistoryView({ conversationId, version = 0, liveText, working = false, phase, outgoing, outgoingAction, sendVersion = 0 }: { conversationId: string; version?: number | string; liveText?: string; working?: boolean; phase?: string; outgoing?: OutgoingMessage; outgoingAction?: Action; sendVersion?: number }) {
-  const feedback = `${outgoing?.id}:${outgoingStatus(outgoingAction)}:${working}`;
+  const feedback = `${outgoing?.id}:${outgoingStatus(outgoingAction)}:${working}:${version}`;
   const { pages, cached, busy, error, setError, newMessages, latest, older, root, end, pauseFollowing } = useConversationHistory(conversationId, version, liveText, working, sendVersion, feedback);
   const confirmed = useRef(new Set<string>());
   if (outgoing && outgoingInHistory(outgoing, pages)) confirmed.current.add(outgoing.id);
@@ -154,8 +185,7 @@ export function HistoryView({ conversationId, version = 0, liveText, working = f
     {pages[0]?.hasMore && <button className="load-more" disabled={busy} onClick={() => void older()}>{busy ? 'Loading…' : 'Load older messages'}</button>}
     {groups.map(group => group.kind === 'message' ? renderMessage(group.entry) : <HistoryDisclosure key={group.key} activityKey={group.key} label={<><span className="hermes-mark">H</span><span>Hermes activity</span><span className="activity-count">{group.calls ? `${group.calls} tool call${group.calls === 1 ? '' : 's'}` : `${group.entries.length} tool output${group.entries.length === 1 ? '' : 's'}`}</span></>} onInteract={pauseFollowing}>{group.entries.map(renderMessage)}</HistoryDisclosure>)}
     {showOutgoing && <OutgoingFeedback message={outgoing} action={outgoingAction}/>}
-    {showLive && <article className="message live-message"><div className="message-author"><span className="hermes-mark">H</span>Hermes {working && <LoaderCircle size={13} className="spin"/>}</div><div className="markdown"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({ href, children }) => <MessageLinkContributions href={href} conversationId={conversationId}>{children}</MessageLinkContributions>, img: ({alt}) => <span>[{alt || 'Image'}]</span> }}>{liveText}</ReactMarkdown></div></article>}
-    {working && <WorkingFeedback phase={phase}/>}
+    {showLive && <article className="message live-message"><div className="message-author"><span className="hermes-mark">H</span>Hermes </div><div className="markdown"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({ href, children }) => <MessageLinkContributions href={href} conversationId={conversationId}>{children}</MessageLinkContributions>, img: ({alt}) => <span>[{alt || 'Image'}]</span> }}>{liveText}</ReactMarkdown></div></article>}
     {!pages.some(p => p.messages.length) && !outgoing && !liveText && !busy && !error && <p className="history-empty">No messages are available yet.</p>}
     {newMessages && <button className="load-more" onClick={() => void latest()}>Show latest messages</button>}
     <div ref={end}/>
@@ -163,7 +193,4 @@ export function HistoryView({ conversationId, version = 0, liveText, working = f
 }
 function OutgoingFeedback({ message, action }: { message: OutgoingMessage; action?: Action }) {
   return <article className="message from-user outgoing-message" data-outgoing-id={message.id}><div className="message-author">You <span className="submission-status">{outgoingStatus(action)}</span></div>{message.text && <div className="outgoing-text">{message.text}</div>}{message.uploadIds.length > 0 && <div className="subtle-note">{message.uploadIds.length} attachment{message.uploadIds.length === 1 ? '' : 's'}</div>}</article>;
-}
-function WorkingFeedback({ phase }: { phase?: string }) {
-  return <div className="working-feedback" role="status"><span className="hermes-mark">H</span><LoaderCircle size={15} className="spin"/><span>Hermes is working{phase && !['working','streaming'].includes(phase) ? ` · ${phase}` : '…'}</span></div>;
 }

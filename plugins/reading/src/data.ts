@@ -31,6 +31,11 @@ export const db = { get kv() { return pluginLocal('reading').kv; }, get drafts()
 export async function mutateReading(op: ReadingOp) { return mutatePlugin('reading', 'reading', op, op.contextId || current().snapshot.reading.items.find(i => i.id === op.itemId)?.contextId); }
 export async function addReading(raw: string, title = '', conversationId?: string) {
     const url = normalizeUrl(raw), state = current(), context = conversationId ? state.snapshot.contexts.find(c => c.aliases.includes(conversationId)) : undefined;
+    const cleanTitle = title.trim().slice(0, 2000);
+    // A pasted URL in the optional title must not disguise a different link.
+    // Validate before creating a draft, queueing a reading item or sending it.
+    if (/^https?:\/\/\S+$/i.test(cleanTitle) && normalizeUrl(cleanTitle) !== url)
+        throw new Error('The title is a different link. Check the Link field, then clear the title or enter a descriptive title.');
     const existing = context && state.snapshot.reading.items.find(i => i.contextId === context.id && i.urlKey === url);
     if (existing)
         return existing.id;
@@ -40,7 +45,7 @@ export async function addReading(raw: string, title = '', conversationId?: strin
     const itemId = crypto.randomUUID(), contextId = context?.id || crypto.randomUUID();
     if (!conversationId)
         await conversationDrafts.put({ id: contextId, text: url, files: [] });
-    await mutateReading({ id: crypto.randomUUID(), itemId, contextId, kind: 'create', url, title: title.trim().slice(0, 2000) || url, ...(conversationId ? { conversationId } : {}), at: Date.now() });
+    await mutateReading({ id: crypto.randomUUID(), itemId, contextId, kind: 'create', url, title: cleanTitle || url, ...(conversationId ? { conversationId } : {}), at: Date.now() });
     return itemId;
 }
 export async function readingChange(itemId: string, change: Partial<ReadingOp> & Pick<ReadingOp, 'kind'>) { const state = current(), item = state.snapshot.reading.items.find(i => i.id === itemId); return mutateReading({ id: crypto.randomUUID(), itemId, at: Date.now(), ...change, ...(change.kind === 'title' ? { baseTitle: change.baseTitle ?? item?.title } : {}), ...(change.kind === 'read' ? { baseReadAt: item?.readAt ?? null } : {}), ...(change.kind === 'reorder' ? { listVersion: state.snapshot.reading.unread.version } : {}) }); }

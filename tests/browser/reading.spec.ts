@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 const calls = async (request: any) => (await (await request.get('http://127.0.0.1:8791/calls')).json() as string[]).filter(m => ['session.create','session.resume','prompt.submit'].includes(m));
-async function add(page: Page, title: string) { await page.goto('/#/reading/add'); await expect(page.locator('.save-state')).toContainText('All changes saved'); await page.getByLabel('Article link',{exact:true}).fill(`https://example.com/${encodeURIComponent(title)}`); await page.getByLabel('Reading title',{exact:true}).fill(title); await page.getByRole('button',{name:'Add & send',exact:true}).click(); await expect(page.locator('.execution-title')).toContainText('complete'); }
+async function add(page: Page, title: string) { await page.goto('/#/reading/add'); await expect(page.locator('.save-state')).toContainText('All changes saved'); await page.getByLabel('Article link',{exact:true}).fill(`https://example.com/${encodeURIComponent(title)}`); await page.getByLabel('Reading title',{exact:true}).fill(title); await page.getByRole('button',{name:'Add & send',exact:true}).click(); await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete'); }
 
 test('phone reading capture sends only its raw URL, keeps conversation visible, and makes an independent task', async ({page,request}) => {
   await page.setViewportSize({width:390,height:844}); const before = await calls(request);
@@ -43,7 +43,7 @@ test('Android share confirmation saves offline and reconnecting never sends', as
   await page.getByRole('button',{name:'Save link',exact:true}).click(); await expect(page).toHaveURL(/#\/reading-item\/[0-9a-f-]+$/); await expect(page.getByLabel('Reading title',{exact:true})).toHaveValue('Shared story'); const url = page.url();
   await page.reload(); await expect(page.getByLabel('Message Hermes')).toHaveValue('https://example.com/shared-offline');
   await context.setOffline(false); await expect(page.locator('.save-state')).toContainText('All changes saved'); expect(await calls(request)).toEqual(before);
-  await page.getByRole('button',{name:'Send to Hermes',exact:true}).click(); await expect(page.locator('.execution-title')).toContainText('complete');
+  await page.getByRole('button',{name:'Send to Hermes',exact:true}).click(); await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
   expect((await calls(request)).slice(before.length)).toEqual(['session.create','prompt.submit']);
   await expect(page.locator('.offline-controls')).toContainText('Available offline'); await page.getByRole('link',{name:'Reading mode',exact:true}).click();
   await expect(page.locator('.reader-article')).toContainText('Article paragraph 7');
@@ -90,8 +90,8 @@ test('a lost Add & send acknowledgement is recovered without repeating the conve
   });
   await page.goto('/#/reading/add'); await expect(page.locator('.save-state')).toContainText('All changes saved');
   await page.getByLabel('Article link',{exact:true}).fill('https://example.com/lost-reading-receipt'); await page.getByLabel('Reading title',{exact:true}).fill('Lost reading receipt');
-  await page.getByRole('button',{name:'Add & send',exact:true}).click(); await expect(page.locator('.execution-title')).toContainText('complete');
-  await page.reload(); await expect(page.locator('.execution-title')).toContainText('complete');
+  await page.getByRole('button',{name:'Add & send',exact:true}).click(); await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
+  await page.reload(); await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
   expect((await calls(request)).slice(before.length)).toEqual(['session.create','prompt.submit']);
   const state=await(await request.get('/api/v1/state')).json(); expect(state.snapshot.reading.items.filter((i:any)=>i.url==='https://example.com/lost-reading-receipt')).toHaveLength(1);
 });

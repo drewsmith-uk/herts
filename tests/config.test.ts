@@ -73,6 +73,6 @@ describe('portable configuration and safe upgrades', () => {
     for (const header of ['x-tasks-request','x-herts-request']) expect((await app.inject({method:'POST',url:'/api/v1/sync',headers:{...base,[header]:'1'},payload:{id:randomUUID(),taskId:randomUUID(),kind:'create',title:'Offline-capable task',at:Date.now()}})).statusCode).toBe(200);
     expect((await app.inject({method:'POST',url:'/api/v1/sync',headers:base,payload:{}})).statusCode).toBe(403);
     expect((await app.inject({method:'POST',url:'/api/v1/sync',headers:{...base,'x-herts-request':'1',origin:'https://attacker.example'},payload:{}})).statusCode).toBe(403);
-    const state=(await app.inject({url:'/api/v1/state',headers:base})).json();expect(state.snapshot.tasks).toHaveLength(2);expect(state.gateway).toEqual({online:false,configured:false,profile:'research'});expect(JSON.stringify(state)).not.toContain('hermesToken');
+    const state=(await app.inject({url:'/api/v1/state',headers:base})).json();expect(state.snapshot.tasks).toHaveLength(2);expect(state.gateway).toEqual({online:false,configured:false,profile:'research',promptProtocol:'unknown'});expect(JSON.stringify(state)).not.toContain('hermesToken');
   });
 });

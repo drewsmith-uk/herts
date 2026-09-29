@@ -50,18 +50,21 @@ test('returning to the app replaces a stalled status read and ignores its late r
   await page.getByLabel('Message Hermes').fill('Still unsent after returning.');
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
   const stale = await state(request); stale.gateway.online = false;
-  let requests = 0, release!: () => void;
+  let requests = 0, recovering = false, release!: () => void, held!: () => void;
   const delayed = new Promise<void>(resolve => { release = resolve; });
+  const started = new Promise<void>(resolve => { held = resolve; });
   await page.route('**/api/v1/state', async route => {
-    if (++requests === 1) { await delayed; await route.fulfill({ json: stale }).catch(() => {}); }
+    requests++;
+    if (!recovering) { held(); await delayed; await route.fulfill({ json: stale }).catch(() => {}); }
     else await route.continue();
   });
   try {
     await page.evaluate(() => window.dispatchEvent(new Event('online')));
-    await expect.poll(() => requests).toBe(1);
+    await started;
     await message(request, id, 'Latest message after returning to the app.');
+    const beforeRecovery = requests; recovering = true;
     await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
-    await expect.poll(() => requests, { timeout: 5000 }).toBeGreaterThan(1);
+    await expect.poll(() => requests, { timeout: 5000 }).toBeGreaterThan(beforeRecovery);
     await expect(page.locator('.history')).toContainText('Latest message after returning to the app.');
     release();
     await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();

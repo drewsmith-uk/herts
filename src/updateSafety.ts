@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { db, type Draft } from './data';
+import { db, saveConversationDraft, type Draft } from './data';
 
 type Preparation = { pause?: () => void; settle?: () => Promise<unknown>; blocked?: () => string | undefined; save?: () => Promise<unknown> };
 const preparations = new Set<() => Preparation>();
@@ -20,7 +20,7 @@ export function useUpdateWork() {
   return <T,>(work: Promise<T>) => { pending.current = work; return work; };
 }
 
-export function useDraftPersistence(target: {put:(draft:Draft)=>Promise<unknown>} = db.drafts) {
+export function useDraftPersistence(target: {put:(draft:Draft)=>Promise<unknown>} = { put: saveConversationDraft }) {
   const latest = useRef<{ draft: Draft; saved: Promise<unknown> } | undefined>(undefined);
   useUpdatePreparation({ save: async () => {
     const write = latest.current;

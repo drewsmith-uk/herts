@@ -6,7 +6,7 @@ import { mkdir, open, readFile, rename, stat, writeFile, rm } from 'node:fs/prom
 import { existsSync, createReadStream } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
-import { Conflict, messageText, conversationHidden } from '../shared/core.js';
+import { Conflict, messageText, conversationHidden, hasSavedMessage } from '../shared/core.js';
 import { Store } from './store.js';
 import { Gateway, GatewayError } from './gateway.js';
 import { PluginRegistry } from './plugins/registry.js';
@@ -21,10 +21,10 @@ import { mediaRefs } from '../shared/media.js';
 
 const uuid = z.string().uuid();
 const historyOrder = z.enum(['oldest', 'latest']).default('oldest');
-const actionSchema = z.object({ id: uuid, taskId: uuid.optional(), contextId: uuid.optional(), kind: z.enum(['send','continue','approve','deny','stop','clarify']), text: z.string().optional(), uploadIds: z.array(uuid).max(20).optional(), targetId: uuid.optional(), generation: uuid.optional(), approvalId: z.string().max(200).optional(), settingsRevision: z.number().int().nonnegative().optional(), defaultsRevision: z.number().int().nonnegative().optional(), settingsConfirmation: uuid.optional() }).strict().superRefine((v, ctx) => {
+const actionSchema = z.object({ id: uuid, taskId: uuid.optional(), contextId: uuid.optional(), kind: z.enum(['send','continue','approve','deny','stop','clarify']), text: z.string().optional(), answers: z.record(z.string().max(200), z.string().max(20000)).optional(), uploadIds: z.array(uuid).max(20).optional(), targetId: uuid.optional(), generation: uuid.optional(), approvalId: z.string().max(200).optional(), settingsRevision: z.number().int().nonnegative().optional(), defaultsRevision: z.number().int().nonnegative().optional(), settingsConfirmation: uuid.optional() }).strict().superRefine((v, ctx) => {
   if ((!v.taskId && !v.contextId) || (v.taskId && v.contextId)) ctx.addIssue({ code: 'custom', message: 'Provide one conversation or task reference.' });
   if (v.kind === 'send' && !v.text?.trim() && !v.uploadIds?.length) ctx.addIssue({ code: 'custom', message: 'Write a message or attach a file.' });
-  if (v.kind === 'clarify' && !v.text?.trim()) ctx.addIssue({ code: 'custom', message: 'An answer is required.' });
+  if (v.kind === 'clarify' && !v.text?.trim() && !Object.keys(v.answers || {}).length) ctx.addIssue({ code: 'custom', message: 'An answer is required.' });
 });
 export interface Config { themesDir?: string; pluginsDir?: string; dataDir: string; origin: string; identity: string; dev?: boolean; hermesBase: string; hermesToken: string; excluded?: string[]; hermesProfile?: string }
 export async function createApp(config: Config) {
@@ -67,7 +67,7 @@ export async function createApp(config: Config) {
     reply.code(e.statusCode && e.statusCode < 500 ? e.statusCode : 500).send({ error: e.statusCode && e.statusCode < 500 ? e.message : 'The request could not be completed. Your saved work is retained.' });
   });
   registerThemes(app, config.themesDir || resolve('themes'));
-  app.get('/api/v1/state', async req => ({ snapshot: clientSnapshot(store,req), actions: store.actions(), bindings: Object.fromEntries(store.bindings()), gateway: { online: gateway.online, configured: !!config.hermesToken, profile }, plugins:plugins.catalogue(), pluginData:plugins.data(), pushKey: notifications.keys.publicKey }));
+  app.get('/api/v1/state', async req => ({ snapshot: clientSnapshot(store,req), actions: store.actions(), bindings: Object.fromEntries(store.bindings()), gateway: { online: gateway.online, configured: !!config.hermesToken, profile, promptProtocol: gateway.promptProtocol, promptError: gateway.promptError, promptWarning: gateway.promptWarning }, plugins:plugins.catalogue(), pluginData:plugins.data(), pushKey: notifications.keys.publicKey }));
 
   app.get('/manifest.webmanifest',async(_req,reply)=>{const manifest=JSON.parse(await readFile(resolve('public/manifest.webmanifest'),'utf8'));manifest.description='Private Hermes conversations with optional plugins';manifest.shortcuts=plugins.catalogue().entries.filter(e=>plugins.enabled(e.manifest.id)).flatMap(e=>(e.manifest.shortcuts||[]));return reply.type('application/manifest+json').header('Cache-Control','no-cache').send(manifest);});
   app.get('/api/v1/contexts/:id',async(req,reply)=>{const context=store.context((req.params as any).id);return context?{context}:reply.code(404).send({error:'Conversation reference not found.'});});
@@ -148,6 +148,18 @@ export async function createApp(config: Config) {
   app.post('/api/v1/actions', async (req, reply) => { const input = actionSchema.parse(req.body); const a = actions.start(input); return reply.code(202).send({ action: a }); });
   app.post('/api/v1/actions/cancel', async req => actions.cancelUndispatched(actionSchema.parse(req.body)));
   app.get('/api/v1/actions/:id', async (req, reply) => { const a = store.action((req.params as any).id); return a ? { action: a } : reply.code(404).send({ error: 'Operation not found.' }); });
+  app.post('/api/v1/actions/:id/discard-saved-message', async (req, reply) => {
+    const id = uuid.parse((req.params as any).id);
+    z.object({}).strict().parse(req.body);
+    const action = store.action(id);
+    if (!action) return reply.code(404).send({ error: 'Saved message not found.' });
+    if (action.savedMessageDeletedAt) return { action };
+    if (!hasSavedMessage(action)) throw new Conflict('This operation does not have a saved message to delete.');
+    // Retain the operation and receipt for deduplication and status recovery.
+    // Discarding a saved copy never cancels, retries or deletes Hermes work.
+    action.savedMessageDeletedAt = Date.now(); store.saveAction(action);
+    return { action };
+  });
   function guardUpload(upload:{owner?:string}){
     if(!upload.owner)return;
     const [id,generation]=upload.owner.split(':');
@@ -184,6 +196,10 @@ export async function createApp(config: Config) {
       }
       return { offset: size, complete: u.complete };
     } finally { uploadLocks.delete(id);if(u.owner&&!store.upload(id))for(const suffix of ['', '.part'])await rm(join(uploadDir,id+suffix),{force:true}); }
+  });
+  app.get('/api/v1/uploads/:id/info', async (req, reply) => {
+    const upload = store.upload(uuid.parse((req.params as any).id));
+    return upload?.complete ? { upload } : reply.code(404).send({ error: 'The saved attachment is unavailable.' });
   });
   app.get('/api/v1/uploads/:id', async (req, reply) => { const id = uuid.parse((req.params as any).id); const u = store.upload(id); if (!u?.complete) return reply.code(404).send({ error: 'File is unavailable.' }); return reply.type('application/octet-stream').header('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(u.name)}`).send(createReadStream(join(uploadDir, id))); });
   app.post('/api/v1/audio/transcribe', async req => {

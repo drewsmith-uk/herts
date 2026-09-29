@@ -1,4 +1,4 @@
-/* Persistent workspace navigation; conversation controls hide beneath it. */
+/* Persistent workspace navigation and compact conversation controls. */
 /* Public aliases retain compatibility with plugins using the original variables. */
 :root { --ink: var(--color-text); --muted: var(--color-text-secondary); --blue: var(--color-link); --border: var(--color-border); --surface: var(--color-surface); }
 body { background: var(--color-background); }
@@ -94,8 +94,6 @@ code, pre { font-family: var(--font-mono); }
 .message-author { flex-wrap: wrap; }
 .message-time { color: var(--color-text-secondary); font-size: .68rem; font-weight: 400; }
 .submission-status { margin-left: auto; font-size: .72rem; font-weight: 400; color: var(--color-text-secondary); }
-.working-feedback { display: flex; align-items: center; gap: 9px; margin: 18px 0; padding: 14px; border: var(--border-width, 1px) solid var(--color-border); border-radius: var(--radius-panel); font-size: .82rem; color: var(--color-text-secondary); }
-.working-feedback .spin { flex-shrink: 0; }
 .mobile-lists { display: flex; flex-wrap: wrap; gap: 7px; position: sticky; top: calc(var(--topbar-height) + var(--space-tabs-height)); z-index: 6; margin: 0 0 20px; padding: 12px 0; background: var(--color-background); overflow: visible; }
 .task-drop-ready { outline: 1px dashed var(--color-focus); outline-offset: -2px; }
 .mobile-lists a.task-drop-over, .nav-item.task-drop-over { color: var(--color-selected-text); background: var(--color-selected); outline: 2px solid var(--color-focus); outline-offset: -2px; }

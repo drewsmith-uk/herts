@@ -1,7 +1,7 @@
 import { configuration } from '../server/config.js';
 import { Gateway } from '../server/gateway.js';
 
-// Only status, session metadata and a gateway ping. Never create, resume or send.
+// Only status, session metadata, prompt capabilities and a ping. Never start agent work.
 let gateway: Gateway | undefined;
 try {
   const config = configuration();
@@ -15,6 +15,8 @@ try {
     const result = await gateway.http(`/api/sessions?profile=${encodeURIComponent(config.hermesProfile)}&limit=1&order=recent&archived=include`);
     if (!Array.isArray(result.sessions) || result.sessions.some((row: any) => row.profile !== config.hermesProfile)) throw new Error('Hermes session listing/profile identity could not be verified. Check backend compatibility and HERMES_PROFILE.');
     await gateway.rpc('gateway.ping', {}, 15_000);
+    console.log(`Hermes interactive prompts: ${gateway.promptProtocol === 'requests' ? 'current request protocol' : 'legacy event protocol'} verified.`);
+    if (gateway.promptWarning) console.log(gateway.promptWarning);
     console.log('Hermes session listing and gateway connection: OK. No agent work was started.');
   } else console.log('Hermes is not configured; gateway checks skipped.');
 } catch (error) {

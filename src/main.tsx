@@ -8,6 +8,7 @@ import { initialiseThemes } from './themes';
 import './style.css';
 import './styles.css';
 import './ui.css';
+import './conversationControls.css';
 installNotificationNavigation();
 initialiseThemes();
 createRoot(document.getElementById('root')!).render(<AppUpdates><App/></AppUpdates>);

@@ -96,6 +96,9 @@ export interface State {
         online: boolean;
         configured: boolean;
         profile?: string;
+        promptProtocol?: 'unknown' | 'legacy' | 'requests';
+        promptError?: string;
+        promptWarning?: string;
     };
     error: string;
     lifecycleNotice?: string;
@@ -433,10 +436,55 @@ export async function resolvePluginOperation(id: string, input?: unknown) {
 }
 export async function createLocalConversation(title = 'New conversation', id: string = crypto.randomUUID()) {
     const context = { id, title, link: null, aliases: [] } satisfies ConversationContext;
-    await db.kv.put({ key: `context:${id}`, value: context });
-    await db.kv.put({ key: `context-draft:${id}`, value: true });
+    await db.transaction('rw', db.kv, async () => {
+        await assertDraftAvailable(id);
+        await db.kv.put({ key: `context:${id}`, value: context });
+        await db.kv.put({ key: `context-draft:${id}`, value: true });
+    });
     await rebuild();
     return context;
+}
+async function assertDraftAvailable(id: string) {
+    if (!(await db.kv.get(`context-draft-deleted:${id}`))) return;
+    // A later Hermes conversation can still be opened and replied to normally.
+    const saved = (await db.kv.get('state'))?.value;
+    if (!state.snapshot.contexts.find(c => c.id === id)?.link && !saved?.snapshot.contexts.find((c: ConversationContext) => c.id === id)?.link)
+        throw new Error('This draft was deleted. Start a new conversation to write another message.');
+}
+export async function saveConversationDraft(draft: Draft) {
+    return db.transaction('rw', db.kv, db.drafts, async () => {
+        await assertDraftAvailable(draft.id);
+        return db.drafts.put(draft);
+    });
+}
+export async function deleteConversationDraft(id: string) {
+    await db.transaction('rw', [db.kv, db.drafts, db.files, db.recordings, db.submissions, db.pluginPending], async () => {
+        const saved = (await db.kv.get('state'))?.value;
+        const remote = saved?.snapshot.contexts.find((c: ConversationContext) => c.id === id) || state.remote.contexts.find(c => c.id === id);
+        if (remote?.link || state.snapshot.contexts.find(c => c.id === id)?.link)
+            throw new Error('This draft is now a Hermes conversation. Open it from the conversations list.');
+        const actions = new Map<string, Action>();
+        for (const action of [...state.actions, ...(saved?.actions || [])] as Action[])
+            if (!actions.has(action.id) || actions.get(action.id)!.updatedAt <= action.updatedAt) actions.set(action.id, action);
+        const submissions = await db.submissions.toArray();
+        if ([...actions.values()].some(a => a.taskId === id && !a.cancelled && !['finished', 'failed'].includes(a.state)) ||
+            submissions.some(s => (s.input.contextId || s.input.taskId) === id && !s.confirmed && !actions.has(s.id)))
+            throw new Error('A send is still in progress or unconfirmed. Open the draft and check its status before deleting it.');
+        const draft = await db.drafts.get(id);
+        await db.drafts.delete(id);
+        await db.recordings.where('owner').equals(`chat:${id}`).delete();
+        await db.kv.delete(`context-draft:${id}`);
+        // Retain a small deletion marker so a failed-send snapshot, stale URL,
+        // or an older editor cannot restore the local draft after a refresh.
+        await db.kv.put({ key: `context-draft-deleted:${id}`, value: true });
+        const referencedByPlugin = (await db.pluginPending.toArray()).some(p => p.contextId === id);
+        if (!remote && !referencedByPlugin) {
+            await db.kv.bulkDelete([`context:${id}`, `settings-op:${id}`]);
+        }
+        const referenced = new Set([...(await db.drafts.toArray()).flatMap(d => d.files), ...submissions.flatMap(s => s.input.uploadIds || []), ...[...actions.values()].flatMap(a => a.uploadIds)]);
+        await db.files.bulkDelete((draft?.files || []).filter(file => !referenced.has(file)));
+    });
+    await rebuild();
 }
 const titleWrites = new Map<string, Promise<void>>();
 export function renameConversationTitle(id: string, title: string, baseTitle: string) {
@@ -447,7 +495,7 @@ export function renameConversationTitle(id: string, title: string, baseTitle: st
             const result = await api(`/contexts/${id}/title`, { title, baseTitle });
             await acceptSnapshot(result.snapshot);
         } else {
-            await db.kv.put({ key: `context:${id}`, value: { ...context, title } });
+            await db.transaction('rw', db.kv, async () => { await assertDraftAvailable(id); await db.kv.put({ key: `context:${id}`, value: { ...context, title } }); });
         }
         await rebuild();
     })();
@@ -496,6 +544,7 @@ export async function uploadFile(id: string, progress?: (n: number) => void) {
 }
 export async function submit(input: any): Promise<Action> {
     const contextId = input.contextId || input.taskId;
+    await assertDraftAvailable(contextId);
     const preview = state.snapshot.sessionSettings || emptySettings();
     await titleWrites.get(contextId);
     if (state.localSubmissions.some(s => s.taskId === contextId))
@@ -523,7 +572,8 @@ export async function submit(input: any): Promise<Action> {
     const context = state.snapshot.contexts?.find(c => c.id === contextId);
     const savedHistory = context?.link ? (await db.kv.get(`history:${context.link.storedId}:latest:0`))?.value : undefined;
     const baseline: HistoryBaseline | undefined = savedHistory ? { sessionId: savedHistory.sessionId, ids: savedHistory.messages.flatMap((m: any) => m.id === undefined ? [] : [m.id]) } : !context?.link ? { sessionId: '', ids: [] } : undefined;
-    await db.transaction('rw', db.submissions, async () => {
+    await db.transaction('rw', db.kv, db.submissions, async () => {
+        await assertDraftAvailable(contextId);
         const pending = (await db.submissions.toArray()).find(s => !s.confirmed && !state.actions.some(a => a.id === s.id) && (s.input.contextId || s.input.taskId) === contextId);
         if (pending)
             throw new Error('A submitted request is still unconfirmed. Check its status before sending another.');

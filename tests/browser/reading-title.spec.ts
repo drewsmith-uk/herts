@@ -43,7 +43,7 @@ test('reading titles save on blur, restore blank edits, survive offline reload a
   await page.reload();
   await expect(page.getByLabel('Reading title', { exact: true })).toHaveValue('Finished article title');
   await expect(page.getByRole('button', { name: 'Mark unread', exact: true })).toBeVisible();
-  await page.getByRole('link', { name: 'Reading list', exact: true }).click();
+  await page.getByRole('link', { name: 'Back to Reading list', exact: true }).click();
   await expect(page.getByRole('link', { name: 'Finished article title', exact: true })).toBeVisible();
   expect(await agentCalls(request)).toEqual(before);
 });
@@ -92,7 +92,7 @@ for (const width of [390, 1280]) test(`reading list Edit mode saves inline title
   await page.goto(url); await expect(page.getByLabel('Reading title', { exact: true })).toHaveValue(updated);
   await page.getByRole('button', { name: 'Mark read', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Mark unread', exact: true })).toBeVisible();
-  await page.getByRole('link', { name: 'Reading list', exact: true }).click();
+  await page.getByRole('link', { name: 'Back to Reading list', exact: true }).click();
   await page.getByRole('button', { name: 'Edit list', exact: true }).click();
   const readRow = page.getByRole('group', { name: updated, exact: true });
   await expect(readRow.locator('.reorder-controls')).toHaveCount(0);

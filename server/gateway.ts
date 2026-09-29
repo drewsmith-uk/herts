@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import WebSocket from 'ws';
 import type { Conversation, History, HistoryOrder } from '../shared/core.js';
+import { PromptRequests, previewUnavailable, type PromptRequest } from './promptRequests.js';
 
 export class GatewayError extends Error {
   constructor(message: string, public uncertain = false, public code?: number) { super(message); }
@@ -14,7 +15,25 @@ export function isPersonal(row: any, excluded: string[] = [], owned = false) {
 }
 export class Gateway extends EventEmitter {
   socket?: WebSocket; epoch = ''; online = false; closing = false;
-  pending = new Map<string, { method: string; resolve: (v: any) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
+  pending = new Map<string, { method: string; params: any; version: number; resolve: (v: any) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
+  promptProtocol: 'unknown' | 'legacy' | 'requests' = 'unknown';
+  promptError?: string;
+  promptWarning?: string;
+  backendContract?: number;
+  serverRequestMethods: string[] = [];
+  private previewDeclines = false;
+  readonly prompts = new PromptRequests(sid => this.emit('prompts', sid), (id, code, message) => {
+    this.socket?.send(JSON.stringify({ jsonrpc: '2.0', id, error: { code, message } }), () => {});
+  }, id => {
+    // Newer backends count per-client declines so an attached Desktop window
+    // can still supply its preview. Older backends need a ValueResult: they
+    // discard JSON-RPC error text before returning the tool result to the agent.
+    const reply = this.previewDeclines
+      ? { error: { code: 4404, message: previewUnavailable } }
+      : { result: { value: JSON.stringify({ success: false, error: previewUnavailable }) } };
+    this.socket?.send(JSON.stringify({ jsonrpc: '2.0', id, ...reply }), () => {});
+  });
+  private answering = new Set<string>();
   connecting?: Promise<void>; reconnectTimer?: NodeJS.Timeout; heartbeat?: NodeJS.Timeout;
   metadata?: { at: number; rows: Conversation[] }; fetchingMetadata?: Promise<Conversation[]>;
   constructor(public base: string, private token: string, private excluded: string[] = [], private owned: () => string[] = () => [], public readonly profile = 'default') { super(); }
@@ -41,29 +60,58 @@ export class Gateway extends EventEmitter {
     if (this.connecting) return this.connecting;
     if (!this.base || !this.token) return Promise.reject(new GatewayError('Hermes connection is not configured.'));
     this.connecting = new Promise<void>((resolve, reject) => {
+      this.promptProtocol = 'unknown'; this.promptError = undefined; this.serverRequestMethods = [];
+      this.previewDeclines = false;
+      this.promptWarning = undefined; this.backendContract = undefined;
+      this.prompts.reset(); this.answering.clear();
       const url = new URL('/api/ws', this.base); url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'; url.searchParams.set('token', this.token);
       const ws = new WebSocket(url, { handshakeTimeout: 15_000, maxPayload: 64 * 1024 * 1024 }); this.socket = ws;
       const readyTimer = setTimeout(() => { ws.terminate(); reject(new GatewayError('Hermes did not become ready.')); }, 20_000);
       ws.on('message', bytes => {
+        if (ws !== this.socket) return;
         let frame: any; try { frame = JSON.parse(bytes.toString()); } catch { return; }
         if (frame.method === 'event') {
           const event = frame.params;
           if (event?.type === 'gateway.ready') {
             // Session changes may have been missed while disconnected.
             this.metadata = undefined;
-            clearTimeout(readyTimer); this.epoch = event.payload?.replay_epoch || ''; this.online = !!this.epoch;
+            clearTimeout(readyTimer); this.epoch = event.payload?.replay_epoch || '';
             if (!this.epoch) { reject(new GatewayError('Hermes event identity is unavailable.')); ws.close(); return; }
-            this.connecting = undefined; resolve(); this.emit('connected');
-            clearInterval(this.heartbeat); this.heartbeat = setInterval(() => { void this.rpc('gateway.ping', {}, 15_000).catch(() => ws.terminate()); }, 20_000);
-          } else if (event) this.emit('event', event);
+            // Finish the capability handshake before any session can start work.
+            void this.negotiatePrompts().then(() => {
+              if (ws !== this.socket || ws.readyState !== WebSocket.OPEN) return;
+              this.online = true; this.connecting = undefined; resolve(); this.emit('connected');
+              clearInterval(this.heartbeat); this.heartbeat = setInterval(() => { void this.rpc('gateway.ping', {}, 15_000).catch(() => ws.terminate()); }, 20_000);
+            }).catch(() => { this.promptError = 'Herts could not confirm Hermes prompt compatibility. Reconnect or update Herts and Hermes before sending.'; reject(new GatewayError(this.promptError)); ws.close(); });
+          } else if (event) {
+            if (event.type === 'session.info') this.observeContract(event.payload);
+            if (event.type === 'message.start') this.prompts.clearWarning(event.session_id);
+            if (event.type === 'request.cancel' && typeof event.payload?.id === 'string') this.prompts.close(event.payload.id, event.session_id);
+            this.emit('event', event);
+          }
+        } else if (frame.method && frame.id) {
+          this.prompts.receive(frame);
         } else if (frame.id) {
           const pending = this.pending.get(String(frame.id)); if (!pending) return;
           clearTimeout(pending.timer); this.pending.delete(String(frame.id));
           if (frame.error) {
-            const mutating = ['session.create', 'session.title', 'session.resume', 'prompt.submit', 'file.attach', 'approval.respond', 'clarify.respond', 'session.interrupt', 'config.set', 'session.cwd.set'].includes(pending.method);
+            const mutating = ['session.create', 'session.title', 'session.resume', 'prompt.submit', 'file.attach', 'approval.respond', 'clarify.respond', 'request.answer', 'session.interrupt', 'config.set', 'session.cwd.set'].includes(pending.method);
             const validation = (frame.error.code >= 4000 && frame.error.code < 4100) || [-32601, -32602].includes(frame.error.code);
             pending.reject(new GatewayError(String(frame.error.message || 'Hermes refused the request.').replaceAll(this.token, '[redacted]'), mutating && !validation, frame.error.code));
-          } else pending.resolve(frame.result);
+          } else {
+            try {
+              this.observeContract(frame.result?.info || frame.result);
+              if (['session.activate', 'session.resume', 'session.events.since'].includes(pending.method)) {
+                const result = frame.result;
+                if (this.promptProtocol === 'requests') {
+                  // Hermes omits open_requests when no prompts are pending.
+                  if (result?.open_requests !== undefined && !Array.isArray(result.open_requests)) throw new GatewayError('Hermes returned incompatible pending prompt state. Update Herts and Hermes before continuing.', pending.method === 'session.resume');
+                  this.prompts.restore(result.session_id || pending.params.session_id, result.open_requests || [], pending.version);
+                } else if ((this.backendContract || 0) >= 7) throw new GatewayError('This Hermes backend requires the newer prompt protocol. Update Herts and Hermes before continuing.', pending.method === 'session.resume');
+              }
+              pending.resolve(frame.result);
+            } catch (error) { pending.reject(error as Error); }
+          }
         }
       });
       ws.on('error', () => { clearTimeout(readyTimer); reject(new GatewayError('Hermes connection failed.')); });
@@ -78,14 +126,65 @@ export class Gateway extends EventEmitter {
   }
   async rpc(method: string, params: any, timeout = 60_000): Promise<any> {
     await this.connect();
+    return this.request(method, params, timeout);
+  }
+  private async negotiatePrompts() {
+    try {
+      const result = await this.request('client.capabilities', { server_requests: true }, 15_000);
+      if (!Array.isArray(result?.server_requests) || !result.server_requests.every((x: unknown) => typeof x === 'string') || !['approval', 'clarify'].every(x => result.server_requests.includes(x))) throw new GatewayError('Incompatible Hermes prompt capabilities.');
+      this.serverRequestMethods = result.server_requests; this.promptProtocol = 'requests';
+      this.previewDeclines = result.declines_not_shown === true;
+    } catch (error) {
+      // Only a definite "method not found" identifies an older backend.
+      if (error instanceof GatewayError && error.code === -32601) this.promptProtocol = 'legacy';
+      else throw error;
+    }
+  }
+  private observeContract(info: any) {
+    const contract = info?.desktop_contract;
+    if (!Number.isInteger(contract) || this.backendContract === contract) return;
+    this.backendContract = contract;
+    this.promptWarning = contract > 8 ? 'Hermes reports a newer Desktop interface than this Herts version has been checked against. Check for a Herts update if interactive prompts fail.' : undefined;
+    this.emit('compatibility');
+  }
+  private request(method: string, params: any, timeout: number): Promise<any> {
     return new Promise((resolve, reject) => {
       const id = randomUUID();
       const timer = setTimeout(() => { this.pending.delete(id); reject(new GatewayError('Hermes response was not confirmed. The request will not be repeated.', true)); }, timeout);
-      this.pending.set(id, { method, resolve, reject, timer });
+      this.pending.set(id, { method, params, version: this.prompts.version, resolve, reject, timer });
       this.socket!.send(JSON.stringify({ jsonrpc: '2.0', id, method, params }), error => {
         if (error) { clearTimeout(timer); this.pending.delete(id); reject(new GatewayError('Submission outcome is unknown.', true)); }
       });
     });
+  }
+  async answerPrompt(session: string, id: string, result: { choice?: 'once' | 'deny'; answer?: string; answers?: Record<string, string> }) {
+    if (!this.online || this.promptProtocol !== 'requests') throw new GatewayError('Hermes disconnected. Refresh before answering.');
+    const prompt = this.prompts.list(session).find(p => p.id === id);
+    if (!prompt || this.answering.has(id)) throw new GatewayError('This prompt is no longer pending or a response was already submitted.');
+    this.answering.add(id);
+    try {
+      // Official proxy for response frames: unlike a socket write, it confirms
+      // whether the still-open request accepted the answer (also after reconnect).
+      const ack = await this.rpc('request.answer', { id, result });
+      if (!['ok', 'expired'].includes(ack?.status)) throw new GatewayError('Hermes did not confirm the response. It will not be repeated.', true);
+      this.prompts.close(id, session);
+      if (ack.status === 'expired') throw new GatewayError('This prompt expired or was answered elsewhere. Your response was not applied.');
+    } catch (error) {
+      if (!(error instanceof GatewayError) || error.code !== -32601) throw error;
+      await this.answerWithoutProxy(prompt, result);
+    }
+  }
+  private async answerWithoutProxy(prompt: PromptRequest, result: any) {
+    if (!this.online || !this.prompts.list(prompt.params.session_id).some(p => p.id === prompt.id)) throw new GatewayError('This prompt is no longer pending.');
+    if (prompt.method === 'approval') {
+      const ack = await this.rpc('approval.respond', { session_id: prompt.params.session_id, request_id: prompt.params.request_id, choice: result.choice, all: false });
+      if (ack.resolved !== 1) throw new GatewayError('This approval is no longer pending.');
+      this.prompts.close(prompt.id); return;
+    }
+    // Earlier request-protocol backends have no acknowledged proxy for clarify.
+    // Deliver the normal JSON-RPC response once, but never claim confirmation.
+    await new Promise<void>((resolve, reject) => this.socket!.send(JSON.stringify({ jsonrpc: '2.0', id: prompt.id, result }), error => error ? reject(new GatewayError('The answer could not be confirmed. It will not be repeated.', true)) : resolve()));
+    throw new GatewayError('The answer was sent, but this Hermes version cannot confirm receipt. Check the conversation; it will not be repeated.', true);
   }
   async conversations(force = false): Promise<Conversation[]> {
     if (!force && this.metadata && Date.now() - this.metadata.at < 60_000) return this.metadata.rows;

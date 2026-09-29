@@ -6,8 +6,9 @@ import { Store } from './store.js';
 import { Gateway, GatewayError } from './gateway.js';
 import { cleanConversationTitle } from '../shared/conversationTitles.js';
 import { SessionSettings } from './sessionSettings.js';
+import { obsoletePreviewWarning } from './promptRequests.js';
 
-export interface ActionInput { id: string; taskId?: string; contextId?: string; kind: Action['kind']; text?: string; uploadIds?: string[]; targetId?: string; generation?: string; approvalId?: string; settingsRevision?: number; defaultsRevision?: number; settingsConfirmation?: string }
+export interface ActionInput { id: string; taskId?: string; contextId?: string; kind: Action['kind']; text?: string; answers?: Record<string, string>; uploadIds?: string[]; targetId?: string; generation?: string; approvalId?: string; settingsRevision?: number; defaultsRevision?: number; settingsConfirmation?: string }
 const activeStates = new Set(['preparing', 'running', 'awaiting_input', 'stopping']);
 export function controlBusy(control: any): boolean {
   if (!control || typeof control !== 'object') return true;
@@ -19,8 +20,15 @@ export class Actions {
   polling = new Set<string>(); timers = new Set<NodeJS.Timeout>(); interval: NodeJS.Timeout;
   constructor(public store: Store, public gateway: Gateway, public uploadDir: string) {
     this.settings = new SessionSettings(store, gateway);
-    for (const a of store.actions()) if (a.receipt === 'pending') { if (a.state === 'preparing') a.state = 'unknown'; a.receipt = 'unknown'; a.error = a.sendStage === 'preparing' ? 'Herts restarted during conversation preparation. Your message was not sent; it remains saved.' : 'Herts restarted before this operation was confirmed. Review the saved submission and conversation history.'; store.saveAction(a); }
+    for (const a of store.actions()) {
+      const stalePreviewWarning = a.promptWarning === obsoletePreviewWarning;
+      if (stalePreviewWarning) delete a.promptWarning;
+      if (a.receipt === 'pending') { if (a.state === 'preparing') a.state = 'unknown'; a.receipt = 'unknown'; a.error = a.sendStage === 'preparing' ? 'Herts restarted during conversation preparation. Your message was not sent; it remains saved.' : 'Herts restarted before this operation was confirmed. Review the saved submission and conversation history.'; store.saveAction(a); }
+      else if (stalePreviewWarning) store.saveAction(a);
+    }
     gateway.on('event', e => { this.event(e); });
+    gateway.on('prompts', sid => this.promptsChanged(sid));
+    gateway.on('compatibility', () => store.emit('change', { type: 'gateway' }));
     gateway.on('disconnected', () => {
       for (const [id, b] of store.bindings()) { b.ready = false; store.saveBinding(id, b); }
       store.emit('change', { type: 'gateway', online: false });
@@ -54,7 +62,7 @@ export class Actions {
     } else {
       if (!main || !binding || !this.gateway.online || binding.epoch !== this.gateway.epoch || input.generation !== binding.generation || input.targetId !== main.id) throw new Conflict('This control is stale. Refresh the conversation.');
     }
-    const action: Action = { id: input.id, taskId: task.id, contextId: task.id, kind: input.kind, text: input.text || '', uploadIds: input.uploadIds || [], createdAt: Date.now(), updatedAt: Date.now(), state: 'preparing', phase: 'saved', receipt: 'pending', targetId: input.targetId, approvalId: input.approvalId, ...(input.kind === 'send' ? { sendStage: 'preparing' as const } : {}) };
+    const action: Action = { id: input.id, taskId: task.id, contextId: task.id, kind: input.kind, text: input.text || '', ...(input.answers ? { answers: input.answers } : {}), uploadIds: input.uploadIds || [], createdAt: Date.now(), updatedAt: Date.now(), state: 'preparing', phase: 'saved', receipt: 'pending', targetId: input.targetId, approvalId: input.approvalId, ...(input.kind === 'send' ? { sendStage: 'preparing' as const } : {}) };
     this.store.db.transaction(() => {
       if (input.kind === 'send') action.settings = this.settings.freeze(task.id, input);
       if (!['send', 'continue'].includes(input.kind)) {
@@ -158,7 +166,31 @@ export class Actions {
       await this.verifyBinding(b);
       if (b.generation !== input.generation || this.main(a.taskId)?.id !== input.targetId) throw new GatewayError('Control no longer matches the active work.');
       a.binding = b;
-      if (a.kind === 'approve' || a.kind === 'deny') {
+      if (this.gateway.promptProtocol === 'requests' && ['approve', 'deny', 'clarify'].includes(a.kind)) {
+        const prompt = this.gateway.prompts.list(b.runtimeId).find(p => p.id === a.approvalId);
+        if (!prompt) throw new GatewayError('This prompt is no longer pending.');
+        let result: { choice?: 'once' | 'deny'; answer?: string; answers?: Record<string, string> };
+        if (a.kind === 'clarify') {
+          if (prompt.method !== 'clarify') throw new GatewayError('This control does not match the pending question.');
+          if (prompt.params.questions?.length) {
+            const answers = { ...a.answers, ...prompt.params.answers };
+            const keys = prompt.params.questions.map(q => q.qid);
+            if (Object.keys(answers).some(key => !keys.includes(key)) || keys.some(key => !Object.hasOwn(prompt.params.answers || {}, key) && !answers[key]?.trim())) throw new GatewayError('Answer each pending question before sending.');
+            result = { answers };
+          } else {
+            if (!a.text.trim()) throw new GatewayError('An answer is required.');
+            result = { answer: a.text };
+          }
+        } else {
+          if (prompt.method !== 'approval') throw new GatewayError('This control does not match the pending approval.');
+          const choice = a.kind === 'approve' ? 'once' : 'deny';
+          if (prompt.params.choices && !prompt.params.choices.includes(choice)) throw new GatewayError('Hermes does not allow this approval choice.');
+          result = { choice };
+        }
+        a.phase = 'answering Hermes'; this.store.saveAction(a); dispatched = true;
+        await this.gateway.answerPrompt(b.runtimeId, prompt.id, result);
+        a.receipt = 'accepted'; a.state = 'finished'; a.phase = a.kind === 'clarify' ? 'answer confirmed' : 'decision confirmed';
+      } else if (a.kind === 'approve' || a.kind === 'deny') {
         const pending = await this.gateway.rpc('approval.pending', { session_id: b.runtimeId });
         if (!pending.approvals?.some((p: any) => p.request_id === a.approvalId)) throw new GatewayError('This approval is no longer pending.');
         dispatched = true;
@@ -253,13 +285,14 @@ export class Actions {
       if (latestBinding.generation !== b.generation || latestBinding.seq !== seq) return;
       const current = this.store.action(a.id)!;
       if (this.main(taskId)?.id !== a.id || this.dispatching.has(a.id)) return;
-      current.approvals = Array.isArray(pending.approvals) ? pending.approvals : undefined; current.clarification = live.pending_clarify;
+      if (this.gateway.promptProtocol === 'requests') this.projectPrompts(current, b);
+      else { current.approvals = Array.isArray(pending.approvals) ? pending.approvals : undefined; current.clarification = live.pending_clarify; }
       if (!current.approvals) throw new GatewayError('Pending approvals could not be read.');
       if (current.approvals.length || current.clarification) {
         current.state = 'awaiting_input'; current.phase = current.approvals.length ? 'approval needed' : 'question from Hermes';
         for (const approval of current.approvals) this.store.notify(`${b.generation}:${approval.request_id}`, taskId, 'approval');
         if (current.clarification) this.store.notify(`${b.generation}:${current.clarification.request_id}`, taskId, 'approval');
-      } else if (live.running || live.inflight || live.queued || controlBusy(ctl.control)) { if (current.state !== 'stopping') current.state = 'running'; }
+      } else if (live.running || live.inflight || live.queued || controlBusy(ctl.control)) { if (current.state !== 'stopping') { current.state = 'running'; if (['approval needed', 'question from Hermes'].includes(current.phase)) current.phase = 'working'; } }
       else if (live.running === false && b.known) {
         const stops = this.store.actions(taskId).filter(x => x.targetId === current.id && x.kind === 'stop' && x.receipt === 'accepted' && x.state === 'stopping');
         if ((current.cancelSend || current.awaitingTurn) && stops.length) { current.terminal = 'interrupted'; current.awaitingTurn = false; }
@@ -272,6 +305,25 @@ export class Actions {
       if (JSON.stringify({ ...current, updatedAt: 0 }) !== JSON.stringify({ ...a, updatedAt: 0 })) this.store.saveAction(current);
     } catch { const b = this.store.binding(taskId); if (b) { b.ready = false; this.store.saveBinding(taskId, b); } }
     finally { this.polling.delete(taskId); }
+  }
+  private projectPrompts(action: Action, binding: Binding) {
+    const requests = this.gateway.prompts.list(binding.runtimeId);
+    action.approvals = requests.filter(p => p.method === 'approval').map(p => ({ ...p.params, request_id: p.id }));
+    const question = requests.find(p => p.method === 'clarify');
+    action.clarification = question ? { ...question.params, request_id: question.id } : undefined;
+    action.promptWarning = this.gateway.prompts.warning(binding.runtimeId);
+  }
+  private promptsChanged(runtimeId: string) {
+    for (const [taskId, b] of this.store.bindings()) {
+      if (b.runtimeId !== runtimeId || b.epoch !== this.gateway.epoch) continue;
+      const a = this.main(taskId); if (!a) continue;
+      this.projectPrompts(a, b);
+      if (a.approvals?.length || a.clarification) {
+        if (!(a.kind === 'send' && a.sendStage === 'preparing')) { a.state = 'awaiting_input'; a.phase = a.approvals?.length ? 'approval needed' : 'question from Hermes'; }
+        for (const prompt of [...(a.approvals || []), ...(a.clarification ? [a.clarification] : [])]) this.store.notify(`${b.generation}:${prompt.request_id}`, taskId, 'approval');
+      } else if (a.state === 'awaiting_input') { a.state = 'running'; a.phase = 'working'; }
+      this.store.saveAction(a);
+    }
   }
   event(event: any) {
     if (event.type === 'sessions.changed') this.gateway.metadata = undefined;
