@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { ServerPlugin, ServerServices, Transaction } from '@herts/plugin-api/server';
 import { Conflict } from '@herts/plugin-api/types';
-import { applyReadingOp, emptyReading, normalizeUrl, retainsArticle, type ReadingOp, type ReadingState, type Article } from './model.js';
+import { applyReadingOp, emptyReading, normalizeUrl, retainsArticle, conversationReadingItems, type ReadingOp, type ReadingState, type Article } from './model.js';
 const uuid = z.string().uuid();
 const schema = z.object({ id: uuid, itemId: uuid, kind: z.enum(['create', 'title', 'read', 'reorder', 'offline', 'settings']), at: z.number().int().positive(), contextId: uuid.optional(), conversationId: z.string().min(1).max(300).optional(), url: z.string().max(8192).optional(), title: z.string().max(2000).optional(), baseTitle: z.string().max(8192).optional(), read: z.boolean().optional(), baseReadAt: z.number().nullable().optional(), beforeId: uuid.nullable().optional(), listVersion: z.number().int().nonnegative().optional(), offline: z.enum(['auto', 'keep', 'remove']).optional(), autoDownload: z.boolean().optional() }).strict().superRefine((v, ctx) => {
     if ((v.kind === 'create' && (!v.url || !v.contextId)) || (v.kind === 'title' && (!v.title?.trim() || v.baseTitle === undefined)) || (v.kind === 'read' && (v.read === undefined || v.baseReadAt === undefined)) || (v.kind === 'reorder' && v.listVersion === undefined) || (v.kind === 'offline' && !v.offline) || (v.kind === 'settings' && v.autoDownload === undefined))
@@ -133,5 +133,6 @@ export default function activate(api: ServerServices): ServerPlugin {
         dispose() { stopChanges?.(); for (const job of active.values())
             job.controller.abort(); },
         conversation(context) { const item = reading().items.find(i => i.contextId === context.id); return item ? { title: item.title, route: `/reading-item/${item.id}` } : undefined; },
+        conversationList(conversation) { return conversationReadingItems(conversation, reading(), api.contexts()).length ? { filters: ['linked'] } : {}; },
     };
 }

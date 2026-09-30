@@ -79,8 +79,7 @@ test('draft search and show-all reach every saved draft without linked-item filt
   await more.click();
   await expect(drafts.getByRole('link')).toHaveCount(4);
   await expect(page.getByRole('button', { name: 'Show fewer drafts' })).toHaveAttribute('aria-expanded', 'true');
-  await page.getByRole('checkbox', { name: 'Show linked conversations' }).check();
-  await page.getByRole('checkbox', { name: 'Show hidden items' }).check();
+  await page.getByRole('checkbox', { name: 'Show all', exact: true }).check();
   await expect(drafts.getByRole('link')).toHaveCount(4);
   await page.getByRole('button', { name: 'Show fewer drafts' }).click();
 

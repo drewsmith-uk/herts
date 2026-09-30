@@ -40,12 +40,14 @@ test('phone swipes respect scrolling and cancellation, hide with undo, and creat
     await swipe(item, -150); await expect(item).toHaveCount(0); await expect(page).toHaveURL(/#\/conversations$/);
     await page.getByRole('button', { name: 'Undo', exact: true }).click(); await expect(item).toBeVisible();
     await swipe(item, -150); await expect(item).toHaveCount(0);
-    await page.getByLabel('Show hidden items').check(); await expect(item.locator('.hidden-item-badge')).toHaveText('Hidden');
+    await page.getByLabel('Show all').check(); await expect(item.locator('.hidden-item-badge')).toHaveText('Hidden');
     await page.screenshot({ path: 'test-results/phone-conversation-triage.png', fullPage: true });
     await swipe(item, -150); await expect(item.locator('.hidden-item-badge')).toHaveCount(0);
-    await swipe(item, 150); await expect(page.getByText('Task created in Personal Inbox.', { exact: true })).toBeVisible(); await expect(item).toHaveCount(0);
+    await swipe(item, 150); await expect(page.getByText('Task created in Personal Inbox.', { exact: true })).toBeVisible(); await expect(item).toBeVisible();
     await expect(page).toHaveURL(/#\/conversations$/);
-    await page.getByLabel('Show linked conversations').check(); await expect(item).toContainText('Task created');
+    await expect(item).toContainText('Task created');
+    await page.getByLabel('Show all').uncheck(); await expect(item).toHaveCount(0);
+    await page.getByLabel('Show all').check(); await expect(item).toBeVisible();
     const state = await (await request.get('/api/v1/state')).json();
     expect(state.snapshot.tasks.filter((t: any) => t.link?.key === 'swipe-first')).toHaveLength(1);
     await swipe(item, 150); await expect(page.getByLabel('Task title', { exact: true })).toHaveValue('Swipe conversation one');
@@ -59,8 +61,8 @@ test('hidden items survive offline reload, search saved results and sync between
   await page.setViewportSize({ width: 1280, height: 844 });
   await page.goto('/#/conversations');
   const item = page.locator('[data-conversation-key="hidden-offline"]'); await expect(item).toBeVisible();
-  await page.getByLabel('Show hidden items').check(); await expect(item).toBeVisible();
-  await page.getByLabel('Show hidden items').uncheck(); await expect(item).toBeVisible();
+  await page.getByLabel('Show all').check(); await expect(item).toBeVisible();
+  await page.getByLabel('Show all').uncheck(); await expect(item).toBeVisible();
   await page.evaluate(() => navigator.serviceWorker.ready);
   const otherContext = await browser.newContext({ baseURL: 'http://127.0.0.1:8790' });
   try {
@@ -69,29 +71,29 @@ test('hidden items survive offline reload, search saved results and sync between
     await context.setOffline(true);
     await changeVisibilityFromView(page, 'hidden-offline', true); await expect(item).toHaveCount(0);
     await page.reload(); await expect(page.getByText('SAVED ON THIS DEVICE', { exact: true })).toBeVisible(); await expect(item).toHaveCount(0);
-    await page.getByLabel('Show hidden items').check(); await expect(item.locator('.hidden-item-badge')).toHaveText('Hidden');
+    await page.getByLabel('Show all').check(); await expect(item.locator('.hidden-item-badge')).toHaveText('Hidden');
     await page.getByLabel('Search conversations').fill('Offline triage'); await expect(item).toBeVisible();
-    await page.getByLabel('Show hidden items').uncheck(); await expect(item).toHaveCount(0);
-    await page.getByLabel('Show hidden items').check(); await expect(item).toBeVisible();
+    await page.getByLabel('Show all').uncheck(); await expect(item).toHaveCount(0);
+    await page.getByLabel('Show all').check(); await expect(item).toBeVisible();
     await context.setOffline(false); await expect(page.locator('.save-state')).toContainText('All changes saved');
     await expect(otherItem).toHaveCount(0);
     // Cache an empty filtered result, then unhide offline: the restored item must still be found.
-    await page.getByLabel('Show hidden items').uncheck(); await expect(item).toHaveCount(0); await expect(page.locator('.loading')).toHaveCount(0);
-    await page.getByLabel('Show hidden items').check(); await expect(item).toBeVisible();
+    await page.getByLabel('Show all').uncheck(); await expect(item).toHaveCount(0); await expect(page.locator('.loading')).toHaveCount(0);
+    await page.getByLabel('Show all').check(); await expect(item).toBeVisible();
     await context.setOffline(true);
     await changeVisibilityFromView(page, 'hidden-offline', false);
     await expect(item.locator('.hidden-item-badge')).toHaveCount(0);
-    await page.getByLabel('Show hidden items').uncheck(); await expect(item).toBeVisible();
+    await page.getByLabel('Show all').uncheck(); await expect(item).toBeVisible();
     await page.reload(); await page.getByLabel('Search conversations').fill('Offline triage'); await expect(item).toBeVisible();
     await changeVisibilityFromView(page, 'hidden-offline', true); await expect(item).toHaveCount(0);
-    await page.getByLabel('Show hidden items').check(); await expect(item).toBeVisible();
+    await page.getByLabel('Show all').check(); await expect(item).toBeVisible();
     await context.setOffline(false); await expect(page.locator('.save-state')).toContainText('All changes saved');
-    await other.getByLabel('Show hidden items').check(); await expect(otherItem.locator('.hidden-item-badge')).toHaveText('Hidden');
+    await other.getByLabel('Show all').check(); await expect(otherItem.locator('.hidden-item-badge')).toHaveText('Hidden');
     await changeVisibilityFromView(other, 'hidden-offline', false);
     await expect(other.locator('.save-state')).toContainText('All changes saved');
     await expect(item.locator('.hidden-item-badge')).toHaveCount(0);
     await page.reload(); await page.getByLabel('Search conversations').fill('Offline triage'); await expect(item).toBeVisible();
-    await expect(page.getByLabel('Show hidden items')).not.toBeChecked();
+    await expect(page.getByLabel('Show all')).not.toBeChecked();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: 'test-results/desktop-conversation-triage.png' });
   } finally { await otherContext.close(); }
@@ -116,7 +118,8 @@ test('recovering task creation after a lost response and reload reuses the saved
   holdState = false;
   await page.evaluate(() => window.dispatchEvent(new Event('online')));
   await expect(page.locator('.save-state')).toContainText('All changes saved');
-  await page.getByLabel('Show linked conversations').check();
+  await expect(page.getByLabel('Show all')).not.toBeChecked();
+  await page.getByLabel('Show all').check();
   // Reload clears the search; unrelated fixtures can fill the first page.
   await page.getByLabel('Search conversations').fill('Receipt triage');
   await expect(item).toContainText('Task created');

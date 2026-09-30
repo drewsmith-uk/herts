@@ -1,4 +1,5 @@
 import { Conflict } from '@herts/plugin-api/types';
+import type { Conversation, ConversationContext } from '@herts/plugin-api/types';
 interface List {
     ids: string[];
     version: number;
@@ -51,6 +52,12 @@ export interface ReadingOp {
     autoDownload?: boolean;
 }
 export const emptyReading = (): ReadingState => ({ items: [], unread: { ids: [], version: 0 }, autoDownload: true });
+export function conversationReadingItems(conversation: Conversation, state: ReadingState, contexts: ConversationContext[]) {
+    const aliases = new Set([conversation.id, conversation.key, ...conversation.aliases]);
+    const linkedContexts = new Set(contexts.filter(context => context.link &&
+        [context.link.key, context.link.storedId, ...context.aliases].some(id => aliases.has(id))).map(context => context.id));
+    return state.items.filter(item => linkedContexts.has(item.contextId));
+}
 export function normalizeUrl(raw: string): string {
     let url: URL;
     try {

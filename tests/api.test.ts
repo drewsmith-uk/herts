@@ -167,6 +167,40 @@ describe('private API and upload recovery', () => {
     expect((await app.inject('/api/v1/conversations?includeLinked=true')).json().total).toBe(1);
     expect(store.reading().items).toHaveLength(1); expect(store.reading().items[0].readAt).toBeNull();
   });
+  it('combines task and reading links before pagination, including aliases and disabled plugins', async () => {
+    const { app, gateway, store, plugins } = await fixture();
+    const rows: Conversation[] = Array.from({ length: 55 }, (_, i) => ({ id: `tip-${i}`, key: `root-${i}`, aliases: [`legacy-${i}`], title: `Linked list ${i}`, preview: '', source: 'desktop', updatedAt: 55 - i }));
+    gateway.search = async () => rows;
+    gateway.conversation = async id => rows.find(c => c.id === id)!;
+    const reading = async (input: any) => {
+      const response = await app.inject({ method: 'POST', url: '/api/v1/reading/sync', headers: { 'x-herts-request': '1' }, payload: input });
+      expect(response.statusCode).toBe(200);
+    };
+    await reading({ id: randomUUID(), itemId: randomUUID(), kind: 'settings', autoDownload: false, at: 1 });
+    for (const i of [0, 1]) {
+      const itemId = randomUUID();
+      await reading({ id: randomUUID(), itemId, contextId: randomUUID(), conversationId: rows[i].id, kind: 'create', url: `https://example.com/${i}`, at: 2 });
+      await reading({ id: randomUUID(), itemId, kind: 'read', read: true, baseReadAt: null, at: 3 });
+    }
+    for (const i of [1, 2]) store.createLinked({ id: randomUUID(), taskId: randomUUID(), kind: 'create', title: `Task ${i}`, at: 4 }, { key: rows[i].key, storedId: rows[i].id, source: 'desktop', title: rows[i].title });
+    // Only an old context alias matches the conversation's latest identity.
+    rows[0] = { ...rows[0], id: 'rotated-tip', key: 'rotated-root' };
+    const list = async (query: string) => (await app.inject(`/api/v1/conversations?${query}`)).json();
+    expect((await list('filters=')).total).toBe(55);
+    const first = await list('filters=tasks:linked,reading:linked');
+    expect(first.total).toBe(52); expect(first.conversations).toHaveLength(50); expect(first.hasMore).toBe(true);
+    expect(first.conversations[0].key).toBe('root-3');
+    expect((await list('filters=tasks:linked,reading:linked&offset=50')).conversations.map((c: Conversation) => c.key)).toEqual(['root-53', 'root-54']);
+    await plugins.disable('reading');
+    expect((await list('filters=tasks:linked,reading:linked')).conversations[0].key).toBe('rotated-root');
+    expect((await list('filters=tasks:linked,reading:linked')).total).toBe(53);
+    await plugins.activate('reading');
+    await plugins.disable('tasks');
+    expect((await list('filters=tasks:linked,reading:linked')).conversations[0].key).toBe('root-2');
+    await plugins.reset('reading', 'Reading');
+    expect((await list('filters=tasks:linked,reading:linked')).total).toBe(55);
+    expect(store.actions()).toEqual([]);
+  });
   it('requires authenticated, same-origin reading mutations and validates action references', async () => {
     const { app } = await fixture(false);
     expect((await app.inject('/api/v1/reading/00000000-0000-4000-8000-000000000000/article')).statusCode).toBe(403);

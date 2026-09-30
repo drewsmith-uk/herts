@@ -14,8 +14,9 @@ const time = (at: number) => new Date(at).toLocaleString(undefined, { dateStyle:
 async function savedConversations(query: string, known: Conversation[] = []) { const entries = await db.kv.toArray(), lists = entries.filter(r => r.key.startsWith('conversations:')); const matches = new Set(known.map(c => c.key)); const all = [...new Map(lists.flatMap(r => r.value.conversations || []).map((c: Conversation) => [c.key, c])).values()] as Conversation[]; return all.filter(c => matches.has(c.key) || `${c.title} ${c.preview} ${entries.filter(e => c.aliases.some(id => e.key.startsWith(`history:${id}:`))).flatMap(e => e.value.messages || []).map(messageText).join(' ')}`.toLowerCase().includes(query.toLowerCase())).sort((a, b) => b.updatedAt - a.updatedAt); }
 export function Conversations() {
     const state = useApp(), plugins = usePlugins();
+    const [showAll, setShowAll] = useState(false);
     const [retry, setRetry] = useState(0);
-    const [query, setQuery] = useState(''), [includeHidden, setIncludeHidden] = useState(false), [filters, setFilters] = useState<Record<string, boolean>>({}), [rows, setRows] = useState<Conversation[]>([]), [offset, setOffset] = useState(0), [more, setMore] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(''), [cached, setCached] = useState(false), [notice, setNotice] = useState<{
+    const [query, setQuery] = useState(''), [rows, setRows] = useState<Conversation[]>([]), [offset, setOffset] = useState(0), [more, setMore] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(''), [cached, setCached] = useState(false), [notice, setNotice] = useState<{
         text: string;
         route?: string;
         undo?: Conversation;
@@ -34,15 +35,16 @@ export function Conversations() {
         finally { setDeleting(false); }
     }
     const filterPlugins = plugins.filter(p => p.definition.filter), swipes = plugins.filter(p => p.definition.swipe);
-    const filterKey = JSON.stringify(filters), listVersion = JSON.stringify([state.snapshot.hiddenConversations, state.plugins.revision, ...plugins.map(p => state.pluginData[p.id]?.revision), state.pluginPending.map(p => p.id)]);
-    useEffect(() => { setOffset(0); setRows([]); }, [query, includeHidden, filterKey]);
+    const activeFilterPlugins = showAll ? [] : filterPlugins;
+    const filterKey = activeFilterPlugins.map(p => `${p.id}:${p.definition.filter!.id}`).join(','), listVersion = JSON.stringify([state.snapshot.hiddenConversations, state.plugins.revision, ...plugins.map(p => state.pluginData[p.id]?.revision), state.pluginPending.map(p => p.id)]);
+    useEffect(() => { setOffset(0); setRows([]); }, [query, showAll, filterKey]);
     useEffect(() => {
         let alive = true;
         const controller = new AbortController();
         setBusy(true);
         const timer = setTimeout(() => {
-            const activeFilters = filterPlugins.filter(p => !filters[p.id]).map(p => `${p.id}:${p.definition.filter!.id}`).join(',');
-            void Promise.all(Array.from({ length: offset / 50 + 1 }, (_, i) => cacheRead(`conversations:plugins:${activeFilters}:${includeHidden}:${query}:${i * 50}`, () => api(`/conversations?q=${encodeURIComponent(query)}&offset=${i * 50}&includeLinked=true&includeHidden=${includeHidden}&filters=${encodeURIComponent(activeFilters)}`, undefined, 'GET', 45000, controller.signal).then(value => ({ ...value, query }))))).then(async (pages) => {
+            const activeFilters = filterKey;
+            void Promise.all(Array.from({ length: offset / 50 + 1 }, (_, i) => cacheRead(`conversations:plugins:${activeFilters}:${showAll}:${query}:${i * 50}`, () => api(`/conversations?q=${encodeURIComponent(query)}&offset=${i * 50}&includeLinked=true&includeHidden=${showAll}&filters=${encodeURIComponent(activeFilters)}`, undefined, 'GET', 45000, controller.signal).then(value => ({ ...value, query }))))).then(async (pages) => {
                 const offline = pages.some(p => p.cached), next = pages.flatMap(p => p.value.conversations) as Conversation[];
                 const found = offline ? await savedConversations(query, next) : next;
                 if (alive) {
@@ -61,7 +63,7 @@ export function Conversations() {
                 setBusy(false); });
         }, 250);
         return () => { alive = false; controller.abort(); clearTimeout(timer); };
-    }, [query, offset, includeHidden, filterKey, listVersion, state.connectionVersion, retry]);
+    }, [query, offset, showAll, filterKey, listVersion, state.connectionVersion, retry]);
     useEffect(() => {
         if (busy || (!cached && !error) || !state.online) return;
         const timer = setInterval(() => { if (!document.hidden && navigator.onLine) setRetry(n => n + 1); }, 8000);
@@ -92,7 +94,7 @@ export function Conversations() {
     finally {
         setWorking('');
     } }
-    const visible = rows.map(c => ({ ...c, hidden: conversationHidden(c, state.snapshot.hiddenConversations || []) })).filter(c => (includeHidden || !c.hidden) && filterPlugins.every(p => filters[p.id] || pluginHook(p, () => p.definition.filter!.visible(c, state.pluginData[p.id]?.records || {}, state.snapshot.contexts), true)));
+    const visible = rows.map(c => ({ ...c, hidden: conversationHidden(c, state.snapshot.hiddenConversations || []) })).filter(c => (showAll || !c.hidden) && activeFilterPlugins.every(p => pluginHook(p, () => p.definition.filter!.visible(c, state.pluginData[p.id]?.records || {}, state.snapshot.contexts), true)));
     useEffect(() => {
         const subscription = liveQuery(async () => ({
             ids: (await db.kv.where('key').startsWith('context-draft:').primaryKeys()).map(key => key.slice('context-draft:'.length)),
@@ -135,12 +137,12 @@ export function Conversations() {
       </form>
     </DialogFrame>}
     {drafts.length > 0 && <h2 className="conversation-list-heading">Hermes conversations</h2>}
-    <div className="conversation-filters">{filterPlugins.map(p => <label className="conversation-filter" key={p.id}><input type="checkbox" checked={!!filters[p.id]} onChange={e => setFilters({ ...filters, [p.id]: e.target.checked })}/>{p.definition.filter!.label}</label>)}<label className="conversation-filter"><input type="checkbox" checked={includeHidden} onChange={e => setIncludeHidden(e.target.checked)}/>Show hidden items</label></div>
+    <div className="conversation-filters"><label className="conversation-filter"><input type="checkbox" checked={showAll} onChange={e => setShowAll(e.target.checked)}/>Show all</label></div>
     <p className="conversation-gesture-hint">{swipes.length ? 'Swipe right for conversation actions, left to hide.' : 'Swipe left to hide.'}</p>
     {notice && <StatusMessage tone="notice" className="conversation-notice"><span>{notice.text}</span>{notice.route && <a href={`#${notice.route}`}>Open</a>}{notice.undo && <button onClick={() => void hide({ ...notice.undo!, hidden: true })}>Undo</button>}</StatusMessage>}
     {error && <StatusMessage>{error}</StatusMessage>}{cached && <div><span className="eyebrow">SAVED ON THIS DEVICE</span><p>Offline results cover conversations previously viewed on this device.</p></div>}
     <ItemList divided className="conversation-list">{visible.map(c => <ConversationRow key={c.key} conversation={c} badges={<ConversationBadges conversation={c}/>} canActOffline={swipes.some(p=>pluginHook(p,()=>p.definition.swipe?.canRunOffline?.(c)||false,false))} updatedAt={time(c.updatedAt)} online={state.online} busy={working === c.key} actionLabel={swipes.length === 1 ? pluginHook(swipes[0], () => swipes[0].definition.swipe!.label(c), 'Actions') : swipes.length ? 'Actions' : undefined} onAction={kind => kind === 'visibility' ? hide(c) : swipe(c)}/>)}</ItemList>
-    {busy && <p className="loading"><LoaderCircle className="spin" size={17}/> Loading conversations…</p>}{!busy && !visible.length && !error && <EmptyState icon={<MessageSquare size={30}/>} title={drafts.length ? 'No Hermes conversations found' : 'No conversations found'} description={query ? 'Try a different search.' : 'Your personal Hermes conversations will appear here.'}>{filterPlugins.filter(p=>!filters[p.id]&&p.definition.filter?.hiddenMessage&&rows.some(c=>!pluginHook(p,()=>p.definition.filter!.visible(c,state.pluginData[p.id]?.records||{},state.snapshot.contexts),true))).map(p=><p key={p.id}>{p.definition.filter!.hiddenMessage}</p>)}</EmptyState>}{more && !busy && <button className="load-more" onClick={() => setOffset(offset + 50)}>Load more conversations</button>}
+    {busy && <p className="loading"><LoaderCircle className="spin" size={17}/> Loading conversations…</p>}{!busy && !visible.length && !error && <EmptyState icon={<MessageSquare size={30}/>} title={drafts.length ? 'No Hermes conversations found' : 'No conversations found'} description={query ? 'Try a different search.' : 'Your personal Hermes conversations will appear here.'}>{!showAll && <p>Turn on “Show all” to include linked and hidden conversations.</p>}</EmptyState>}{more && !busy && <button className="load-more" onClick={() => setOffset(offset + 50)}>Load more conversations</button>}
     {chooser && <div className="action-chooser" role="dialog" aria-label="Conversation actions">{swipes.map(p => <button key={p.id} onClick={() => void swipe(chooser, p)}>{pluginHook(p, () => p.definition.swipe!.label(chooser), 'Actions')}</button>)}<button onClick={() => setChooser(undefined)}>Cancel</button></div>}</>;
 }
 export function ConversationView({ id }: {

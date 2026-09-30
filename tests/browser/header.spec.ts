@@ -14,7 +14,7 @@ async function scrollHistory(page: Page, delta: number) {
 for (const width of [390,1280]) test(`keeps conversation controls available at the latest messages on ${width}px screens`, async ({page,request}) => {
   await page.setViewportSize({width,height:844});
   const before = await (await request.get('http://127.0.0.1:8791/calls')).json();
-  await page.goto('/#/conversations'); await page.getByRole('checkbox',{name:'Show linked conversations'}).check(); await page.getByRole('link',{name:/Header conversation/}).click();
+  await page.goto('/#/conversations'); await page.getByRole('checkbox',{name:'Show all',exact:true}).check(); await page.getByRole('link',{name:/Header conversation/}).click();
   const header = page.locator('.conversation-page-header');
   const recent = page.locator('[data-history-message="header-history:450"]');
   await usable(header.getByRole('textbox',{name:'Conversation title',exact:true})); await usable(recent);
