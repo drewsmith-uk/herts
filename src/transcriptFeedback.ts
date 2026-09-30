@@ -1,11 +1,20 @@
 import { messageText, type Action, type History } from '../shared/core';
+import { backgroundResultLabel } from '../shared/messagePresentation';
+import { isHistory } from './historyCache';
 
 export interface HistoryBaseline { sessionId: string; ids: (string | number)[] }
 export interface OutgoingMessage { id: string; taskId: string; text: string; uploadIds: string[]; at: number; baseline?: HistoryBaseline }
 
+export function historyBaseline(saved: unknown): HistoryBaseline | undefined {
+  // A missing/broken cache is not proof that the conversation was empty.
+  // Fall back to timestamps when checking whether a new message has appeared.
+  if (!isHistory(saved)) return undefined;
+  return { sessionId: saved.sessionId, ids: saved.messages.flatMap(message => message.id === undefined ? [] : [message.id]) };
+}
+
 export function outgoingInHistory(outgoing: OutgoingMessage, pages: History[]): boolean {
   return pages.some(page => page.messages.some(message => {
-    if (message.role !== 'user') return false;
+    if (message.role !== 'user' || backgroundResultLabel(message)) return false;
     const text = messageText(message).trim(), submitted = outgoing.text.trim();
     if (text !== submitted && !(outgoing.uploadIds.length && text.startsWith(submitted) && text.slice(submitted.length).trimStart().startsWith('@file:'))) return false;
     // A repeated instruction must not match an older, identical user message.

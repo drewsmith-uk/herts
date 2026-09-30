@@ -1,9 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { outgoingInHistory, outgoingStatus, type OutgoingMessage } from '../src/transcriptFeedback';
+import { historyBaseline, outgoingInHistory, outgoingStatus, type OutgoingMessage } from '../src/transcriptFeedback';
 import type { Action, History } from '../shared/model';
 const outgoing: OutgoingMessage = { id:'send',taskId:'context',text:'Do it again',uploadIds:[],at:1_800_000_000_000,baseline:{sessionId:'chat',ids:[1,2]} };
 const page = (messages:History['messages']):History => ({sessionId:'chat',order:'latest',offset:0,hasMore:false,fetchedAt:outgoing.at+100,messages});
 describe('submitted transcript feedback',()=>{
+  it('treats incomplete saved history as unknown, so an earlier retry cannot confirm a new one',()=>{
+    for (const saved of [undefined, null, {}, { sessionId: 'chat' }, { ...page([]), messages: null }, { ...page([]), messages: [null] }]) {
+      const baseline = historyBaseline(saved);
+      expect(baseline).toBeUndefined();
+      expect(outgoingInHistory({ ...outgoing, baseline }, [page([{ id: 1, role: 'user', content: outgoing.text, timestamp: (outgoing.at - 60000) / 1000 }])])).toBe(false);
+    }
+    expect(historyBaseline(page([]))).toEqual({ sessionId: 'chat', ids: [] });
+    expect(historyBaseline(page([{ id: 1, role: 'user' }, { id: 'two', role: 'assistant' }, { role: 'tool' }]))).toEqual({ sessionId: 'chat', ids: [1, 'two'] });
+  });
+  it('does not treat an injected background result as confirmation of a user submission',()=>{
+    for (const display_kind of ['async_delegation_complete', 'process_complete']) {
+      expect(outgoingInHistory(outgoing,[page([{id:3,role:'user',display_kind,content:outgoing.text}])])).toBe(false);
+    }
+  });
   it('does not mistake an old identical message for the new submission',()=>{
     expect(outgoingInHistory(outgoing,[page([{id:1,role:'user',content:outgoing.text}])])).toBe(false);
     expect(outgoingInHistory(outgoing,[{...page([{id:0,role:'user',content:outgoing.text}]),offset:200}])).toBe(false);

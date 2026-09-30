@@ -12,7 +12,8 @@ import remarkGfm from 'remark-gfm';
 import { Voice } from './Voice';
 import { MessageMedia } from './Media';
 import { useConversationHistory } from './useConversationHistory';
-import { groupHistory, type HistoryEntry, type HistoryGroup } from './historyGroups';
+import { activitySummary, groupHistory, type HistoryEntry, type HistoryGroup } from './historyGroups';
+import { backgroundResultLabel } from '../shared/messagePresentation';
 import { HistoryDisclosure } from './HistoryDisclosure';
 import { Clarification } from './Clarification';
 import { ConversationActivity } from './ConversationActivity';
@@ -39,7 +40,7 @@ const finished = (a?: Action) => !!a && ['finished','failed','ready','unknown'].
 export function ConversationPanel({ context: task, initialText = '', showActions = true, showHeading = true, showEmptyNotice = true }: { context: ConversationContext; initialText?: string; showActions?: boolean; showHeading?: boolean; showEmptyNotice?: boolean }) {
   const state = useApp(); const [error, setError] = useState(''), [busy, setBusy] = useState(false);
   const main = state.actions.find(a => !a.cancelled && a.taskId === task.id && ['send','continue'].includes(a.kind)); const binding = state.bindings[task.id];
-  const active = !!main && !finished(main); const [historyVersion, setHistoryVersion] = useState(0), [sendVersion, setSendVersion] = useState(0);
+  const active = !!main && !finished(main) && !binding?.unavailable; const [historyVersion, setHistoryVersion] = useState(0), [sendVersion, setSendVersion] = useState(0);
   const send = state.actions.find(a => !a.cancelled && a.taskId === task.id && a.kind === 'send');
   const local = state.outgoing.filter(s => s.taskId === task.id && !state.actions.some(a => a.id === s.id && a.cancelled)).sort((a,b) => b.at - a.at)[0];
   const latestOutgoing: OutgoingMessage | undefined = local && (!send || local.id === send.id || local.at > send.createdAt) ? local : send ? { id: send.id, taskId: task.id, text: send.text, uploadIds: send.uploadIds, at: send.createdAt } : undefined;
@@ -51,7 +52,9 @@ export function ConversationPanel({ context: task, initialText = '', showActions
     setBusy(true); setError(''); try { await submit({ id: crypto.randomUUID(), contextId: task.id, kind, generation: binding?.generation, targetId: main?.id, ...(approvalId ? { approvalId } : {}), ...(text ? { text } : {}), ...(answers ? { answers } : {}) }); } catch(e) { setError((e as Error).message); } finally { setBusy(false); }
   }
   const uncertainControls = state.actions.filter(a => a.taskId === task.id && !['send','continue'].includes(a.kind) && a.receipt === 'unknown');
-  const failedControls = state.actions.filter(a => a.targetId === main?.id && a.receipt === 'rejected' && a.kind !== 'send');
+  const failedControls = state.actions.filter(a => a.targetId === main?.id && a.receipt === 'rejected' && a.kind !== 'send' &&
+    !(binding?.unavailable && (a.errorCode === 4001 || a.error?.trim().toLowerCase() === 'session not found')));
+  const failedControlErrors = [...new Set(failedControls.map(a => a.error).filter(Boolean))];
   const answered = (id: string) => state.actions.some(a => a.targetId === main?.id && a.approvalId === id && a.receipt !== 'rejected');
   const modelConfirmation = !main?.savedMessageDeletedAt && !!main?.settings?.confirmation && state.snapshot.sessionSettings?.conversations[task.id]?.revision === main.settings.revision;
   const needsInput = active && (main.state === 'awaiting_input' || !!main.approvals?.length || !!main.clarification);
@@ -67,7 +70,7 @@ export function ConversationPanel({ context: task, initialText = '', showActions
         {!main?.error && main?.state === 'failed' && <p className="inline-error" role="alert">Hermes reported that this run failed.</p>}
         {!main?.error && main?.state === 'unknown' && <p className="inline-error" role="alert">The current outcome could not be confirmed.</p>}
         {main?.promptWarning && <p className="inline-error" role="alert">{main.promptWarning}</p>}
-        {failedControls.map(a => <p key={a.id} className="inline-error" role="alert">{a.error}</p>)}
+        {failedControlErrors.map(message => <p key={message} className="inline-error" role="alert">{message}</p>)}
         {main?.receipt === 'unknown' && <p>The request will not be repeated automatically.</p>}
         {active && main?.approvals?.map(p => <div className="approval" key={p.request_id}><p>{p.description || 'Allow this action?'}</p>{p.command && <pre>{p.command}</pre>}<div className="button-row"><button className="primary-button" disabled={busy || !state.online || !state.gateway.online || answered(p.request_id) || (p.choices !== undefined && !p.choices.includes('once'))} onClick={() => void control('approve', p.request_id)}>Approve once</button><button disabled={busy || !state.online || !state.gateway.online || answered(p.request_id) || (p.choices !== undefined && !p.choices.includes('deny'))} onClick={() => void control('deny', p.request_id)}>Deny</button></div></div>)}
         {active && main?.clarification && <Clarification key={main.clarification.request_id} question={main.clarification} disabled={busy || !state.online || !state.gateway.online || answered(main.clarification.request_id)} onAnswer={(answer, answers) => void control('clarify', main.clarification.request_id, answer, answers)}/>}
@@ -170,9 +173,9 @@ export function HistoryView({ conversationId, version = 0, liveText, working = f
     } catch(e) { if (mounted.current && generation === playback.current) { setError((e as Error).message); setSpeaking(null); } }
   }
   function renderMessage({ key, message: m, page, index }: HistoryEntry) {
-    const text = messageText(m), assistant = m.role === 'assistant';
-    return <article className={`message ${m.role === 'user' ? 'from-user' : ''} ${m.role === 'tool' ? 'tool-message' : ''}`} key={key} data-history-message={key}>
-      <div className="message-author">{assistant ? <><span className="hermes-mark">H</span>Hermes</> : m.role === 'user' ? 'You' : 'Tool output'}<MessageTime timestamp={m.timestamp}/>{assistant && text.trim() && <button className="read-aloud icon-button" aria-label={speaking === `${page.offset}:${index}` ? 'Stop reading aloud' : 'Read response aloud'} title="Read response aloud" onClick={() => void speak(m, page, index)}>{speaking === `${page.offset}:${index}` ? <Square size={15}/> : <Volume2 size={16}/>}</button>}</div>
+    const text = messageText(m), background = backgroundResultLabel(m), assistant = !background && m.role === 'assistant';
+    return <article className={`message ${!background && m.role === 'user' ? 'from-user' : ''} ${m.role === 'tool' ? 'tool-message' : ''}`} key={key} data-history-message={key}>
+      <div className="message-author">{background ? <><span className="hermes-mark">H</span>{background}</> : assistant ? <><span className="hermes-mark">H</span>Hermes</> : m.role === 'user' ? 'You' : 'Tool output'}<MessageTime timestamp={m.timestamp}/>{assistant && text.trim() && <button className="read-aloud icon-button" aria-label={speaking === `${page.offset}:${index}` ? 'Stop reading aloud' : 'Read response aloud'} title="Read response aloud" onClick={() => void speak(m, page, index)}>{speaking === `${page.offset}:${index}` ? <Square size={15}/> : <Volume2 size={16}/>}</button>}</div>
       {m.role === 'tool' ? <HistoryDisclosure label="View tool output" onInteract={pauseFollowing}><pre>{text || 'No output.'}</pre></HistoryDisclosure> : <div className="markdown">
         <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({ href, children }) => <MessageLinkContributions href={href} conversationId={conversationId}>{children}</MessageLinkContributions>, img: ({ alt }) => <span className="attachment-placeholder">[{alt || 'Image attachment'}]</span> }}>{text}</ReactMarkdown>
         <MessageMedia message={m} conversationId={conversationId} offset={page.offset} index={index} order={page.order || 'oldest'}/>
@@ -183,7 +186,7 @@ export function HistoryView({ conversationId, version = 0, liveText, working = f
   return <div className="history" ref={root}><div className="history-note"><span>{cached ? 'Saved history · ' : 'Available history · '}{pages[0] ? time(pages[0].fetchedAt) : 'Hermes'}<small>Earlier messages may be unavailable after compaction or rotation.</small></span><button className="icon-button" aria-label="Refresh conversation history" disabled={busy} onClick={() => void latest()}><RefreshCw size={15} className={busy ? 'spin' : ''}/></button></div>
     {error && <p className="inline-error" role="alert">{error}</p>}
     {pages[0]?.hasMore && <button className="load-more" disabled={busy} onClick={() => void older()}>{busy ? 'Loading…' : 'Load older messages'}</button>}
-    {groups.map(group => group.kind === 'message' ? renderMessage(group.entry) : <HistoryDisclosure key={group.key} activityKey={group.key} label={<><span className="hermes-mark">H</span><span>Hermes activity</span><span className="activity-count">{group.calls ? `${group.calls} tool call${group.calls === 1 ? '' : 's'}` : `${group.entries.length} tool output${group.entries.length === 1 ? '' : 's'}`}</span></>} onInteract={pauseFollowing}>{group.entries.map(renderMessage)}</HistoryDisclosure>)}
+    {groups.map(group => group.kind === 'message' ? renderMessage(group.entry) : <HistoryDisclosure key={group.key} activityKey={group.key} label={<><span className="hermes-mark">H</span><span>Hermes activity</span><span className="activity-count">{activitySummary(group)}</span></>} onInteract={pauseFollowing}>{group.entries.map(renderMessage)}</HistoryDisclosure>)}
     {showOutgoing && <OutgoingFeedback message={outgoing} action={outgoingAction}/>}
     {showLive && <article className="message live-message"><div className="message-author"><span className="hermes-mark">H</span>Hermes </div><div className="markdown"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({ href, children }) => <MessageLinkContributions href={href} conversationId={conversationId}>{children}</MessageLinkContributions>, img: ({alt}) => <span>[{alt || 'Image'}]</span> }}>{liveText}</ReactMarkdown></div></article>}
     {!pages.some(p => p.messages.length) && !outgoing && !liveText && !busy && !error && <p className="history-empty">No messages are available yet.</p>}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { groupHistory } from '../src/historyGroups';
+import { activitySummary, groupHistory } from '../src/historyGroups';
 import type { ChatMessage, History } from '../shared/model';
 
 const page = (messages: ChatMessage[], offset = 0): History => ({ sessionId: 'chat', order: 'latest', offset, messages, hasMore: false, fetchedAt: 0 });
@@ -7,6 +7,31 @@ const call = (id: number, content = ''): ChatMessage => ({ id, role: 'assistant'
 const output = (id: number): ChatMessage => ({ id, role: 'tool', content: `Result ${id}` });
 
 describe('conversation activity groups', () => {
+  it('groups model-facing background results with tools without changing the source messages', () => {
+    const completion: ChatMessage = { id: 3, role: 'user', display_kind: 'async_delegation_complete', content: '[ASYNC DELEGATION BATCH COMPLETE — fixture]\nFull review result.' };
+    const process: ChatMessage = { id: 4, role: 'user', display_kind: 'process_complete', content: 'Process exited with code 1.' };
+    const groups = groupHistory([page([call(1), output(2), completion, process, {id:5,role:'assistant',content:'Here is my answer.'}])]);
+    expect(groups.map(group => group.kind)).toEqual(['activity', 'message']);
+    expect(groups[0]).toMatchObject({kind:'activity', calls:1, results:2, entries:[{message:{id:1}}, {message:{id:2}}, {message:completion}, {message:process}]});
+    if (groups[0].kind !== 'activity') throw new Error('Missing activity');
+    expect(activitySummary(groups[0])).toBe('1 tool call · 2 background results');
+    expect(groups[0].entries[2].message).toBe(completion);
+    expect(completion.role).toBe('user');
+  });
+  it('keeps standalone background results discoverable and stable across history updates', () => {
+    const completion: ChatMessage = {id:2,role:'user',display_kind:'async_delegation_complete',content:'Review results'};
+    const before = groupHistory([page([completion])]);
+    const after = groupHistory([page([call(1)], 200), page([completion, output(3)])], before);
+    expect(after).toHaveLength(1);
+    expect(after[0].key).toBe(before[0].key);
+    if (before[0].kind !== 'activity') throw new Error('Missing activity');
+    expect(activitySummary(before[0])).toBe('1 background result');
+  });
+  it('keeps genuine user messages visible even when they quote a completion notice', () => {
+    const text = '[ASYNC DELEGATION BATCH COMPLETE — fixture]\nWhat does this mean?';
+    const groups = groupHistory([page([{id:1,role:'user',content:text}, {id:2,role:'user',display_kind:'steer',content:text}])]);
+    expect(groups.map(group => group.kind)).toEqual(['message', 'message']);
+  });
   it('collapses successive tool rounds together, including blank assistant rows and empty outputs', () => {
     const groups = groupHistory([page([call(1), output(2), {role:'assistant',content:''}, call(3, ' \n'), {id:4,role:'tool',content:''}])]);
     expect(groups).toHaveLength(1);

@@ -10,6 +10,8 @@ import { obsoletePreviewWarning } from './promptRequests.js';
 
 export interface ActionInput { id: string; taskId?: string; contextId?: string; kind: Action['kind']; text?: string; answers?: Record<string, string>; uploadIds?: string[]; targetId?: string; generation?: string; approvalId?: string; settingsRevision?: number; defaultsRevision?: number; settingsConfirmation?: string }
 const activeStates = new Set(['preparing', 'running', 'awaiting_input', 'stopping']);
+const missingRuntime = (error: unknown): error is GatewayError => error instanceof GatewayError && !error.uncertain && error.code === 4001;
+const unavailableSessionMessage = 'The previous Hermes session is no longer available. Check the conversation history before sending another message.';
 export function controlBusy(control: any): boolean {
   if (!control || typeof control !== 'object') return true;
   return ['goal', 'loop', 'heartbeat'].some(k => control[k] && ['active', 'running', 'pending', 'queued', 'waiting'].includes(String(control[k].status)));
@@ -60,7 +62,7 @@ export class Actions {
       for (const id of input.uploadIds || []) { const u = this.store.upload(id); if (!u?.complete) throw new Conflict('Wait for every attachment to finish uploading.'); total += u.size; }
       if (total > 100 * 1024 * 1024) throw new Conflict('Attachments exceed 100 MiB per message.');
     } else {
-      if (!main || !binding || !this.gateway.online || binding.epoch !== this.gateway.epoch || input.generation !== binding.generation || input.targetId !== main.id) throw new Conflict('This control is stale. Refresh the conversation.');
+      if (!main || !binding || binding.unavailable || !this.gateway.online || binding.epoch !== this.gateway.epoch || input.generation !== binding.generation || input.targetId !== main.id) throw new Conflict('This control is stale. Refresh the conversation.');
     }
     const action: Action = { id: input.id, taskId: task.id, contextId: task.id, kind: input.kind, text: input.text || '', ...(input.answers ? { answers: input.answers } : {}), uploadIds: input.uploadIds || [], createdAt: Date.now(), updatedAt: Date.now(), state: 'preparing', phase: 'saved', receipt: 'pending', targetId: input.targetId, approvalId: input.approvalId, ...(input.kind === 'send' ? { sendStage: 'preparing' as const } : {}) };
     this.store.db.transaction(() => {
@@ -87,6 +89,7 @@ export class Actions {
   async dispatch(a: Action, input: ActionInput) {
     this.dispatching.add(a.id);
     let dispatched = false;
+    let controlBinding: Binding | undefined;
     try {
       await this.gateway.connect();
       const task = this.store.context(a.taskId)!;
@@ -163,6 +166,7 @@ export class Actions {
         this.gateway.metadata = undefined; return;
       }
       b = this.store.binding(a.taskId)!;
+      controlBinding = b;
       await this.verifyBinding(b);
       if (b.generation !== input.generation || this.main(a.taskId)?.id !== input.targetId) throw new GatewayError('Control no longer matches the active work.');
       a.binding = b;
@@ -211,14 +215,16 @@ export class Actions {
       this.store.saveAction(a); await this.reconcile(a.taskId);
     } catch (error) {
       const err = error instanceof Error ? error : new Error('Operation failed');
+      const retired = missingRuntime(error) && !!controlBinding && this.retireMissingRuntime(a.taskId, controlBinding);
       const current = this.store.action(a.id) || a;
       const uncertain = error instanceof GatewayError ? error.uncertain : dispatched;
-      current.receipt = uncertain ? 'unknown' : 'rejected'; current.state = uncertain ? 'unknown' : 'failed'; current.error = err.message;
+      current.receipt = uncertain ? 'unknown' : 'rejected'; current.state = uncertain ? 'unknown' : 'failed'; current.error = retired ? unavailableSessionMessage : err.message;
+      if (error instanceof GatewayError && error.code !== undefined) current.errorCode = error.code;
       if (current.sendStage === 'preparing') current.error += ' Your message was not sent; it remains saved.';
       this.store.saveAction(current);
       if (!dispatched) this.store.db.prepare('DELETE FROM control_receipts WHERE action_id=?').run(a.id);
-      const b = this.store.binding(a.taskId); if (b) { b.ready = false; this.store.saveBinding(a.taskId, b); }
-      this.store.notify(`${a.id}:failure`, a.taskId, 'failure');
+      const b = this.store.binding(a.taskId); if (b && (!controlBinding || b.generation === controlBinding.generation)) { b.ready = false; this.store.saveBinding(a.taskId, b); }
+      if (!retired) this.store.notify(`${a.id}:failure`, a.taskId, 'failure');
     } finally {
       this.dispatching.delete(a.id);
       if (this.store.binding(a.taskId)) await this.reconcile(a.taskId);
@@ -272,11 +278,40 @@ export class Actions {
     if (!current || !b.known || typeof live.running !== 'boolean' || !Array.isArray(pending.approvals) || !ctl.control || (!allowBusy && (live.running || live.inflight || live.queued || live.pending_clarify || pending.approvals.length || controlBusy(ctl.control) || startSeq !== current.seq))) throw new GatewayError('Hermes execution state could not be confirmed.');
     return live;
   }
+  private retireMissingRuntime(taskId: string, observed: Binding): boolean {
+    const binding = this.store.binding(taskId);
+    // A late reply for an old runtime must not invalidate a newly resumed one.
+    if (!binding || binding.generation !== observed.generation || binding.runtimeId !== observed.runtimeId || binding.epoch !== observed.epoch || binding.epoch !== this.gateway.epoch) return false;
+    Object.assign(binding, { ready: false, known: false, monitored: false, unavailable: true });
+    this.store.saveBinding(taskId, binding);
+    const current = this.main(taskId);
+    if (current && !this.dispatching.has(current.id) && (!current.binding || current.binding.generation === binding.generation) && (activeStates.has(current.state) || current.state === 'unknown')) {
+      current.approvals = []; delete current.clarification; delete current.promptWarning;
+      // Missing runtime is not proof that a Stop succeeded or work completed.
+      // Use terminal evidence already received, retaining the submission receipt.
+      if (current.terminal && !current.awaitingTurn) {
+        current.state = current.terminal === 'error' ? 'failed' : 'finished';
+        current.phase = current.terminal === 'interrupted' ? 'stopped' : current.terminal;
+      } else {
+        current.state = 'unknown'; current.phase = 'session unavailable'; current.error = unavailableSessionMessage;
+      }
+      this.store.saveAction(current);
+      for (const stop of this.store.actions(taskId).filter(a => a.targetId === current.id && a.kind === 'stop' && a.receipt === 'accepted' && a.state === 'stopping')) {
+        stop.state = current.terminal && !current.awaitingTurn ? 'finished' : 'unknown';
+        stop.phase = stop.state === 'finished' ? 'work ended' : 'stop outcome unconfirmed';
+        this.store.saveAction(stop);
+      }
+    }
+    this.store.emit('change', { type: 'binding' });
+    return true;
+  }
   async reconcile(taskId: string) {
     if (this.polling.has(taskId)) return; this.polling.add(taskId);
+    let observed: Binding | undefined;
     try {
-      const b = this.store.binding(taskId), a = this.main(taskId); if (!b || !a || b.epoch !== this.gateway.epoch) return;
+      const b = this.store.binding(taskId), a = this.main(taskId); if (!b || !a || b.unavailable || b.epoch !== this.gateway.epoch) return;
       if (this.dispatching.has(a.id) || (a.state === 'preparing' && a.kind === 'send')) return;
+      observed = b;
       const seq = b.seq;
       const live = await this.verifyBinding(b);
       const pending = await this.gateway.rpc('approval.pending', { session_id: b.runtimeId });
@@ -303,7 +338,10 @@ export class Actions {
       if (!b.known && live.running === false && !current.approvals.length) { current.state = 'unknown'; current.error = 'Current execution state is unconfirmed. Check the saved submission and history; no request will be repeated.'; }
       this.store.saveBinding(taskId, b);
       if (JSON.stringify({ ...current, updatedAt: 0 }) !== JSON.stringify({ ...a, updatedAt: 0 })) this.store.saveAction(current);
-    } catch { const b = this.store.binding(taskId); if (b) { b.ready = false; this.store.saveBinding(taskId, b); } }
+    } catch (error) {
+      if (observed && missingRuntime(error) && this.retireMissingRuntime(taskId, observed)) return;
+      const b = this.store.binding(taskId); if (b && observed && b.generation === observed.generation) { b.ready = false; this.store.saveBinding(taskId, b); }
+    }
     finally { this.polling.delete(taskId); }
   }
   private projectPrompts(action: Action, binding: Binding) {
@@ -315,7 +353,7 @@ export class Actions {
   }
   private promptsChanged(runtimeId: string) {
     for (const [taskId, b] of this.store.bindings()) {
-      if (b.runtimeId !== runtimeId || b.epoch !== this.gateway.epoch) continue;
+      if (b.unavailable || b.runtimeId !== runtimeId || b.epoch !== this.gateway.epoch) continue;
       const a = this.main(taskId); if (!a) continue;
       this.projectPrompts(a, b);
       if (a.approvals?.length || a.clarification) {
@@ -329,7 +367,7 @@ export class Actions {
     if (event.type === 'sessions.changed') this.gateway.metadata = undefined;
     if (!event.session_id) return;
     for (const [taskId, b] of this.store.bindings()) {
-      if (b.runtimeId !== event.session_id || b.epoch !== this.gateway.epoch || !Number.isInteger(event.seq) || event.seq <= b.seq) continue;
+      if (b.unavailable || b.runtimeId !== event.session_id || b.epoch !== this.gateway.epoch || !Number.isInteger(event.seq) || event.seq <= b.seq) continue;
       if (event.type === 'session.info') this.settings.observe(taskId, event.payload, b);
       const a = this.main(taskId); if (!a) continue;
       b.seq = event.seq;
@@ -364,11 +402,13 @@ export class Actions {
   }
   async reconnect() {
     for (const [taskId, b] of this.store.bindings()) {
+      if (b.unavailable) continue;
       if (b.epoch !== this.gateway.epoch) {
         b.ready = false; b.known = false; this.store.saveBinding(taskId, b);
         const a = this.main(taskId); if (a && activeStates.has(a.state)) { a.state = 'unknown'; a.error = 'Hermes restarted. Review the available history. Sending a new message will prepare this conversation again; the previous message will not be resent.'; this.store.saveAction(a); } continue;
       }
-      try { await this.replay(taskId, b); await this.reconcile(taskId); } catch { /* Keep previous receipts; never resume on reconnect. */ }
+      try { await this.replay(taskId, b); await this.reconcile(taskId); }
+      catch (error) { if (missingRuntime(error)) this.retireMissingRuntime(taskId, b); /* Never resume on reconnect. */ }
     }
   }
   close() { clearInterval(this.interval); this.timers.forEach(clearTimeout); }

@@ -28,6 +28,16 @@ rows.set('tool-activity', { id: 'tool-activity', title: 'Conversation with tool 
   ]).flat(),
   {id:222,role:'assistant',content:'All files have been checked.'}
 ] });
+rows.set('background-activity', { id: 'background-activity', title: 'Background review', source: 'desktop', started_at: Date.now()/1000, messages: [
+  {id:1,role:'user',content:'Please review the changes.'},
+  {id:2,role:'assistant',content:'The background review is running.'},
+  {id:3,role:'user',display_kind:'async_delegation_complete',content:'[ASYNC DELEGATION BATCH COMPLETE — fixture]\n\nThe background review found no issues.',timestamp:1800000000},
+  {id:4,role:'assistant',content:'',tool_calls:[{id:'review-check',type:'function',function:{name:'terminal',arguments:'{}'}}]},
+  {id:5,role:'tool',tool_call_id:'review-check',content:'All checks passed.'},
+  {id:6,role:'assistant',content:'The review is complete.'},
+  {id:7,role:'user',display_kind:'process_complete',content:'The background process finished successfully.'},
+  {id:8,role:'user',content:'[ASYNC DELEGATION BATCH COMPLETE — pasted]\nWhat does this notice mean?'}
+] });
 rows.set('reading-links', {id:'reading-links',title:'Links for reading',source:'telegram',started_at:Date.now()/1000,messages:[{id:1,role:'assistant',content:'Read [first article](https://example.com/one), [second article](https://example.com/two) or the [first again](https://example.com/one).'}]});
 rows.set('spaces-retry', { id: 'spaces-retry', title: 'Space retry conversation', source: 'telegram', started_at: Date.now()/1000, messages: [{ id: 1, role: 'assistant', content: 'A saved task destination.' }] });
 rows.set('spaces-conversation', {id:'spaces-conversation',title:'Shared spaces conversation',source:'telegram',started_at:Date.now()/1000,messages:[{id:1,role:'assistant',content:'This conversation is shared across task spaces.'}]});
@@ -98,6 +108,9 @@ wss.on('connection', ws => {
       ws.send(JSON.stringify({ id, result: { status: entry ? 'ok' : 'expired' } })); return;
     }
     const r = runtimes.get(p.session_id);
+    if (!r && ['session.activate','session.events.since','approval.pending','session.control.read','session.interrupt'].includes(method)) {
+      ws.send(JSON.stringify({jsonrpc:'2.0',id,error:{code:4001,message:'session not found'}})); return;
+    }
     if (method === 'session.create' || method === 'session.resume') {
       const stored = p.session_id || `stored-${rows.size}`, runtime = `runtime-${stored}`;
       if(stored==='resume-failure') { ws.send(JSON.stringify({jsonrpc:'2.0',id,error:{code:5001,message:'Preparation could not be confirmed.'}})); return; }
@@ -204,6 +217,18 @@ app.post('/__test/saved-message', async req => {
   const { contextId, text, uploadIds = [], submitted = false } = req.body as { contextId: string; text: string; uploadIds?: string[]; submitted?: boolean };
   const action = { id: crypto.randomUUID(), taskId: contextId, kind: 'send' as const, text, uploadIds, createdAt: Date.now(), updatedAt: Date.now(), state: 'unknown' as const, phase: 'unknown', receipt: 'unknown' as const, sendStage: submitted ? 'submitted' as const : 'preparing' as const };
   store.saveAction(action); return { action };
+});
+app.post('/__test/stale-stop', async req => {
+  const { id, completed = true } = req.body as { id: string; completed?: boolean };
+  const title = `Expired conversation ${id}`;
+  rows.set(id,{id,title,source:'desktop',started_at:Date.now()/1000,messages:[{id:1,role:'user',content:'The original request.'},{id:2,role:'assistant',content:completed?'The original work is complete.':'The last saved progress update.'}]});
+  const context=store.openConversation({key:id,storedId:id,title,source:'desktop'},[id]);
+  const binding={runtimeId:`missing-${id}`,storedId:id,generation:crypto.randomUUID(),epoch:gateway.epoch,seq:1,ready:false,known:true,monitored:false};
+  store.saveBinding(context.id,binding);
+  const main={id:crypto.randomUUID(),taskId:context.id,kind:'send' as const,state:'running' as const,receipt:'accepted' as const,sendStage:'submitted' as const,phase:'working',text:'The original request.',uploadIds:[],createdAt:Date.now(),updatedAt:Date.now(),binding,...(completed?{terminal:'complete'}:{})};
+  store.saveAction(main);
+  for(let n=0;n<4;n++)store.saveAction({id:crypto.randomUUID(),taskId:context.id,targetId:main.id,kind:'stop',state:'failed',receipt:'rejected',phase:'saved',error:'session not found',text:'',uploadIds:[],createdAt:Date.now(),updatedAt:Date.now()});
+  gateway.metadata=undefined;return {contextId:context.id,mainId:main.id,generation:binding.generation};
 });
 app.post('/__test/hermes-connection', async req => {
   hermesUnavailable = !(req.body as { online: boolean }).online;

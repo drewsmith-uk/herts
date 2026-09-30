@@ -37,7 +37,107 @@ function fixture() {
   const taskId = randomUUID(); store.mutate({ id: randomUUID(), taskId, kind: 'create', title: 'Write notes', at: Date.now() });
   cleanup.push(() => { engine.close(); store.close(); }); return { store, gateway, engine, taskId };
 }
+async function runningFixture() {
+  const f = fixture(), input = { id: randomUUID(), taskId: f.taskId, kind: 'send' as const, text: 'Check the saved conversation' };
+  f.engine.start(input);
+  await expect.poll(() => f.store.action(input.id)?.receipt === 'accepted' && !f.engine.dispatching.size && !f.engine.polling.size).toBe(true);
+  f.engine.close();
+  return { ...f, input };
+}
 describe('deliberate execution and receipts', () => {
+  it('retires a missing runtime using its earlier completion evidence and resumes only on a new Send', async () => {
+    const {store,gateway,engine,taskId,input} = await runningFixture();
+    store.saveAction({...store.action(input.id)!,terminal:'complete'});
+    const rpc = gateway.rpc.bind(gateway); let missing = true;
+    gateway.rpc = async (method,params) => {
+      if (method === 'session.activate' && missing) throw new GatewayError('session not found', false, 4001);
+      if (method === 'session.resume') missing = false;
+      return rpc(method,params);
+    };
+    await engine.reconcile(taskId);
+    expect(store.binding(taskId)).toMatchObject({unavailable:true,ready:false,monitored:false});
+    expect(store.action(input.id)).toMatchObject({state:'finished',phase:'complete',receipt:'accepted',text:input.text});
+    expect(gateway.calls.filter(c=>['session.resume','session.interrupt'].includes(c.method))).toEqual([]);
+    gateway.emitEvent('message.start'); expect(store.action(input.id)?.state).toBe('finished');
+    const next={...input,id:randomUUID(),text:'My next message'}; engine.start(next);
+    await expect.poll(()=>store.action(next.id)?.receipt).toBe('accepted');
+    expect(store.binding(taskId)?.unavailable).toBeUndefined();
+    expect(gateway.calls.filter(c=>c.method==='session.resume')).toHaveLength(1);
+    expect(gateway.calls.filter(c=>c.method==='prompt.submit').map(c=>c.params.text)).toEqual([input.text,next.text]);
+  });
+  it('rejects a Stop for a missing runtime once, retaining receipts and blocking repeated attempts', async () => {
+    const {store,gateway,engine,taskId,input} = await runningFixture();
+    const generation=store.binding(taskId)!.generation;
+    store.saveAction({...store.action(input.id)!,terminal:'complete'});
+    const rpc=gateway.rpc.bind(gateway);
+    gateway.rpc=async(method,params)=>{if(method==='session.activate')throw new GatewayError('session not found',false,4001);return rpc(method,params);};
+    const stop={id:randomUUID(),taskId,kind:'stop' as const,targetId:input.id,generation}; engine.start(stop);
+    await expect.poll(()=>store.action(stop.id)?.receipt).toBe('rejected');
+    expect(store.action(stop.id)).toMatchObject({state:'failed',errorCode:4001});
+    expect(store.action(input.id)).toMatchObject({state:'finished',receipt:'accepted'});
+    expect(engine.start(stop)).toEqual(store.action(stop.id));
+    expect(()=>engine.start({...stop,id:randomUUID()})).toThrow('stale');
+    expect(store.actions(taskId).filter(a=>a.kind==='stop')).toHaveLength(1);
+    expect(gateway.calls.filter(c=>['session.interrupt','session.resume'].includes(c.method))).toHaveLength(0);
+    expect(store.db.prepare("SELECT * FROM notices WHERE id=?").get(`${stop.id}:failure`)).toBeUndefined();
+  });
+  it('does not claim work stopped when the runtime disappears during the interrupt request', async () => {
+    const {store,gateway,engine,taskId,input} = await runningFixture(), rpc=gateway.rpc.bind(gateway);
+    gateway.rpc=async(method,params)=>{if(method==='session.interrupt'){gateway.calls.push({method,params});throw new GatewayError('session not found',false,4001);}return rpc(method,params);};
+    const stop={id:randomUUID(),taskId,kind:'stop' as const,targetId:input.id,generation:store.binding(taskId)!.generation};engine.start(stop);
+    await expect.poll(()=>store.action(stop.id)?.receipt).toBe('rejected');
+    expect(store.action(input.id)).toMatchObject({state:'unknown',phase:'session unavailable',receipt:'accepted'});
+    expect(store.action(input.id)?.terminal).toBeUndefined();
+    expect(store.action(input.id)?.error).toContain('Check the conversation history');
+    expect(gateway.calls.filter(c=>c.method==='session.interrupt')).toHaveLength(1);
+    expect(()=>engine.start({...stop,id:randomUUID()})).toThrow('stale');
+  });
+  it('retires a missing runtime on reconnect without replaying work or changing uncertain submission receipts', async () => {
+    const {store,gateway,engine,taskId,input} = await runningFixture();
+    store.saveAction({...store.action(input.id)!,receipt:'unknown'});
+    const rpc=gateway.rpc.bind(gateway);
+    gateway.rpc=async(method,params)=>{if(method==='session.events.since')throw new GatewayError('session not found',false,4001);return rpc(method,params);};
+    await engine.reconnect();
+    expect(store.binding(taskId)?.unavailable).toBe(true);
+    expect(store.action(input.id)).toMatchObject({state:'unknown',receipt:'unknown'});
+    expect(gateway.calls.filter(c=>['session.resume','session.interrupt'].includes(c.method))).toHaveLength(0);
+    expect(gateway.calls.filter(c=>c.method==='prompt.submit')).toHaveLength(1);
+  });
+  it('keeps terminal failures distinct from a successful completion when the runtime is gone', async () => {
+    const {store,gateway,engine,taskId,input} = await runningFixture();
+    store.saveAction({...store.action(input.id)!,terminal:'error',error:'The tool failed.'});
+    gateway.rpc=async()=>{throw new GatewayError('session not found',false,4001);};
+    await engine.reconcile(taskId);
+    expect(store.action(input.id)).toMatchObject({state:'failed',phase:'error',error:'The tool failed.',receipt:'accepted'});
+  });
+  it('does not retire a runtime for a transient or uncertain error', async () => {
+    const {store,gateway,engine,taskId,input} = await runningFixture();
+    for(const error of [new GatewayError('session not found',false,5000),new GatewayError('reply lost',true,4001)]) {
+      gateway.rpc=async()=>{throw error;};await engine.reconcile(taskId);
+      expect(store.binding(taskId)?.unavailable).toBeUndefined();
+      expect(store.binding(taskId)?.monitored).toBe(true);
+      expect(store.action(input.id)).toMatchObject({state:'running',receipt:'accepted'});
+    }
+  });
+  it('keeps a lost Stop reply uncertain without retiring the runtime or allowing duplicate interrupts', async () => {
+    const {store,gateway,engine,taskId,input} = await runningFixture(), rpc=gateway.rpc.bind(gateway);
+    gateway.rpc=async(method,params)=>{if(method==='session.interrupt')throw new GatewayError('Stop reply lost',true);return rpc(method,params);};
+    const stop={id:randomUUID(),taskId,kind:'stop' as const,targetId:input.id,generation:store.binding(taskId)!.generation};engine.start(stop);
+    await expect.poll(()=>store.action(stop.id)?.receipt).toBe('unknown');
+    expect(store.binding(taskId)?.unavailable).toBeUndefined();
+    expect(store.action(input.id)).toMatchObject({state:'running',receipt:'accepted'});
+    expect(()=>engine.start({...stop,id:randomUUID()})).toThrow('already submitted');
+  });
+  it('does not retire a newer binding after a late missing-session reply', async () => {
+    const {store,gateway,engine,taskId,input} = await runningFixture(), old=store.binding(taskId)!;
+    let reject!: (error: Error) => void;
+    gateway.rpc=async()=>new Promise((_resolve,rejectCall)=>{reject=rejectCall;});
+    const pending=engine.reconcile(taskId);
+    const current={...old,generation:randomUUID(),runtimeId:'replacement',ready:true};store.saveBinding(taskId,current);
+    reject(new GatewayError('session not found',false,4001));await pending;
+    expect(store.binding(taskId)).toEqual(current);
+    expect(store.action(input.id)).toMatchObject({state:'running',receipt:'accepted'});
+  });
   it('resolves confirmed title collisions on one session and submits the message once', async () => {
     const { store, gateway, engine, taskId } = fixture();
     store.saveContext({ ...store.context(taskId)!, title: 'New conversation' });

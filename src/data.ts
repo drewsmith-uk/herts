@@ -1,6 +1,6 @@
 import Dexie, { type Table } from 'dexie';
 import { useSyncExternalStore } from 'react';
-import type { HistoryBaseline, OutgoingMessage } from './transcriptFeedback';
+import { historyBaseline, type HistoryBaseline, type OutgoingMessage } from './transcriptFeedback';
 import { applyConversationVisibility, type Action, type Binding, type Conversation, type ConversationVisibilityOp } from '../shared/core';
 import type { ConversationContext } from '../shared/conversations';
 import { emptySettings, sameSetting, type SettingsState, type SessionValues } from '../shared/sessionSettings';
@@ -135,10 +135,14 @@ export async function api(path: string, body?: unknown, method?: string, timeout
     catch {
         throw new ApiError('Connection lost. Your saved work is still on this device.', 0, null);
     }
-    const data = await r.json().catch(() => ({}));
+    const data = await r.json().catch(() => {
+        // A lost/partial successful reply cannot confirm whether a write arrived.
+        if (r.ok) throw new ApiError('Herts returned an incomplete response. Please try again.', 0, null);
+        return {};
+    });
     if (requestSignal.aborted) throw new ApiError('Connection lost. Your saved work is still on this device.', 0, null);
     if (!r.ok)
-        throw new ApiError(data.error || `Request failed (${r.status})`, r.status, data);
+        throw new ApiError(data?.error || `Request failed (${r.status})`, r.status, data);
     return data;
 }
 async function pendingVisibility(): Promise<PendingVisibility[]> {
@@ -571,7 +575,7 @@ export async function submit(input: any): Promise<Action> {
         await uploadFile(id);
     const context = state.snapshot.contexts?.find(c => c.id === contextId);
     const savedHistory = context?.link ? (await db.kv.get(`history:${context.link.storedId}:latest:0`))?.value : undefined;
-    const baseline: HistoryBaseline | undefined = savedHistory ? { sessionId: savedHistory.sessionId, ids: savedHistory.messages.flatMap((m: any) => m.id === undefined ? [] : [m.id]) } : !context?.link ? { sessionId: '', ids: [] } : undefined;
+    const baseline = context?.link ? historyBaseline(savedHistory) : { sessionId: '', ids: [] };
     await db.transaction('rw', db.kv, db.submissions, async () => {
         await assertDraftAvailable(contextId);
         const pending = (await db.submissions.toArray()).find(s => !s.confirmed && !state.actions.some(a => a.id === s.id) && (s.input.contextId || s.input.taskId) === contextId);
@@ -610,16 +614,18 @@ export async function resolveSubmission(id: string) {
     await refresh();
     await rebuild();
 }
-export async function cacheRead(key: string, fetcher: () => Promise<any>) {
+export async function cacheRead<T = any>(key: string, fetcher: () => Promise<unknown>, read: (value: unknown) => T = value => value as T) {
     try {
-        const value = await fetcher();
+        const value = read(await fetcher());
         await db.kv.put({ key, value });
         return { value, cached: false };
     }
     catch (error) {
         const saved = await db.kv.get(key);
-        if (saved)
-            return { value: saved.value, cached: true };
+        if (saved) {
+            try { return { value: read(saved.value), cached: true }; }
+            catch { /* Invalid cached data cannot replace the last displayed value. */ }
+        }
         throw error;
     }
 }

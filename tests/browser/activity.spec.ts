@@ -1,5 +1,36 @@
 import { test, expect } from '@playwright/test';
 
+for (const width of [390, 1280]) test(`background results appear as Hermes activity, not user messages, on ${width}px screens`, async ({page,request}) => {
+  await page.setViewportSize({width,height:844});
+  const before = await (await request.get('http://127.0.0.1:8791/calls')).json();
+  await page.goto('/#/conversation/background-activity');
+  const groups = page.locator('.activity-group');
+  await expect(groups).toHaveCount(2);
+  const review = groups.first(), process = groups.last();
+  const toggle = review.getByRole('button',{name:/Hermes activity/});
+  await expect(toggle).toHaveAttribute('aria-expanded','false');
+  await expect(toggle).toContainText('1 tool call · 1 background result');
+  await expect(process.getByRole('button',{name:/Hermes activity/})).toContainText('1 background result');
+  await expect(page.getByText('The review is complete.',{exact:true})).toBeVisible();
+  await expect(page.getByText('The background review found no issues.',{exact:true})).toHaveCount(0);
+  await expect(page.locator('.message.from-user')).toHaveCount(2);
+  await expect(page.locator('.message.from-user').last()).toContainText('What does this notice mean?');
+  await toggle.click();
+  await expect(review.getByText('The background review found no issues.',{exact:true})).toBeVisible();
+  await expect(review.locator('.message-author').first()).toContainText('Background task result');
+  await expect(review.locator('.message-author time')).toHaveAttribute('datetime',new Date(1800000000*1000).toISOString());
+  await expect(review.locator('.from-user')).toHaveCount(0);
+  await process.getByRole('button',{name:/Hermes activity/}).click();
+  await expect(process.locator('.message-author')).toContainText('Background process result');
+  await expect(process.getByText('The background process finished successfully.',{exact:true})).toBeVisible();
+  await page.screenshot({path:`test-results/background-activity-${width}.png`,fullPage:true});
+  await page.reload();
+  await expect(toggle).toHaveAttribute('aria-expanded','false');
+  await expect(page.locator('.message.from-user')).toHaveCount(2);
+  const after = await (await request.get('http://127.0.0.1:8791/calls')).json();
+  expect(after.slice(before.length).filter((method:string)=>['session.create','session.resume','prompt.submit','session.interrupt'].includes(method))).toEqual([]);
+});
+
 for (const width of [390, 1280]) test(`groups tool rounds and holds disclosure headers in place on ${width}px screens`, async ({page,request}) => {
   await page.setViewportSize({width,height:844});
   const before = await (await request.get('http://127.0.0.1:8791/calls')).json();

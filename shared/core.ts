@@ -14,13 +14,13 @@ export type HistoryOrder = 'oldest' | 'latest';
 export interface History { order?: HistoryOrder; sessionId: string; messages: ChatMessage[]; offset: number; hasMore: boolean; fetchedAt: number }
 export type ActionState = 'preparing' | 'running' | 'awaiting_input' | 'stopping' | 'finished' | 'failed' | 'unknown' | 'ready';
 export interface Approval { request_id: string; command?: string; description?: string; choices?: string[]; [key: string]: unknown }
-export interface Binding { runtimeId: string; storedId: string; epoch: string; generation: string; seq: number; ready: boolean; monitored: boolean; known: boolean }
+export interface Binding { runtimeId: string; storedId: string; epoch: string; generation: string; seq: number; ready: boolean; monitored: boolean; known: boolean; unavailable?: boolean }
 // taskId is the legacy wire/storage field for the canonical context ID. New
 // requests use contextId; the server resolves legacy task IDs before dispatch.
 export interface Action {
   id: string; taskId: string; contextId?: string; kind: 'send' | 'continue' | 'approve' | 'deny' | 'stop' | 'clarify';
   state: ActionState; phase: string; text: string; uploadIds: string[]; createdAt: number; updatedAt: number;
-  receipt: 'pending' | 'accepted' | 'rejected' | 'unknown'; cancelled?: boolean; error?: string; binding?: Binding;
+  receipt: 'pending' | 'accepted' | 'rejected' | 'unknown'; cancelled?: boolean; error?: string; errorCode?: number; binding?: Binding;
   approvalId?: string; targetId?: string; approvals?: Approval[]; clarification?: any; liveText?: string; terminal?: string;
   answers?: Record<string, string>; promptWarning?: string;
   savedMessageDeletedAt?: number;

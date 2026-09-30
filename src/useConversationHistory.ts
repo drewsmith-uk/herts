@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { History } from '../shared/core';
 import { api, cacheRead, db, useApp } from './data';
+import { isHistory, readHistory } from './historyCache';
 
 type ScrollTarget = { kind: 'latest' } | { kind: 'anchor'; key?: string; top: number };
 const sameTail = (a?: History, b?: History) => !!a && !!b && a.sessionId === b.sessionId && a.hasMore === b.hasMore && JSON.stringify(a.messages) === JSON.stringify(b.messages);
@@ -71,7 +72,7 @@ export function useConversationHistory(conversationId: string, version: string |
   async function fetchPage(offset: number) {
     controller.current?.abort(); controller.current = new AbortController();
     const signal = controller.current.signal;
-    return cacheRead(`history:${conversationId}:latest:${offset}`, () => api(`/conversations/${encodeURIComponent(conversationId)}/history?order=latest&offset=${offset}`, undefined, 'GET', 45000, signal));
+    return cacheRead(`history:${conversationId}:latest:${offset}`, () => api(`/conversations/${encodeURIComponent(conversationId)}/history?order=latest&offset=${offset}`, undefined, 'GET', 45000, signal), readHistory);
   }
   async function refreshTail(explicit = false, recover = false) {
     if (!explicit && ((!recover && loading.current) || document.hidden || !navigator.onLine)) return;
@@ -92,7 +93,7 @@ export function useConversationHistory(conversationId: string, version: string |
       if (generation !== request.current || !explicit) return;
       // Keep history saved by the original oldest-first client accessible after an offline update.
       const prefix = `history:${conversationId}:`;
-      const saved = (await db.kv.toArray()).filter(row => row.key.startsWith(prefix) && /^\d+$/.test(row.key.slice(prefix.length))).map(row => row.value as History).sort((a, b) => a.offset - b.offset);
+      const saved = (await db.kv.toArray()).filter(row => row.key.startsWith(prefix) && /^\d+$/.test(row.key.slice(prefix.length))).map(row => row.value).filter(isHistory).sort((a, b) => a.offset - b.offset);
       if (generation !== request.current) return;
       if (saved.length && !currentPages.current.length) { pendingScroll.current = { kind: 'latest' }; setPages(saved.map(page => ({ ...page, order: 'oldest', hasMore: false }))); setCached(true); }
       else setError((e as Error).message);
