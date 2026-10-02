@@ -107,6 +107,12 @@ test('repairs an app with an older active worker, then shows and confirms a real
   await expect.poll(async()=>{reminder=(await(await request.get('/__test/push-calls')).json()).find((p:any)=>p.id===reminderId);return reminder?.taskTitle;}).toBe(taskTitle);
   await cdp.send('ServiceWorker.deliverPushMessage',{origin:'http://127.0.0.1:8790',registrationId:registrations.get('http://127.0.0.1:8790/')!,data:JSON.stringify(reminder)});
   try {
+    // CDP acknowledges dispatch before the push handler finishes. Chromium's
+    // getNotifications() also prunes database entries absent from its display
+    // snapshot, so querying during display can erase the notification itself.
+    // See PlatformNotificationContextImpl::DoReadAllNotificationDataForServiceWorkerRegistration.
+    // Wait for the worker's post-show receipt before inspecting the real UI.
+    await expect.poll(()=>page.evaluate(async id=>!!await(await caches.open('tasks-notification-receipts')).match(`${location.origin}/__notice/${encodeURIComponent(id)}`),reminderId)).toBe(true);
     await expect.poll(()=>page.evaluate(async id=>(await(await navigator.serviceWorker.ready).getNotifications({tag:id})).map(n=>({title:n.title,body:n.body,data:n.data})),reminderId)).toEqual([{title:'Herts · Reminder',body:taskTitle,data:{id:reminderId}}]);
   } catch(error) {
     const delivery=await page.evaluate(async id=>{
