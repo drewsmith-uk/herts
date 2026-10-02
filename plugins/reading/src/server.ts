@@ -36,9 +36,7 @@ export default function activate(api: ServerServices): ServerPlugin {
         const promise = (async () => {
             let article: Article;
             try {
-                const fetched = await api.web.fetchHtml(item.url, controller.signal);
-                controller.signal.throwIfAborted();
-                article = { ...api.web.extractArticle(fetched.html, fetched.url), itemId: item.id, version: item.downloadVersion };
+                article = { ...await api.web.readArticle(item.url, controller.signal), itemId: item.id, version: item.downloadVersion };
             }
             catch (error) {
                 if (api.signal.aborted)

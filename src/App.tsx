@@ -4,7 +4,7 @@ import { useVisualViewport } from './useVisualViewport';
 import { useRef, useState } from 'react';
 import { MessageSquare, Settings, Check, WifiOff, RefreshCw, LoaderCircle, Plug, Link2 } from 'lucide-react';
 import { useApp, refresh } from './data';
-import { useRoute } from './useRoute';
+import { useRoute, decodeRouteParameter } from './useRoute';
 import { PluginLoader, PluginIcon, matchPluginRoute, pluginError, pluginHook, PluginContent, PluginConflicts, PluginUnavailable, usePlugins } from './plugins';
 import { Conversations, ConversationView, NewConversation } from './Conversations';
 import { NotificationLanding } from './NotificationLanding';
@@ -23,6 +23,7 @@ function Shell() {
     const tabs = state.plugins.order.flatMap(id => { if (id === 'conversations')
         return [{ id, title: 'Conversations', path: '/conversations', Icon: MessageSquare }]; const plugin = plugins.find(p => p.id === id), tab = plugin?.definition.tab; return tab ? [{ id, title: tab.title, path: tab.path, Icon: tab.icon || Plug }] : []; });
     const path = route.path === '/' ? (tabs[0]?.path || '/conversations') : route.path, parts = path.split('/').filter(Boolean), [screen, id] = parts;
+    const conversationId = screen === 'conversation' && parts.length === 2 ? decodeRouteParameter(id) : undefined;
     const plugin = plugins.find(p => matchPluginRoute(p, path)), match = plugin && matchPluginRoute(plugin, path);
     const newEntry = useRef({ path: '', id: '' });
     if (screen === 'new' && newEntry.current.path !== path) newEntry.current.id = crypto.randomUUID();
@@ -38,7 +39,7 @@ function Shell() {
     else if (screen === 'conversations')
         page = <Conversations />;
     else if (screen === 'conversation')
-        page = <ConversationView key={id} id={decodeURIComponent(id)}/>;
+        page = conversationId ? <ConversationView key={conversationId} id={conversationId}/> : <><PageHeader title="Invalid conversation link"/><p>This link is incomplete or invalid.</p><a href="#/conversations">Go to Conversations</a></>;
     else if (screen === 'new' || screen === 'draft')
         page = <NewConversation key={id || newEntry.current.id} id={id} initialId={newEntry.current.id}/>;
     else if (screen === 'settings')

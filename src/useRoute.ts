@@ -1,3 +1,8 @@
 import {useEffect,useState} from 'react';
+export function decodeRouteParameter(value?: string): string | undefined {
+  if (!value) return;
+  try { const decoded = decodeURIComponent(value); return decoded.length <= 300 && !/[\u0000-\u001f\u007f]/.test(decoded) ? decoded : undefined; }
+  catch { return; }
+}
 export function currentPath(){if(location.hash.slice(1))return location.hash.slice(1);const notice=new URLSearchParams(location.search).get('notice');return notice?`/notice/${encodeURIComponent(notice)}`:location.pathname==='/share'?'/share':'/';}
 export function useRoute(){const [path,setPath]=useState(currentPath);useEffect(()=>{const update=()=>setPath(currentPath());addEventListener('hashchange',update);addEventListener('popstate',update);return()=>{removeEventListener('hashchange',update);removeEventListener('popstate',update);};},[]);return{path,parts:path.split('/').filter(Boolean)};}

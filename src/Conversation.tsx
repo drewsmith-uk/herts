@@ -7,6 +7,7 @@ import { MessageSquare, Square, RefreshCw, Volume2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { MessageMedia } from './Media';
+import { MessageBoundary } from './MessageBoundary';
 import { useConversationHistory } from './useConversationHistory';
 import { activitySummary, groupHistory, type HistoryEntry, type HistoryGroup } from './historyGroups';
 import { backgroundResultLabel } from '../shared/messagePresentation';
@@ -116,7 +117,7 @@ export function HistoryView({ conversationId, version = 0, liveText, working = f
   }
   const speakRef = useRef(speak); speakRef.current = speak;
   const onSpeak = useCallback((message: any, page: History, index: number) => { void speakRef.current(message, page, index); }, []);
-  function renderMessage(entry: HistoryEntry) { if (entry.key === replaceReply) entry = { ...entry, message: { ...entry.message, content: liveText } }; return <HistoryMessage key={entry.key} entry={entry} conversationId={conversationId} speaking={speaking === `${entry.page.offset}:${entry.index}`} onSpeak={onSpeak} pauseFollowing={pauseFollowing}/>; }
+  function renderMessage(entry: HistoryEntry) { if (entry.key === replaceReply) entry = { ...entry, message: { ...entry.message, content: liveText } }; return <MessageBoundary key={entry.key} revision={JSON.stringify(entry.message)}><HistoryMessage entry={entry} conversationId={conversationId} speaking={speaking === `${entry.page.offset}:${entry.index}`} onSpeak={onSpeak} pauseFollowing={pauseFollowing}/></MessageBoundary>; }
   const refreshButton = <button className="icon-button history-refresh" aria-label="Refresh conversation history" disabled={busy || !conversationId} onClick={() => void refresh()}><RefreshCw size={15} className={busy ? 'spin' : ''}/></button>;
   return <div className="history" ref={root}>{(cached || !toolbar) && <div className="history-note">{cached && <span role="status">Showing saved messages</span>}{!toolbar && refreshButton}</div>}{toolbar && createPortal(refreshButton, toolbar)}
     {error && <p className="inline-error" role="alert">{error}</p>}

@@ -41,10 +41,13 @@ export interface ReadablePage {
 }
 export interface ServerServices {
     web: {
+        /** Fetch a public page and extract/sanitise it in a bounded worker. */
+        readArticle: (url: string, signal: AbortSignal) => Promise<ReadablePage>;
         fetchHtml: (url: string, signal: AbortSignal) => Promise<{
             html: string;
             url: string;
         }>;
+        /** Compatibility: accepts only an unmodified result of this plugin's fetchHtml. */
         extractArticle: (html: string, url: string) => ReadablePage;
     };
     readonly id: string;

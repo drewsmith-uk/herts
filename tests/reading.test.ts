@@ -49,12 +49,12 @@ describe('reading items and shared conversation identity', () => {
     store.readingMutation({ id: randomUUID(), itemId: b.itemId, kind: 'read', read: false, baseReadAt: 5, at: 6 });
     expect(store.reading().unread.ids).toEqual([b.itemId,a.itemId]);
   });
-  it('renames only the selected reading item while retaining its task, context and offline article', () => {
+  it('renames only the selected reading item while retaining its task, context and offline article', async () => {
     const store = fixture(), op = { ...create(), title: 'Original title', conversationId: 'tip' };
     store.readingMutation(op, { link, aliases: [] });
     store.readingMutation({ ...create('https://example.com/second'), conversationId: 'tip' });
     store.createLinked({ id: randomUUID(), taskId: randomUUID(), title: 'Related task', kind: 'create', at: 1 }, link);
-    const article = extractArticle(articleHtml, op.url!, store.reading().items[0]); store.saveArticle(article);
+    const article = await extractArticle(articleHtml, op.url!, store.reading().items[0]); store.saveArticle(article);
     const before = store.snapshot(), item = before.reading!.items.find(i => i.id === op.itemId)!;
     store.readingMutation({ id: randomUUID(), itemId: op.itemId, kind: 'title', title: '  My reading title  ', baseTitle: item.title, at: op.at + 1 });
     const after = store.snapshot();
@@ -99,30 +99,30 @@ describe('article safety and honest offline copies', () => {
     expect(() => normalizeUrl('https://secret:token@example.com')).toThrow('credentials');
     expect(() => normalizeUrl('file:///etc/passwd')).toThrow();
   });
-  it('extracts article text and strips executable HTML, remote images and unsafe links', () => {
+  it('extracts article text and strips executable HTML, remote images and unsafe links', async () => {
     const item = applyReadingOp(emptyReading(),create()).items[0];
-    const article = extractArticle(articleHtml.replace('</article>', '<script>throw new Error("executed")</script><img src="https://tracker.example/pixel" onerror="alert(1)"><p><a href="javascript:alert(1)">Danger</a><a href="/more">More</a></p></article>'), item.url, item);
+    const article = await extractArticle(articleHtml.replace('</article>', '<script>throw new Error("executed")</script><img src="https://tracker.example/pixel" onerror="alert(1)"><p><a href="javascript:alert(1)">Danger</a><a href="/more">More</a></p></article>'), item.url, item);
     expect(article.status).toBe('saved'); expect(article.text).toContain('Paragraph 9');
     expect(article.html).not.toMatch(/<script|<img|onerror|javascript:/); expect(article.html).toContain('https://example.com/more');
     expect(article.warning).toContain('May be incomplete');
   });
-  it('labels login walls, click-loaded pages and short previews as incomplete', () => {
+  it('labels login walls, click-loaded pages and short previews as incomplete', async () => {
     const item = applyReadingOp(emptyReading(),create()).items[0];
-    expect(extractArticle(articleHtml.replace('<body>', '<body><div class="paywall">Subscribe to read</div>'), item.url, item).status).toBe('excerpt');
-    expect(extractArticle(articleHtml.replace('<body>', '<body><p>Click to read the full article</p>'), item.url, item).status).toBe('excerpt');
-    expect(extractArticle('<html><body>Sign in</body></html>', item.url, item).status).toBe('unavailable');
-  });
-  it('removes only the selected item’s download and refuses stale fetch results', () => {
+    expect((await extractArticle(articleHtml.replace('<body>', '<body><div class="paywall">Subscribe to read</div>'), item.url, item)).status).toBe('excerpt');
+    expect((await extractArticle(articleHtml.replace('<body>', '<body><p>Click to read the full article</p>'), item.url, item)).status).toBe('excerpt');
+    expect((await extractArticle('<html><body>Sign in</body></html>', item.url, item)).status).toBe('unavailable');
+  }, 20000);
+  it('removes only the selected item’s download and refuses stale fetch results', async () => {
     const store = fixture(), a = create(), b = create(); store.readingMutation(a); store.readingMutation(b);
-    const articleA = extractArticle(articleHtml, a.url!, store.reading().items[0]);
-    store.saveArticle(articleA); store.saveArticle(extractArticle(articleHtml,b.url!,store.reading().items[1]));
+    const articleA = await extractArticle(articleHtml, a.url!, store.reading().items[0]);
+    store.saveArticle(articleA); store.saveArticle(await extractArticle(articleHtml,b.url!,store.reading().items[1]));
     store.readingMutation({ id: randomUUID(), itemId: a.itemId, kind: 'read', read: true, baseReadAt: null, at: 10 });
     expect(store.article(a.itemId)).toBeUndefined(); expect(store.article(b.itemId)).toBeDefined(); expect(store.saveArticle(articleA)).toBe(false);
     store.readingMutation({ id: randomUUID(), itemId: a.itemId, kind: 'read', read: false, baseReadAt: 10, at: 11 });
     expect(store.saveArticle(articleA)).toBe(false);
     store.readingMutation({ id: randomUUID(), itemId: b.itemId, kind: 'offline', offline: 'remove', at: 12 });
     expect(store.article(b.itemId)).toBeUndefined();
-  });
+  }, 15000);
   it('does not restore an in-flight article after marking read', async () => {
     const store = fixture(), op = create(); store.readingMutation(op);
     let finish!: (value: {html:string;url:string}) => void;

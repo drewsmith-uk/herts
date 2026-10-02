@@ -1,7 +1,7 @@
 import Dexie, { type Table } from 'dexie';
 import { useSyncExternalStore } from 'react';
 import { historyBaseline, type HistoryBaseline, type OutgoingMessage } from './transcriptFeedback';
-import { applyConversationVisibility, type Action, type Binding, type Conversation, type ConversationVisibilityOp } from '../shared/core';
+import { applyConversationVisibility, redactSavedMessage, type Action, type Binding, type Conversation, type ConversationVisibilityOp } from '../shared/core';
 import type { ConversationContext } from '../shared/conversations';
 import { emptySettings, sameSetting, type SettingsState, type SessionValues } from '../shared/sessionSettings';
 import { emptyCatalogue, type PluginCatalogue, type PluginData, type PluginOperation } from '../shared/plugins';
@@ -118,7 +118,12 @@ let refreshing = false, lastOrder = Date.now();
 let refreshAgain = false, recoverAfterRefresh = false, refreshRequest: AbortController | undefined;
 const definitions = new Map<string, ClientPlugin>();
 export function getState() { return state; }
-export function publish(patch: Partial<State> = {}) { state = { ...state, ...patch }; Dexie.ignoreTransaction(() => { for (const listener of listeners)
+export function publish(patch: Partial<State> = {}) {
+    if (patch.actions) {
+        const deleted = new Map(state.actions.filter(a => a.savedMessageDeletedAt).map(a => [a.id, a.savedMessageDeletedAt]));
+        patch.actions = patch.actions.map(a => redactSavedMessage(deleted.has(a.id) ? { ...a, savedMessageDeletedAt: deleted.get(a.id) } : a));
+    }
+    state = { ...state, ...patch }; Dexie.ignoreTransaction(() => { for (const listener of listeners)
     listener(); }); }
 export function useApp() { return useSyncExternalStore(fn => { listeners.add(fn); return () => listeners.delete(fn); }, () => state); }
 export function registerPluginData(id: string, definition?: ClientPlugin) { if (definition)
@@ -242,7 +247,7 @@ export async function initialise() {
         for (const key of pendingDraftKeys('core:draft:')) { const write = pendingDraft(key); if (write) await commitConversationDraft(key, write); }
         const saved = (await db.kv.get('state'))?.value, plugins = (await db.kv.get('plugins'))?.value;
         if (saved)
-            publish({ remote: { ...empty(), ...saved.snapshot }, actions: saved.actions || [], bindings: {} });
+            publish({ remote: { ...empty(), ...saved.snapshot }, actions: await purgeDeletedSavedMessages(saved.actions || []), bindings: {} });
         if (plugins)
             await acceptPlugins(plugins.catalogue, plugins.data);
         else if (saved) { // Offline first launch after upgrading a legacy browser.
@@ -299,7 +304,7 @@ export async function refresh(recover = false) {
         for (const action of data.actions as Action[])
             if (!actions.has(action.id) || actions.get(action.id)!.updatedAt < action.updatedAt)
                 actions.set(action.id, action);
-        data.actions = [...actions.values()].sort((a, b) => b.createdAt - a.createdAt);
+        data.actions = await purgeDeletedSavedMessages([...actions.values()].sort((a, b) => b.createdAt - a.createdAt));
         await acceptSnapshot(data.snapshot, data.actions);
         await acceptPlugins(data.plugins, data.pluginData);
         const recovered = recover || !state.online || (!state.gateway.online && data.gateway.online);
@@ -319,11 +324,35 @@ export async function refresh(recover = false) {
         if (refreshAgain) { const recovery = recoverAfterRefresh; refreshAgain = false; recoverAfterRefresh = false; void refresh(recovery); }
     }
 }
+/** Erase saved copies on reconnect too, while keeping independent drafts and history. */
+export async function purgeDeletedSavedMessages(actions: Action[]): Promise<Action[]> {
+    return db.transaction('rw', db.kv, db.submissions, db.files, db.drafts, db.pluginLocal, async () => {
+        const saved = (await db.kv.get('state'))?.value;
+        const prior: Action[] = [...(saved?.actions || []), ...state.actions];
+        const deleted = new Map([...prior, ...actions].filter(a => a.savedMessageDeletedAt).map(a => [a.id, a.savedMessageDeletedAt!]));
+        if (!deleted.size) return actions;
+        const clean = actions.map(a => redactSavedMessage(deleted.has(a.id) ? { ...a, savedMessageDeletedAt: deleted.get(a.id) } : a));
+        const files = new Set([...prior, ...actions].filter(a => deleted.has(a.id)).flatMap(a => a.uploadIds));
+        for (const submission of await db.submissions.toArray()) if (deleted.has(submission.id)) {
+            for (const id of submission.input.uploadIds || []) files.add(id);
+            await db.submissions.delete(submission.id);
+        }
+        const pendingFiles = pendingDraftKeys('core:draft:').flatMap(key => (pendingDraft(key)?.value as Partial<Draft> | null)?.files || []);
+        const referenced = new Set([...pendingFiles, ...(await db.drafts.toArray()).flatMap(d => d.files), ...(await db.submissions.toArray()).flatMap(s => s.input.uploadIds || []), ...clean.flatMap(a => a.uploadIds)]);
+        // Legacy/plugin capture drafts may also own an attachment.
+        const pluginDrafts = JSON.stringify(await db.pluginLocal.toArray());
+        for (const id of files) if (!referenced.has(id) && !pluginDrafts.includes(JSON.stringify(id))) await db.files.delete(id);
+        if (saved) await db.kv.put({ key: 'state', value: { ...saved, actions: clean } });
+        return clean;
+    });
+}
 export async function acceptSnapshot(snapshot: CoreSnapshot, actions = state.actions) {
     const core = { revision: snapshot.revision, contexts: snapshot.contexts || [], hiddenConversations: snapshot.hiddenConversations || [], sessionSettings: snapshot.sessionSettings || emptySettings() };
     const chosen = await db.transaction('rw', db.kv, async () => {
         const saved = (await db.kv.get('state'))?.value, chosen = saved?.snapshot.revision > core.revision ? saved.snapshot : core;
-        await db.kv.put({ key: 'state', value: { snapshot: chosen, actions } });
+        const deleted = new Map<string, number>([...(saved?.actions || []), ...state.actions].filter((a: Action) => a.savedMessageDeletedAt).map((a: Action) => [a.id, a.savedMessageDeletedAt!]));
+        const clean = actions.map(a => redactSavedMessage(deleted.has(a.id) ? { ...a, savedMessageDeletedAt: deleted.get(a.id) } : a));
+        await db.kv.put({ key: 'state', value: { snapshot: chosen, actions: clean } });
         return chosen;
     });
     if (chosen.revision >= state.remote.revision)

@@ -18,6 +18,7 @@ import { Notifications } from './notifications.js';
 import { bindHermesTarget } from './config.js';
 import { registerThemes } from './themes.js';
 import { mediaRefs } from '../shared/media.js';
+import { discardedUploads } from './discardedUploads.js';
 
 const uuid = z.string().uuid();
 const historyOrder = z.enum(['oldest', 'latest']).default('oldest');
@@ -33,6 +34,11 @@ export async function createApp(config: Config) {
   const store = new Store(join(config.dataDir, 'tasks.sqlite'));
   const profile = config.hermesProfile || 'default';
   try { bindHermesTarget(store, config.hermesBase, profile); } catch (error) { store.close(); throw error; }
+  store.scrubDeletedMessages();
+  const uploadLocks = new Set<string>(), cleanDiscardedUploads = discardedUploads(store, uploadDir, uploadLocks);
+  // A disk cleanup failure must not take away conversation and stop controls.
+  // Metadata is removed first; the durable queue retries remaining bytes later.
+  await cleanDiscardedUploads().catch(() => {});
   const gateway = new Gateway(config.hermesBase, config.hermesToken, config.excluded, () => store.contexts().flatMap(c => c.aliases), profile);
   const plugins = new PluginRegistry(store,gateway,config.pluginsDir || resolve('plugins'),config.dataDir);
   migrateLegacyPlugins(store,plugins.storage);
@@ -153,11 +159,13 @@ export async function createApp(config: Config) {
     z.object({}).strict().parse(req.body);
     const action = store.action(id);
     if (!action) return reply.code(404).send({ error: 'Saved message not found.' });
-    if (action.savedMessageDeletedAt) return { action };
+    if (action.savedMessageDeletedAt) { await cleanDiscardedUploads(); return { action }; }
     if (!hasSavedMessage(action)) throw new Conflict('This operation does not have a saved message to delete.');
+    if (actions.dispatching.has(action.id)) throw new Conflict('Wait for this message to finish sending before deleting its saved copy.');
     // Retain the operation and receipt for deduplication and status recovery.
     // Discarding a saved copy never cancels, retries or deletes Hermes work.
     action.savedMessageDeletedAt = Date.now(); store.saveAction(action);
+    await cleanDiscardedUploads();
     return { action };
   });
   function guardUpload(upload:{owner?:string}){
@@ -166,10 +174,10 @@ export async function createApp(config: Config) {
     if(plugins.storage.metadata(id).generation!==Number(generation))throw Object.assign(new Error('Plugin data was reset.'),{statusCode:410});
     if(!plugins.enabled(id))throw Object.assign(new Error('The plugin is paused.'),{statusCode:423});
   }
-  const uploadLocks = new Set<string>();
   app.post('/api/v1/uploads', async req => {
     const p = z.object({ id: uuid, name: z.string().min(1).max(255), type: z.string().max(150), size: z.number().int().positive().max(25 * 1024 * 1024), hash: z.string().regex(/^[a-f0-9]{64}$/),owner:z.string().regex(/^[a-z][a-z0-9-]{0,63}:[0-9]+$/).optional() }).strict().parse(req.body);
     guardUpload(p);
+    if (uploadLocks.has(p.id)) throw new Conflict('This attachment is busy. Try again.');
     const u = store.upload(p.id);
     if (u && (u.hash !== p.hash || u.size !== p.size || u.name !== p.name || u.type !== p.type || u.owner!==p.owner)) throw new Conflict('Upload identity was reused for another file.');
     if (!u) store.saveUpload({ ...p, complete: false });
@@ -241,7 +249,8 @@ export async function createApp(config: Config) {
   const dist = resolve('dist');
   if (existsSync(dist)) { await app.register(fastifyStatic, { root: dist, maxAge: 0 }); app.setNotFoundHandler((req, reply) => req.url.startsWith('/api/') ? reply.code(404).send({ error: 'Not found.' }) : reply.sendFile('index.html')); }
   app.addHook('preClose', async () => { for (const s of streams) s.end(); });
-  app.addHook('onClose', async () => { await plugins.close(); actions.close(); notifications.close(); gateway.close(); store.close(); });
+  const cleanupTimer = setInterval(() => { void cleanDiscardedUploads().catch(() => {}); }, 60000); cleanupTimer.unref();
+  app.addHook('onClose', async () => { clearInterval(cleanupTimer); await plugins.close(); actions.close(); notifications.close(); gateway.close(); await cleanDiscardedUploads().catch(() => {}); store.close(); });
   if (config.hermesBase && config.hermesToken) void gateway.connect().catch(() => {});
   return { app, store, gateway, actions, plugins, articles:plugins.web };
 }

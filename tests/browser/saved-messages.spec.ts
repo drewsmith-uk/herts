@@ -64,7 +64,8 @@ for (const width of [390, 1280]) test(`saved messages copy into existing input w
     await page.getByLabel('Message Hermes').focus();
     await expect(page.getByRole('button', { name: 'Remove original.txt' })).toBeVisible();
     const action = (await (await request.get(`/api/v1/actions/${fixture.action.id}`)).json()).action;
-    expect(action).toMatchObject({ savedMessageDeletedAt: expect.any(Number), state: fixture.action.state, receipt: fixture.action.receipt });
+    expect(action).toMatchObject({ savedMessageDeletedAt: expect.any(Number), text: '', uploadIds: [], state: fixture.action.state, receipt: fixture.action.receipt });
+    expect((await request.get(`/api/v1/uploads/${fixture.action.uploadIds[0]}`)).status()).toBe(404);
     expect(await calls(request)).toEqual(before);
     // Only the explicit Send should start new work, with both attachments.
     await page.getByRole('button', { name: 'Send', exact: true }).click();
@@ -73,6 +74,46 @@ for (const width of [390, 1280]) test(`saved messages copy into existing input w
     expect(after.filter(m => m === 'prompt.submit')).toHaveLength(1);
     expect(after.filter(m => m === 'file.attach')).toHaveLength(2);
   } finally { await other.close(); }
+});
+
+test('reconnecting removes deleted saved content and local submission copies without erasing independent drafts', async ({ page, request, browser }) => {
+  const fixture = await seed(request, 'Synthetic content to delete', { attachment: true });
+  await page.goto(fixture.url);
+  const card = await expand(page, fixture.action.id); await card.getByRole('button', { name: 'Use this message' }).click();
+  const peer = await browser.newContext(), second = await peer.newPage();
+  const inspect = async (page: Page) => page.evaluate(async ({ id, uploadId }) => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => { const r = indexedDB.open('hermes-tasks'); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); });
+    try {
+      const read = (store: string, key: string) => new Promise<any>((resolve, reject) => { const r = database.transaction(store).objectStore(store).get(key); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); });
+      const saved = await read('kv', 'state');
+      return { action: saved?.value?.actions?.find((a: any) => a.id === id), submission: !!await read('submissions', id), file: !!await read('files', uploadId) };
+    } finally { database.close(); }
+  }, { id: fixture.action.id, uploadId: fixture.action.uploadIds[0] });
+  try {
+    await second.goto('http://127.0.0.1:8790' + fixture.url);
+    await expect(second.locator(`[data-saved-message="${fixture.action.id}"]`)).toBeVisible();
+    // Simulate an older client retaining its outgoing request and cached attachment.
+    await second.evaluate(async ({ action, contextId }) => {
+      const database = await new Promise<IDBDatabase>((resolve, reject) => { const r = indexedDB.open('hermes-tasks'); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); });
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const tx = database.transaction(['submissions', 'files'], 'readwrite');
+          tx.objectStore('submissions').put({ id: action.id, input: { id: action.id, contextId, kind: 'send', text: action.text, uploadIds: action.uploadIds }, at: Date.now(), confirmed: true });
+          tx.objectStore('files').put({ id: action.uploadIds[0], name: 'original.txt', type: 'text/plain', blob: new Blob(['Original attachment contents']) });
+          tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error);
+        });
+      } finally { database.close(); }
+    }, { action: fixture.action, contextId: fixture.contextId });
+    await peer.setOffline(true);
+    await card.getByRole('button', { name: 'Delete', exact: true }).click();
+    await page.getByRole('button', { name: 'Delete saved message', exact: true }).click();
+    await expect(card).toHaveCount(0);
+    await expect(page.getByLabel('Message Hermes', { exact: true })).toHaveValue(fixture.action.text);
+    expect((await inspect(page)).file).toBe(true);
+    await peer.setOffline(false);
+    await expect(second.locator(`[data-saved-message="${fixture.action.id}"]`)).toHaveCount(0);
+    await expect.poll(async () => { const result = await inspect(second); return { text: result.action?.text, files: result.action?.uploadIds, submission: result.submission, file: result.file }; }).toEqual({ text: '', files: [], submission: false, file: false });
+  } finally { await peer.close(); }
 });
 
 test('uncertain messages show a warning, copy offline without sending, and retain their saved copy', async ({ page, request, context }) => {

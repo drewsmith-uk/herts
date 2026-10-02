@@ -55,7 +55,7 @@ export class Actions {
     const main = this.main(task.id), binding = this.store.binding(task.id);
     if (['send', 'continue'].includes(input.kind)) {
       if (main && activeStates.has(main.state)) throw new Conflict('Work is already active. Use its approval or stop controls.');
-      if (input.kind === 'send' && this.store.actions(task.id).some(a => a.kind === 'send' && a.receipt === 'unknown' && a.sendStage !== 'preparing' && a.text.trim() === (input.text || '').trim() && JSON.stringify(a.uploadIds) === JSON.stringify(input.uploadIds || []))) throw new Conflict('An identical message has an uncertain outcome. Check its saved submission and conversation history before repeating it.');
+      if (input.kind === 'send' && this.store.actions(task.id).some(a => a.kind === 'send' && a.receipt === 'unknown' && a.sendStage !== 'preparing' && this.store.sameSavedMessage(a, input.text || '', input.uploadIds || []))) throw new Conflict('An identical message has an uncertain outcome. Check its saved submission and conversation history before repeating it.');
       if (input.kind === 'continue' && !task.link) throw new Conflict('No confirmed conversation exists to continue.');
       if (input.kind === 'send' && !task.link && main?.receipt === 'unknown') throw new Conflict('Conversation creation is uncertain. It will not be repeated automatically.');
       let total = 0;

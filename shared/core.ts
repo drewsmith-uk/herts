@@ -30,11 +30,16 @@ export interface Action {
 export const savedMessageNotSent = (action: Action) => action.sendStage === 'preparing' || action.receipt === 'rejected';
 export const hasSavedMessage = (action: Action) => action.kind === 'send' && !action.savedMessageDeletedAt &&
   (['failed', 'unknown'].includes(action.state) || ['rejected', 'unknown'].includes(action.receipt));
+export function redactSavedMessage(action: Action): Action {
+  if (!action.savedMessageDeletedAt) return action;
+  const { answers: _answers, ...receipt } = action;
+  return { ...receipt, text: '', uploadIds: [] };
+}
 export interface Upload { owner?:string; id: string; name: string; type: string; size: number; hash: string; complete: boolean }
 export class Conflict extends Error { statusCode = 409; constructor(public reason: string) { super(reason); } }
 export function messageText(m: ChatMessage): string {
   if (typeof m.display_content === 'string') return m.display_content;
   if (typeof m.content === 'string') return m.content;
-  if (Array.isArray(m.content)) return m.content.map((p: any) => p.text || (p.type === 'image_url' ? '[Image attachment]' : '')).filter(Boolean).join('\n');
-  return m.text || '';
+  if (Array.isArray(m.content)) return m.content.map((p: any) => typeof p?.text === 'string' ? p.text : p?.type === 'image_url' ? '[Image attachment]' : '').filter(Boolean).join('\n');
+  return typeof m.text === 'string' ? m.text : '';
 }

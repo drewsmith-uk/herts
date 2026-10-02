@@ -6,6 +6,7 @@ import { dirname } from 'node:path';
 import { createHash } from 'node:crypto';
 import { LegacyFeatures } from './legacyFeatures.js';
 import { emptySettings, type SettingsState } from '../shared/sessionSettings.js';
+import { redactSavedMessage } from '../shared/core.js';
 import { applyTaskOp, applySpaceOp, withSpaces, applyConversationVisibility, emptySnapshot, Conflict, type Snapshot, type TaskOp, type SpaceOp, type Task, type Link, type Action, type Binding, type Upload, type ConversationVisibilityOp } from '../shared/model.js';
 
 export const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -24,6 +25,8 @@ export class Store extends LegacyFeatures {
       CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, link_key TEXT UNIQUE, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS receipts (id TEXT PRIMARY KEY, hash TEXT NOT NULL, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS actions (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, data TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS deleted_message_receipts (action_id TEXT PRIMARY KEY, message_hash TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS discarded_uploads (id TEXT PRIMARY KEY);
       CREATE TABLE IF NOT EXISTS bindings (task_id TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS uploads (id TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS subscriptions (id TEXT PRIMARY KEY, data TEXT NOT NULL);
@@ -68,6 +71,13 @@ export class Store extends LegacyFeatures {
     })();
   }
   getMeta<T = any>(key: string): T | undefined { const r = this.db.prepare('SELECT value FROM meta WHERE key=?').get(key) as any; return r ? JSON.parse(r.value) : undefined; }
+  scrubDeletedMessages() {
+    for (const action of this.actions()) if (action.savedMessageDeletedAt && (action.text || action.uploadIds.length || action.answers)) this.saveAction(action);
+  }
+  sameSavedMessage(action: Action, text: string, uploadIds: string[]) {
+    const deleted = this.db.prepare('SELECT message_hash FROM deleted_message_receipts WHERE action_id=?').get(action.id) as { message_hash: string } | undefined;
+    return (deleted?.message_hash || digest([action.text.trim(), action.uploadIds])) === digest([text.trim(), uploadIds]);
+  }
   sessionSettings(): SettingsState { return this.getMeta<SettingsState>('session-settings') || emptySettings(); }
   saveSessionSettings(settings: SettingsState) { this.setMeta('session-settings', settings); this.bumpRevision(); this.emit('change', { type: 'settings' }); }
   coreSnapshot(){return{revision:this.getMeta<any>('snapshot')?.revision||0,contexts:this.contexts(),hiddenConversations:this.getMeta<string[]>('hiddenConversations')||[],sessionSettings:this.sessionSettings()};}
@@ -137,7 +147,15 @@ export class Store extends LegacyFeatures {
     // Late execution updates must not bring a deleted saved copy back.
     if (previous?.savedMessageDeletedAt) action.savedMessageDeletedAt = previous.savedMessageDeletedAt;
     action.updatedAt = Math.max(Date.now(), (previous?.updatedAt || 0) + 1);
-    this.db.prepare('INSERT INTO actions VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').run(action.id, action.taskId, JSON.stringify(action)); this.emit('change', { type: 'action', action });
+    this.db.transaction(() => {
+      if (action.savedMessageDeletedAt) {
+        this.db.prepare('INSERT OR IGNORE INTO deleted_message_receipts VALUES (?,?)').run(action.id, digest([action.text.trim(), action.uploadIds]));
+        for (const id of action.uploadIds) this.db.prepare('INSERT OR IGNORE INTO discarded_uploads VALUES (?)').run(id);
+        Object.assign(action, redactSavedMessage(action)); delete action.answers;
+      }
+      this.db.prepare('INSERT INTO actions VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').run(action.id, action.taskId, JSON.stringify(action));
+    })();
+    this.emit('change', { type: 'action', action });
   }
   binding(taskId: string): Binding | undefined { const r = this.db.prepare('SELECT data FROM bindings WHERE task_id=?').get(this.context(taskId)?.id || taskId) as any; return r && JSON.parse(r.data); }
   bindings(): [string, Binding][] { return (this.db.prepare('SELECT * FROM bindings').all() as any[]).map(r => [r.task_id, JSON.parse(r.data)]); }

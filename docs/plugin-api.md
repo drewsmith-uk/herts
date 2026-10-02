@@ -80,7 +80,7 @@ Use `api.interval` and `api.onChange` for managed jobs; stop custom resources in
 
 Core context APIs allow read-only conversation resolution, creation of local context records, and canonical linking. `tx.reference(itemId, contextId)` preserves a route/reference back to a core conversation even if the plugin is later unavailable. Resolving, linking or viewing a conversation does not submit work. Server plugins do not receive a special Hermes action endpoint; deliberate messaging uses the shared client conversation panel.
 
-`conversation(context)` can provide a destination/title for core notifications. `conversationList(conversation)` can contribute namespaced filter tags and data. `web.fetchHtml` and `web.extractArticle` provide the same safe public-page fetching and readable-text extraction used by Reading.
+`conversation(context)` can provide a destination/title for core notifications. `conversationList(conversation)` can contribute namespaced filter tags and data. Use `await web.readArticle(url, signal)` for public-page fetching and readable-text extraction. Parsing and sanitisation run in workers with memory/concurrency limits, a five-second processing deadline and retry backoff. The legacy `await web.fetchHtml` / synchronous `web.extractArticle` pair remains supported for installed plugins: the awaited fetch prepares the result in a worker, and extraction accepts only that unmodified HTML/URL pair. Arbitrary synchronous HTML parsing is no longer supported.
 
 ## Browser entry
 

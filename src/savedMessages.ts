@@ -1,5 +1,5 @@
 import { hasSavedMessage, type Action, type Upload } from '../shared/core';
-import { api, db, getState, publish, acceptSnapshot, saveConversationDraft, type Draft, type LocalFile } from './data';
+import { api, db, getState, publish, acceptSnapshot, purgeDeletedSavedMessages, rebuild, saveConversationDraft, type Draft, type LocalFile } from './data';
 
 export async function copySavedMessage(action: Action, fallback: Draft): Promise<Draft> {
   // Downloads happen before the transaction: an unavailable attachment leaves
@@ -38,7 +38,8 @@ export async function copySavedMessage(action: Action, fallback: Draft): Promise
 export async function deleteSavedMessage(id: string) {
   const { action }: { action: Action } = await api(`/actions/${id}/discard-saved-message`, {});
   const state = getState(), current = state.actions.find(a => a.id === id);
-  const actions = state.actions.map(a => a.id === id ? { ...(current && current.updatedAt > action.updatedAt ? current : action), savedMessageDeletedAt: action.savedMessageDeletedAt } : a);
+  const actions = await purgeDeletedSavedMessages(state.actions.map(a => a.id === id ? { ...(current && current.updatedAt > action.updatedAt ? current : action), savedMessageDeletedAt: action.savedMessageDeletedAt } : a));
   publish({ actions });
   await acceptSnapshot(state.remote, actions);
+  await rebuild();
 }

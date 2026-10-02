@@ -3,7 +3,7 @@ import { resolve, join, relative, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { fetchArticleHtml, extractArticle } from '../publicWeb.js';
+import { ArticleWeb } from '../articleWeb.js';
 import type { Store } from '../store.js';
 import type { Gateway } from '../gateway.js';
 import type { ActivateServer, ServerPlugin, ServerServices } from '../../sdk/server.js';
@@ -57,7 +57,7 @@ interface Runtime {
 }
 export class PluginRegistry {
     readonly storage: PluginStorage;
-    readonly web = { fetchHtml: fetchArticleHtml, extractArticle };
+    readonly web = new ArticleWeb();
     private entries = new Map<string, Saved>();
     private packages = new Map<string, Package>();
     private runtimes = new Map<string, Runtime>();
@@ -238,7 +238,7 @@ export class PluginRegistry {
             const generation = this.storage.metadata(id).generation;
             const filePath = (key: string) => join(this.dataDirectory, 'plugin-files', id, String(generation), createHash('sha256').update(key).digest('hex'));
             const services: ServerServices = {
-                id, generation, signal: controller.signal, resumed: !!entry.paused, web: this.web,
+                id, generation, signal: controller.signal, resumed: !!entry.paused, web: this.web.forPlugin(controller.signal),
                 get: key => this.storage.get(id, key), entries: prefix => this.storage.entries(id, prefix),
                 transaction: fn => this.storage.transaction(id, generation, guard, fn),
                 contexts: () => this.store.contexts(), context: id => this.store.context(id),

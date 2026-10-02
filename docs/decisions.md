@@ -60,6 +60,8 @@ Server SQLite stores task/space/reading data, conversation links, uploads, actio
 
 Submitted messages have durable IDs/receipts. If acceptance cannot be confirmed, Herts retains the submission and distinguishes uncertainty from rejection. It does not automatically repeat an uncertain agent action. Browser drafts are not server backups. Device security protects cached data; clearing browser storage loses unsynced work.
 
+Deleting a saved message removes its text and attachment references from Herts, and removes attachment files that no other message needs. Other devices clear their cached saved copies when they reconnect. A draft deliberately copied from the message remains a separate draft. Herts retains operation IDs, status and server-only fingerprints to prevent duplicate sends; deleting a saved copy does not delete Hermes history or older backups. On upgrade, Herts also clears content previously marked as deleted.
+
 Microphone capture and read-aloud are explicit. Dictation appends to the shared editable message draft for review. Messages are sent only by pressing Send; there is no countdown or automatic sending. Read-aloud applies to backend assistant responses, with playback controls. Audio is processed through the selected Hermes profile; OS/browser dictation is not substituted.
 
 Production access requires the configured Tailscale user and app origin. Secrets stay on the server. Notifications intentionally include task titles. Herts supports one user per deployment; spaces are organisational groups, not security boundaries. The backend token may grant broad access to Hermes, so keep it private and bind the backend to loopback or protect its HTTPS endpoint.
