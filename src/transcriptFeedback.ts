@@ -41,3 +41,14 @@ export function outgoingStatus(action?: Action): string {
   if (action.receipt === 'accepted') return action.awaitingTurn ? 'Queued for Hermes' : 'Sent to Hermes';
   return 'Sending to Hermes';
 }
+
+/** Replace a partial durable reply in place instead of showing it twice while streaming. */
+export function liveReplyReplacement(pages: History[], liveText: string | undefined, outgoing?: OutgoingMessage): string | undefined {
+  if (!liveText || !outgoing || !outgoingInHistory(outgoing, pages)) return;
+  const entries = pages.flatMap(page => page.messages.map(message => ({ page, message })));
+  const lastUser = entries.findLastIndex(({ message }) => message.role === 'user' && !backgroundResultLabel(message));
+  const user = entries[lastUser]?.message;
+  if (!user || messageText(user).trim() !== outgoing.text.trim()) return;
+  const reply = entries.slice(lastUser + 1).findLast(({ message }) => message.role === 'assistant' && !!messageText(message).trim());
+  if (reply?.message.id !== undefined && liveText.trim().startsWith(messageText(reply.message).trim())) return `${reply.page.sessionId}:${reply.message.id}`;
+}

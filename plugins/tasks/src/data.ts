@@ -1,4 +1,4 @@
-import { useCore, getCore, pluginLocal, mutatePlugin, resolvePluginOperation, sync, refresh, conversationDrafts, createLocalConversation, type CoreState } from '@herts/plugin-api/client';
+import { useCore, getCore, pluginLocal, mutatePlugin, resolvePluginOperation, sync, refresh, conversationDrafts, createLocalConversation, entryDraftStatus, type CoreState } from '@herts/plugin-api/client';
 import { conversationTaskId, applySpaceOp, emptySnapshot, originalSpaceId, taskSpaceId, spaceLists, spaceName, type Snapshot, type TaskOp, type SpaceOp, type Status, type Task } from './model';
 export interface Pending {
     id: string;
@@ -26,7 +26,7 @@ export { refresh };
 export async function initialiseTasks() { const saved = await db.kv.get('viewed-space'); localViewed = saved?.value || ''; await refresh(); }
 export function rememberSpace(id: string) { localViewed = id; void db.kv.put({ key: 'viewed-space', value: id }); }
 export async function mutate(op: TaskOp) { return mutatePlugin('tasks', 'task', op, op.taskId); }
-export async function createTask(title: string, spaceId = current().snapshot.defaultSpaceId || originalSpaceId) { const taskId = crypto.randomUUID(); await mutate({ id: crypto.randomUUID(), taskId, spaceId, kind: 'create', title: title.trim(), at: Date.now() }); return taskId; }
+export async function createTask(title: string, spaceId = current().snapshot.defaultSpaceId || originalSpaceId, taskId: string = crypto.randomUUID()) { if (!current().snapshot.tasks.some(task => task.id === taskId)) await mutate({ id: taskId, taskId, spaceId, kind: 'create', title: title.trim(), at: Date.now() }); return taskId; }
 export function renameTask(taskId: string, title: string) { const task = current().snapshot.tasks.find(t => t.id === taskId)!; return mutate({ id: crypto.randomUUID(), taskId, kind: 'title', title, baseTitle: task.title, at: Date.now() }); }
 export function moveTask(taskId: string, status: Status, beforeId?: string | null, destinationSpace?: string) { const state = current(), task = state.snapshot.tasks.find(t => t.id === taskId)!; const baseSpaceId = taskSpaceId(task), spaceId = destinationSpace || baseSpaceId; return mutate({ id: crypto.randomUUID(), taskId, kind: 'move', spaceId, baseSpaceId, status: spaceId !== baseSpaceId ? 'inbox' : status, beforeId, baseStatus: task.status, baseSnoozeId: task.snoozeId || null, listVersion: spaceLists(state.snapshot, spaceId)[spaceId !== baseSpaceId ? 'inbox' : status].version, at: Date.now() }); }
 export function snoozeTask(task: Task, until: number) { const now = current().snapshot.tasks.find(t => t.id === task.id); if (!now || now.status !== task.status || taskSpaceId(now) !== taskSpaceId(task) || now.snoozeId !== task.snoozeId)
@@ -59,8 +59,9 @@ export async function deleteSpace(spaceId: string) {
     const local = pluginLocal('tasks');
     if (!local.hasRecording) throw new Error('Update Herts before deleting a space.');
     const draft = await local.drafts.get(`capture:${spaceId}`);
-    if (draft?.text?.trim()) throw new Error('Save or clear the draft in this space before deleting it.');
-    if (await local.hasRecording(`capture:${spaceId}`)) throw new Error('Transcribe or discard the saved recording in this space before deleting it.');
+    const entry = await entryDraftStatus('tasks', `capture:${spaceId}`);
+    if (draft?.text?.trim() || draft?.files.length || entry.draft) throw new Error('Save or clear the draft in this space before deleting it.');
+    if (entry.recording || await local.hasRecording(`capture:${spaceId}`)) throw new Error('Transcribe or discard the saved recording in this space before deleting it.');
     await mutateSpace({ id: crypto.randomUUID(), spaceId, kind: 'delete', baseName: space.name, baseDefaultSpaceId: state.snapshot.defaultSpaceId, at: Date.now() });
 }
 export async function resolveConflict(id: string, keep: boolean) { const state = current(), p = state.pending.find(p => p.id === id); if (!p)

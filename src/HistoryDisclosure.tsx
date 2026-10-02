@@ -1,3 +1,4 @@
+import { requestConversationPosition } from './conversationViewport';
 import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
 
@@ -8,12 +9,13 @@ export function HistoryDisclosure({ label, children, onInteract, activityKey }: 
   useLayoutEffect(() => {
     if (previousTop.current === null || !header.current) return;
     // Counter browser scroll anchoring before paint, keeping the collapse control in reach.
-    window.scrollBy({ top: header.current.getBoundingClientRect().top - previousTop.current, behavior: 'instant' });
+    requestConversationPosition(header.current, 'restore');
     previousTop.current = null;
   }, [open]);
   return <div className={activityKey ? 'activity-group' : 'history-disclosure'}>
     <button ref={header} type="button" className="history-disclosure-toggle" aria-expanded={open} aria-controls={contentId} data-history-message={activityKey} onClick={() => {
       previousTop.current = header.current!.getBoundingClientRect().top;
+      requestConversationPosition(header.current, 'hold');
       onInteract(); setOpen(value => !value);
     }}><ChevronRight size={15} aria-hidden="true"/>{label}</button>
     <div id={contentId} hidden={!open}>{open && children}</div>

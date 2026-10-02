@@ -40,7 +40,7 @@ export function useDraftPersistence(target: {put:(draft:Draft)=>Promise<unknown>
 }
 
 export async function prepareForUpdate() {
-  // Stop local auto-send countdowns synchronously, before any storage waits.
+  // Pause any registered background UI work before waiting for storage.
   for (const read of preparations) read().pause?.();
   // Commit title fields that save on blur, then wait for already queued local
   // writes. Pending sync operations stay in IndexedDB; no network flush or

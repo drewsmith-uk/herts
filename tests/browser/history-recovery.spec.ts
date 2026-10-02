@@ -49,7 +49,7 @@ for (const body of ['{}', '{"messages":']) test(`a damaged history reply (${body
   await page.getByLabel('Message Hermes').fill('Keep my unsent retry.');
   await page.route(`**/api/v1/conversations/${id}/history?*`, route => route.fulfill({ status: 200, contentType: 'application/json', body }));
   await page.getByRole('button', { name: 'Refresh conversation history', exact: true }).click();
-  await expect(page.getByText('Saved history ·', { exact: false })).toBeAttached();
+  await expect(page.getByText('Showing saved messages', { exact: false })).toBeAttached();
   await expect(page.locator('.history')).toContainText('Saved conversation before the connection problem.');
   expect(await saved(page, id)).toEqual(before);
   await page.reload();
@@ -57,5 +57,5 @@ for (const body of ['{}', '{"messages":']) test(`a damaged history reply (${body
   await expect(page.getByLabel('Message Hermes')).toHaveValue('Keep my unsent retry.');
   await page.unroute(`**/api/v1/conversations/${id}/history?*`);
   await page.getByRole('button', { name: 'Refresh conversation history', exact: true }).click();
-  await expect(page.getByText('Saved history ·', { exact: false })).toHaveCount(0);
+  await expect(page.getByText('Showing saved messages', { exact: false })).toHaveCount(0);
 });

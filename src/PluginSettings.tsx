@@ -53,8 +53,8 @@ export function PluginSettings() {
             setBusy('');
         }
     }
-    return <><SettingsSection title="Plugins" icon={<Plug size={22}/>} description="Enable features for every device using this Herts installation. Disabling keeps saved data and pauses background activity.">
-      <p className="subtle-note">Plugins are trusted code installed by the server owner. Only enable packages you trust.</p><Button disabled={!state.online || !!busy} onClick={() => void rescan()}><RefreshCw size={16}/> Rescan plugins</Button>
+    return <><SettingsSection title="Plugins" icon={<Plug size={22}/>} description="Disabling a plugin keeps its data and pauses its background activity.">
+      <Button disabled={!state.online || !!busy} onClick={() => void rescan()}><RefreshCw size={16}/> Rescan plugins</Button>
     </SettingsSection>
     {state.plugins.entries.map(entry => {
       const id = entry.manifest.id, p = loaded.find(p => p.id === id), Settings = p?.definition.Settings;
@@ -65,7 +65,7 @@ export function PluginSettings() {
         <div className="settings-danger-actions"><Button variant="danger" disabled={!state.online || !!busy} onClick={() => setReset(entry)}><Trash2 size={15}/> Reset data</Button></div>
       </SettingsSection>;
     })}
-    <SettingsSection className="tab-order" title="Tab order" description="The first enabled tab is the default when you open Herts. Changes apply to all devices.">{order.map((id, index) => { const entry = state.plugins.entries.find(e => e.manifest.id === id), name = id === 'conversations' ? 'Conversations' : entry?.manifest.name || id; return <div className="tab-order-row" key={id} draggable={state.online && !busy} onDragStart={() => setDragged(id)} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); if (dragged && dragged !== id)
+    <SettingsSection className="tab-order" title="Tab order" description="The first enabled tab opens by default.">{order.map((id, index) => { const entry = state.plugins.entries.find(e => e.manifest.id === id), name = id === 'conversations' ? 'Conversations' : entry?.manifest.name || id; return <div className="tab-order-row" key={id} draggable={state.online && !busy} onDragStart={() => setDragged(id)} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); if (dragged && dragged !== id)
         void move(dragged, id); setDragged(undefined); }}><span>{name}{id === 'conversations' ? ' · always enabled' : entry?.enabled ? '' : ' · disabled'}</span><IconButton aria-label={`Move ${name} up`} disabled={!state.online || !!busy || index === 0} onClick={() => void move(id, order[index - 1])}><ArrowUp size={17}/></IconButton><IconButton aria-label={`Move ${name} down`} disabled={!state.online || !!busy || index === order.length - 1} onClick={() => void move(id, order[index + 2])}><ArrowDown size={17}/></IconButton></div>; })}</SettingsSection>
     {error && <StatusMessage>{error}</StatusMessage>}{reset && <ResetDialog entry={reset} close={() => setReset(undefined)} confirm={name => { const id = reset.manifest.id; setReset(undefined); setTimeout(() => void run(id, 'reset', name), 0); }}/>}</>;
 }

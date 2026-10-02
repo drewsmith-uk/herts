@@ -11,8 +11,8 @@ test('an empty task list stays usable when its last item is completed during edi
   await expect(page.getByRole('button', { name: 'Edit list', exact: true })).toHaveCount(0);
   await expect(page.locator('.list-summary')).toHaveCount(0);
   const listUrl = page.url();
-  await page.getByLabel('New task title', { exact: true }).fill('The last task');
-  await page.getByRole('button', { name: 'Add task', exact: true }).click();
+  await page.getByLabel('Message Hermes', { exact: true }).fill('The last task');
+  await page.getByRole('button', { name: 'Save to Inbox', exact: true }).click();
   await page.getByRole('button', { name: 'Edit list', exact: true }).click();
   await page.getByRole('button', { name: 'Complete The last task', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'A clear Inbox', exact: true })).toBeVisible();
@@ -20,7 +20,7 @@ test('an empty task list stays usable when its last item is completed during edi
   await page.getByRole('button', { name: 'Finish editing', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Edit list', exact: true })).toHaveCount(0);
   await page.goto(listUrl.replace(/inbox$/, 'done'));
-  await expect(page.locator('.list-summary')).toHaveText('Newest first');
+  await expect(page.locator('.list-summary')).toHaveCount(0);
   await page.getByRole('button', { name: 'Reopen The last task', exact: true }).click();
   await page.goto(listUrl);
   await expect(page.getByRole('button', { name: 'Edit list', exact: true })).toBeVisible();
@@ -46,14 +46,14 @@ test('reading edit mode remains escapable when the last unread item is marked re
   await page.getByRole('button', { name: 'Finish editing', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Edit list', exact: true })).toHaveCount(0);
   await page.goto('/#/reading/read');
-  await expect(page.locator('.list-summary')).toHaveText('Most recently read first');
+  await expect(page.locator('.list-summary')).toHaveCount(0);
   await page.getByRole('button', { name: 'Mark unread: The last article', exact: true }).click();
   await page.goto('/#/reading');
   await expect(page.getByRole('button', { name: 'Edit list', exact: true })).toBeVisible();
   await page.getByRole('link', { name: 'The last article', exact: true }).click();
   await expect(page.getByLabel('Message Hermes')).toBeEditable();
-  await expect(page.getByRole('button', { name: 'Send to Hermes', exact: true })).toBeEnabled();
-  await expect(page.locator('.reading-send-note')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
+  await expect(page.locator('.composer-note')).toContainText('Not sent');
   await expect(page.locator('.unlinked-note')).toHaveCount(0);
   await expect(page.locator('.conversation-heading')).toBeVisible();
 });

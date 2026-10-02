@@ -39,13 +39,13 @@ for (const width of [390, 1280]) test(`space tabs and creation modal work on ${w
   await page.keyboard.press('Escape'); await expect(dialog).toHaveCount(0); await expect(add).toBeFocused();
   await add.click(); await dialog.getByLabel('New space name', { exact: true }).fill(name);
   await dialog.getByRole('button', { name: 'Create space', exact: true }).click();
-  await expect(dialog).toHaveCount(0); await expect(page.locator('.save-state')).toContainText('All changes saved');
+  await expect(dialog).toHaveCount(0); await expect(page.locator('.save-state')).toContainText('Changes synced');
   const current = (await snapshot(request)).spaces.find((s: any) => s.name === name).id;
   await expect(page).toHaveURL(new RegExp(`/spaces/${current}/inbox$`)); await expect(tab(page, current)).toHaveAttribute('aria-current', 'page');
   expect((await snapshot(request)).defaultSpaceId).toBe(defaultId);
-  await page.getByLabel('New task title', { exact: true }).fill('A draft for this space');
-  await tab(page, originalSpaceId).click(); await expect(page.getByLabel('New task title', { exact: true })).toHaveValue('');
-  await tab(page, current).click(); await expect(page.getByLabel('New task title', { exact: true })).toHaveValue('A draft for this space');
+  await page.getByLabel('Message Hermes', { exact: true }).fill('A draft for this space');
+  await tab(page, originalSpaceId).click(); await expect(page.getByLabel('Message Hermes', { exact: true })).toHaveValue('');
+  await tab(page, current).click(); await expect(page.getByLabel('Message Hermes', { exact: true })).toHaveValue('A draft for this space');
   await add.click(); await dialog.getByLabel('New space name', { exact: true }).fill(name.toUpperCase());
   await dialog.getByRole('button', { name: 'Create space', exact: true }).click();
   await expect(dialog.getByRole('alert')).toContainText('already exists'); await expect(dialog.getByLabel('New space name')).toHaveValue(name.toUpperCase());
@@ -76,7 +76,7 @@ for (const width of [390, 1280]) test(`overflow tabs scroll during a drag and mo
   })).toBe(true);
   await drop(page, tab(page, destination)); await expect(row(page, moved)).toHaveCount(0);
   await expect(page).toHaveURL(new RegExp(`/spaces/${source}/inbox$`));
-  await expect(page.locator('.save-state')).toContainText('All changes saved');
+  await expect(page.locator('.save-state')).toContainText('Changes synced');
   const s = await snapshot(request); expect(s.tasks.find((t: any) => t.id === moved)).toMatchObject({ spaceId: destination, status: 'inbox' });
   expect(s.spaceLists[destination].inbox.ids.slice(0, 2)).toEqual([moved, existing]);
   await tab(page, destination).click(); await expect(row(page, moved)).toBeVisible(); expect(await agentCalls(request)).toEqual(before);
@@ -87,17 +87,17 @@ for (const width of [390, 1280]) test(`overflow tabs scroll during a drag and mo
 
 test('creating a space in the modal offline retains it and its tasks after reload', async ({ page, context, request }) => {
   await page.setViewportSize({ width: 390, height: 844 }); await page.goto('/#/tasks');
-  await expect(page.locator('.save-state')).toContainText('All changes saved'); await page.evaluate(() => navigator.serviceWorker.ready); await page.reload();
+  await expect(page.locator('.save-state')).toContainText('Changes synced'); await page.evaluate(() => navigator.serviceWorker.ready); await page.reload();
   await context.setOffline(true);
   try {
     await page.getByRole('button', { name: 'Create space', exact: true }).click(); const dialog = page.getByRole('dialog');
     await dialog.getByLabel('New space name').fill('Offline tab space'); await dialog.getByRole('button', { name: 'Create space', exact: true }).click();
     await expect(page.getByRole('navigation', { name: 'Task spaces' }).getByRole('link', { name: 'Offline tab space', exact: true })).toHaveAttribute('aria-current', 'page');
-    await page.getByLabel('New task title', { exact: true }).fill('Offline space task'); await page.getByRole('button', { name: 'Add task', exact: true }).click();
+    await page.getByLabel('Message Hermes', { exact: true }).fill('Offline space task'); await page.getByRole('button', { name: 'Save to Inbox', exact: true }).click();
     await expect(page.getByRole('link', { name: 'Offline space task', exact: true })).toBeVisible(); await page.reload();
     await expect(page.getByRole('link', { name: 'Offline space task', exact: true })).toBeVisible();
   } finally { await context.setOffline(false); }
-  await expect(page.locator('.save-state')).toContainText('All changes saved'); const s = await snapshot(request);
+  await expect(page.locator('.save-state')).toContainText('Changes synced'); const s = await snapshot(request);
   const id = s.spaces.find((v: any) => v.name === 'Offline tab space').id; expect(s.tasks.find((t: any) => t.title === 'Offline space task').spaceId).toBe(id);
 });
 
@@ -124,7 +124,7 @@ test('touch scrolling reveals more space tabs and a held snoozed task can move t
     for (let i = 1; i <= 8; i++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: sx + (tx - sx) * i / 8, y: sy + (ty - sy) * i / 8 }] });
     await expect(tab(page, destination)).toHaveClass(/task-drop-over/);
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-    await expect(row(page, moved)).toHaveCount(0); await expect(page.locator('.save-state')).toContainText('All changes saved');
+    await expect(row(page, moved)).toHaveCount(0); await expect(page.locator('.save-state')).toContainText('Changes synced');
     expect((await snapshot(request)).tasks.find((t: any) => t.id === moved)).toMatchObject({ spaceId: destination, status: 'inbox', snoozedUntil: null, snoozeId: null });
     await expect(page).toHaveURL(new RegExp(`/spaces/${source}/snoozed$`)); expect(await agentCalls(request)).toEqual(before);
   } finally { await context.close(); }

@@ -29,21 +29,26 @@ const current = () => adapt(getCore());
 export function useApp() { return adapt(useCore()); }
 export const db = { get kv() { return pluginLocal('reading').kv; }, get drafts() { return pluginLocal('reading').drafts; }, get articles() { return pluginLocal('reading').articles; } };
 export async function mutateReading(op: ReadingOp) { return mutatePlugin('reading', 'reading', op, op.contextId || current().snapshot.reading.items.find(i => i.id === op.itemId)?.contextId); }
-export async function addReading(raw: string, title = '', conversationId?: string) {
+export async function addReading(raw: string, title = '', conversationId?: string, entryId?: string) {
     const url = normalizeUrl(raw), state = current(), context = conversationId ? state.snapshot.contexts.find(c => c.aliases.includes(conversationId)) : undefined;
     const cleanTitle = title.trim().slice(0, 2000);
     // A pasted URL in the optional title must not disguise a different link.
     // Validate before creating a draft, queueing a reading item or sending it.
     if (/^https?:\/\/\S+$/i.test(cleanTitle) && normalizeUrl(cleanTitle) !== url)
         throw new Error('The title is a different link. Check the Link field, then clear the title or enter a descriptive title.');
+    const prepared = entryId && state.snapshot.reading.items.find(item => item.id === entryId);
+    if (prepared) {
+        if (prepared.urlKey !== url) throw new Error('This draft has already been saved with a different link. Open the saved item or start a new reading entry for this link.');
+        return prepared.id;
+    }
     const existing = context && state.snapshot.reading.items.find(i => i.contextId === context.id && i.urlKey === url);
     if (existing)
         return existing.id;
     const pending = conversationId && state.readingPending.find(p => p.op.kind === 'create' && p.op.url === url && (p.op.conversationId === conversationId || context && p.op.contextId === context.id));
     if (pending)
         return pending.op.itemId;
-    const itemId = crypto.randomUUID(), contextId = context?.id || crypto.randomUUID();
-    if (!conversationId)
+    const itemId = entryId || crypto.randomUUID(), contextId = context?.id || entryId || crypto.randomUUID();
+    if (!conversationId && !entryId)
         await conversationDrafts.put({ id: contextId, text: url, files: [] });
     await mutateReading({ id: crypto.randomUUID(), itemId, contextId, kind: 'create', url, title: cleanTitle || url, ...(conversationId ? { conversationId } : {}), at: Date.now() });
     return itemId;
@@ -51,17 +56,6 @@ export async function addReading(raw: string, title = '', conversationId?: strin
 export async function readingChange(itemId: string, change: Partial<ReadingOp> & Pick<ReadingOp, 'kind'>) { const state = current(), item = state.snapshot.reading.items.find(i => i.id === itemId); return mutateReading({ id: crypto.randomUUID(), itemId, at: Date.now(), ...change, ...(change.kind === 'title' ? { baseTitle: change.baseTitle ?? item?.title } : {}), ...(change.kind === 'read' ? { baseReadAt: item?.readAt ?? null } : {}), ...(change.kind === 'reorder' ? { listVersion: state.snapshot.reading.unread.version } : {}) }); }
 export async function resolveReadingConflict(id: string, keep: boolean) { const state = current(), pending = state.readingPending.find(p => p.op.id === id); if (!pending)
     return; const item = state.remote.reading.items.find(i => i.id === pending.op.itemId); return resolvePluginOperation(id, keep ? { ...pending.op, baseReadAt: item?.readAt ?? null, listVersion: state.remote.reading.unread.version, ...(pending.op.kind === 'title' ? { baseTitle: item?.title } : {}) } : undefined); }
-export async function sendReadingLink(id: string) {
-    const state = current(), item = state.snapshot.reading.items.find(i => i.id === id);
-    if (!item)
-        throw new Error('The saved item is unavailable.');
-    if (state.snapshot.contexts.find(c => c.id === item.contextId)?.link || state.actions.some(a => a.taskId === item.contextId && !a.cancelled))
-        throw new Error('Review the conversation and saved requests before sending another message.');
-    await conversationDrafts.put({ id: item.contextId, text: item.url, files: [] });
-    const result = await submit({ id: crypto.randomUUID(), contextId: item.contextId, kind: 'send', text: item.url, uploadIds: [] });
-    await conversationDrafts.put({ id: item.contextId, text: '', files: [] });
-    return result;
-}
 export async function getArticle(id: string): Promise<Article> {
     const local = pluginLocal('reading'), startGeneration = current().plugins.entries.find(e => e.manifest.id === 'reading')?.generation;
     const cached = await local.articles.get(id);

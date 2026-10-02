@@ -1,3 +1,4 @@
+import { liveReplyReplacement } from '../src/transcriptFeedback';
 import { describe, expect, it } from 'vitest';
 import { historyBaseline, outgoingInHistory, outgoingStatus, type OutgoingMessage } from '../src/transcriptFeedback';
 import type { Action, History } from '../shared/model';
@@ -44,4 +45,12 @@ describe('submitted transcript feedback',()=>{
     expect(outgoingStatus(action({sendStage:'submitting',receipt:'unknown'}))).toBe('Submission unconfirmed');
     expect(outgoingStatus(action({sendStage:'submitting',receipt:'rejected'}))).toBe('Not sent');
   });
+});
+
+it('replaces only the current turn partial reply while live text catches up', () => {
+  const outgoing = { id: 'send', taskId: 'context', text: 'Question', uploadIds: [], at: 2000, baseline: { sessionId: 'chat', ids: [1] } };
+  const pages: History[] = [{ sessionId: 'chat', offset: 0, hasMore: false, fetchedAt: 3000, messages: [{ id: 1, role: 'assistant', content: 'Old reply' }, { id: 2, role: 'user', content: 'Question' }, { id: 3, role: 'assistant', content: 'New' }] }];
+  expect(liveReplyReplacement(pages, 'New complete reply', outgoing)).toBe('chat:3');
+  expect(liveReplyReplacement(pages, 'Different reply', outgoing)).toBeUndefined();
+  expect(liveReplyReplacement(pages, 'Old reply extended', { ...outgoing, text: 'Other question' })).toBeUndefined();
 });

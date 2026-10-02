@@ -42,7 +42,6 @@ export function SnoozeDialog({ task, close }: {
     <form onSubmit={save}><h2 id="snooze-heading"><AlarmClock size={21}/>{task.status === 'snoozed' ? 'Change reminder' : 'Snooze task'}</h2><p className="snooze-task-title">{task.title}</p>
       <FormField label="Remind me on"><input type="datetime-local" aria-label="Reminder date and time" value={value} min={localValue(new Date())} required onChange={e => setValue(e.target.value)}/></FormField>
       <p>Returns to the top of {spaceName(state.snapshot, taskSpaceId(task))} Inbox. Time zone: {Intl.DateTimeFormat().resolvedOptions().timeZone}.</p>
-      <p className="subtle-note">Enable notifications on this device in <a href="#/settings" onClick={close}>Settings</a> to receive a reminder.</p>
       {!state.online && <p className="snooze-offline">Saved on this device first. The reminder will be scheduled when this change syncs.</p>}
       {error && <p className="inline-error" role="alert">{error}</p>}
       <div className="button-row"><button type="button" disabled={busy} onClick={close}>Cancel</button><button className="primary-button" disabled={busy}>{busy ? 'Saving…' : task.status === 'snoozed' ? 'Save reminder' : 'Snooze'}</button></div>

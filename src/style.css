@@ -47,7 +47,6 @@ main { margin-left: 242px; width: calc(100% - 242px); min-width: 0 }
 .quiet-button.selected { background: var(--color-selected); border-color: var(--color-selected-text); color: var(--color-selected-text) }
 .capture { display: flex; align-items: center; gap: 13px; position: relative; min-height: 65px; padding: 11px 13px 11px 20px; border: var(--border-width, 1px) solid var(--color-control-border); border-radius: var(--radius-panel); background: var(--color-surface); box-shadow: var(--shadow-surface) }
 .capture input { width: 100%; background: none; border: 0; outline: none!important; font-size: .96rem }
-.capture-note { font-size: .75rem; margin: 9px 3px; color: var(--color-text-secondary) }
 .drag-handle { padding: 5px; min-height: 30px; opacity: .4; border: 0; background: none; cursor: grab; touch-action: none; color: var(--color-text-secondary) }
 .task-row:hover .drag-handle { opacity: 1 }
 .activity-chip { padding: 3px 8px; background: var(--color-selected); color: var(--color-link); border-radius: var(--radius-small); font-size: .69rem; white-space: nowrap }
@@ -70,7 +69,6 @@ main { margin-left: 242px; width: calc(100% - 242px); min-width: 0 }
 .conversation-heading { display: flex; align-items: center; justify-content: space-between; margin: 0 0 17px; font-size: .87rem; font-weight: 550; color: var(--color-text-secondary) }
 .conversation-heading>span:first-child { display: flex; align-items: center; gap: 8px }
 .source-tag { font-size: .72rem; font-weight: 450; white-space: nowrap; background: var(--color-surface-muted); border: var(--border-width, 1px) solid var(--color-border); color: var(--color-text-secondary); border-radius: var(--radius-small); padding: 4px 8px }
-.unlinked-note p { color: var(--color-text-secondary); font-size: .83rem }
 .composer-wrap { margin-top: 20px }
 .composer { border: var(--border-width, 1px) solid var(--color-control-border); border-radius: var(--radius-panel); background: var(--color-surface); box-shadow: var(--shadow-surface) }
 .composer textarea { background: none; border: 0; width: 100%; resize: vertical; min-height: 105px; padding: 17px 18px 5px; font-size: .94rem; line-height: 1.6; outline: none!important }
@@ -87,7 +85,6 @@ main { margin-left: 242px; width: calc(100% - 242px); min-width: 0 }
 .saved-recordings>span { display: flex; align-items: center; gap: 8px }
 .saved-recordings .text-button { font-size: .71rem }
 .voice-control>.inline-error { position: absolute; left: 0; top: 100%; background: var(--color-danger-surface); border: var(--border-width, 1px) solid var(--color-danger-border); z-index: 3; padding: 9px; border-radius: var(--radius-control); width: 250px }
-.countdown { display: flex; justify-content: space-between; gap: 10px; align-items: center; padding: 11px 13px; background: var(--color-selected); border: var(--border-width, 1px) solid var(--color-border); border-radius: var(--radius-control); margin-top: 9px; font-size: .87rem; color: var(--color-link) }
 .approval { border-top: var(--border-width, 1px) solid var(--color-warning-border); margin-top: 11px; padding-top: 8px }
 .approval pre,.saved-message pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .79rem; max-height: 220px; overflow: auto }
 .approval .button-row { margin-top: 13px }
@@ -175,8 +172,6 @@ main { margin: 0; width: 100%; padding-bottom: 70px }
 .conversation-detail-heading { flex-direction: column; gap: 15px }
 .conversation-detail-heading h1 { font-size: 1.4rem }
 .voice-state { font-size: .62rem }
-.countdown { font-size: .77rem; padding: 9px 10px }
-.countdown button { font-size: .7rem; padding: 5px 9px }
 .capture .voice-state { position: absolute; top: 100%; right: 0; z-index: 3; background: var(--color-danger-surface); padding: 5px 10px; border: var(--border-width, 1px) solid var(--color-danger-border); border-radius: var(--radius-small) }
 .capture .voice-control { position: static }
 .capture .saved-recordings,.capture .voice-control>.inline-error { left: 0; top: 100% }}
@@ -213,7 +208,6 @@ main { margin: 0; width: 100%; padding-bottom: 70px }
 .draft-open:hover .item-title { color: var(--color-link); }
 .conversation-drafts-note { margin: 8px 0 12px; font-size: var(--text-secondary); color: var(--color-text-secondary); }
 .conversation-drafts > .ui-button { margin-top: 8px; }
-.conversation-gesture-hint { color: var(--color-text-secondary); font-size: .76rem; margin: 4px 0 12px; }
 .conversation-item { position: relative; overflow: hidden; border-bottom: var(--border-width, 1px) solid var(--color-border); touch-action: pan-y pinch-zoom; }
 .conversation-item-content { position: relative; background: var(--color-background); transition: transform 160ms ease; }
 .conversation-item-content.swiping { transition: none; user-select: none; }
@@ -230,7 +224,6 @@ main { margin: 0; width: 100%; padding-bottom: 70px }
 @media (prefers-reduced-motion: reduce) {
 .conversation-item-content { transition: none; } }
 .history button, .history [data-history-message] { scroll-margin-top: var(--conversation-header-space, 0px); }
-.conversation-header-start { height: 0; }
 .conversation-page-header { position: sticky; top: 0; z-index: 5; margin: 0 -14px 24px; padding: 8px 14px; background: var(--color-background); border-bottom: var(--border-width, 1px) solid var(--color-border); box-shadow: var(--shadow-surface); }
 .conversation-page-header .back-link { width: fit-content; margin: 0 0 10px; }
 .conversation-page-header .detail-heading { padding: 0; margin: 0; border: 0; }

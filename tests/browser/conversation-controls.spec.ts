@@ -9,8 +9,12 @@ async function usable(locator: Locator) {
 }
 async function older(page: Page) {
   await page.getByLabel('Message Hermes').evaluate(el => (el as HTMLElement).blur());
-  await page.mouse.move(240, 430); await page.mouse.wheel(0, -1000);
-  await expect(page.locator('.conversation-status')).toHaveClass(/is-docked/);
+  const history = page.locator('.conversation-scroll');
+  await history.hover();
+  const top = await history.evaluate(el => el.scrollTop);
+  await page.mouse.wheel(0, -1000);
+  await expect.poll(() => history.evaluate(el => el.scrollTop)).toBeLessThanOrEqual(Math.max(0, top - 1000) + 1);
+  await expect(page.locator('.conversation-status')).toBeInViewport();
 }
 async function conversationReady(page: Page) {
   await expect(page.getByLabel('Message Hermes')).toBeEditable();
@@ -24,7 +28,7 @@ for (const width of [390, 1280]) test(`one reachable activity row and task toolb
   await page.goto(`/#/conversation/controls-${width}`);
   const header = page.locator('.conversation-page-header'), taskButton = page.getByRole('button', { name: 'Make a task', exact: true });
   await conversationReady(page);
-  await header.getByRole('button', { name: 'Collapse page details', exact: true }).click();
+  if (await header.getByRole('button', { name: 'Collapse page details', exact: true }).isVisible()) await header.getByRole('button', { name: 'Collapse page details', exact: true }).click();
   await usable(taskButton);
   await taskButton.click(); await expect(page.getByRole('dialog')).toBeVisible();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click(); await usable(taskButton);
@@ -34,7 +38,7 @@ for (const width of [390, 1280]) test(`one reachable activity row and task toolb
   const readingUrl = page.url();
   await conversationReady(page);
   await expect(header.getByRole('button', { name: 'Make a task', exact: true })).toHaveCount(1);
-  await header.getByRole('button', { name: 'Collapse page details', exact: true }).click();
+  if (await header.getByRole('button', { name: 'Collapse page details', exact: true }).isVisible()) await header.getByRole('button', { name: 'Collapse page details', exact: true }).click();
   await usable(taskButton); await expect(header).toHaveClass(/is-compact/);
   await page.getByLabel('Message Hermes').fill('Standalone wait for stop');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
@@ -55,7 +59,7 @@ for (const width of [390, 1280]) test(`one reachable activity row and task toolb
   await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase', 'stopped');
   await page.goto(readingUrl);
   await conversationReady(page);
-  await header.getByRole('button', { name: 'Collapse page details', exact: true }).click();
+  if (await header.getByRole('button', { name: 'Collapse page details', exact: true }).isVisible()) await header.getByRole('button', { name: 'Collapse page details', exact: true }).click();
   await usable(page.getByRole('button', { name: 'Open task', exact: true }));
   // Pending approvals stay at the tail; the docked row takes readers to them.
   await page.getByLabel('Message Hermes').fill('Please ask approval'); await page.getByRole('button', { name: 'Send', exact: true }).click();
@@ -83,7 +87,7 @@ for (const width of [390, 1280]) test(`one reachable activity row and task toolb
 
 for (const theme of ['fieldwork', 'press', 'nocturne']) test(`${theme} keeps the compact toolbar and pending controls usable down to 320px`, async ({ page }) => {
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
-  await page.goto('/#/settings'); await page.getByLabel('Theme', { exact: true }).selectOption(theme);
+  await page.goto('/#/settings'); await page.getByLabel('Theme on this device', { exact: true }).selectOption(theme);
   await page.goto(`/#/conversation/controls-${theme}`);
   await page.getByLabel('Message Hermes').fill('Please ask approval'); await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.locator('.conversation-status')).toContainText('Needs your input');

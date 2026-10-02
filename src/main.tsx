@@ -9,6 +9,7 @@ import './style.css';
 import './styles.css';
 import './ui.css';
 import './conversationControls.css';
+import './conversationLayout.css';
 installNotificationNavigation();
 initialiseThemes();
 createRoot(document.getElementById('root')!).render(<AppUpdates><App/></AppUpdates>);

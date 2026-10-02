@@ -40,7 +40,7 @@ for (const width of [390, 1280]) test(`saved messages copy into existing input w
   await expect(page.getByLabel('Message Hermes')).toBeFocused();
   await expect(page.getByRole('button', { name: 'Remove original.txt' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Remove current.txt' })).toBeVisible();
-  await expect(page.getByText('Message added to your draft. Review it, then press Send when ready.')).toBeVisible();
+  await expect(page.getByText('Added to your draft.')).toBeVisible();
   expect(await calls(request)).toEqual(before);
   await page.reload();
   await expect(page.getByLabel('Message Hermes')).toHaveValue(`Keep my new notes.\n\n${text}`);
@@ -61,6 +61,7 @@ for (const width of [390, 1280]) test(`saved messages copy into existing input w
     await expect(page.locator(`[data-saved-message="${fixture.action.id}"]`)).toHaveCount(0);
     await expect(page.getByLabel('Message Hermes')).toHaveValue(`Keep my new notes.\n\n${text}`);
     await expect(page.getByText('Existing conversation history stays here.', { exact: true })).toBeVisible();
+    await page.getByLabel('Message Hermes').focus();
     await expect(page.getByRole('button', { name: 'Remove original.txt' })).toBeVisible();
     const action = (await (await request.get(`/api/v1/actions/${fixture.action.id}`)).json()).action;
     expect(action).toMatchObject({ savedMessageDeletedAt: expect.any(Number), state: fixture.action.state, receipt: fixture.action.receipt });

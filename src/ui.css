@@ -30,8 +30,6 @@
 .page-header-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; max-width: 100%; }
 .page-header-actions .ui-button { white-space: nowrap; }
 .eyebrow { font-size: var(--text-meta); letter-spacing: .1em; color: var(--color-text-secondary); font-weight: 650; margin-bottom: 8px; }
-.list-summary { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px 16px; margin: var(--section-gap) 0 12px; font-size: var(--text-meta); color: var(--color-text-secondary); }
-.list-summary-label { letter-spacing: .06em; font-weight: 600; }
 .section-nav { display: flex; flex-wrap: wrap; gap: 8px; }
 .section-nav>a { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: var(--control-size); padding: 8px 12px; border: var(--border-width, 1px) solid var(--color-border); border-radius: var(--radius-control); background: var(--color-surface); color: var(--color-text-secondary); font-size: var(--text-secondary); white-space: nowrap; }
 .section-nav>a:hover { background: var(--color-surface-hover); }
@@ -43,6 +41,7 @@
 .reading-toolbar { margin-bottom: var(--section-gap); }
 .item-list { display: grid; gap: var(--item-gap); }
 .item-list--divided { gap: 0; }
+.task-list { margin-top: var(--section-gap); }
 .item-row, .task-row { position: relative; display: flex; align-items: center; gap: 12px; min-height: 80px; padding: 16px; background: var(--color-surface); border: var(--border-width, 1px) solid var(--color-border); border-radius: var(--radius-panel); }
 .item-row:hover, .task-row:hover { background: var(--color-surface-hover); }
 .item-row--preview { border: 0; border-radius: 0; background: var(--color-background); align-items: flex-start; }

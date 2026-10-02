@@ -1,3 +1,4 @@
+import { detailsField, detailsControl } from './composer-helpers';
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 
 const headers = { 'x-tasks-request': '1' };
@@ -52,7 +53,7 @@ test('the old screen is replaced before the worker receives readiness, even whil
   });
   await ready(page);
   await deliver(page, { id: notice.id });
-  await expect(page.getByLabel('Task title', { exact: true })).toHaveValue('Prepared reminder');
+  await expect((await detailsField(page, 'Task title'))).toHaveValue('Prepared reminder');
   await page.evaluate(() => { (window as any).notificationViews = []; });
   let release!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
@@ -62,7 +63,7 @@ test('the old screen is replaced before the worker receives readiness, even whil
     expect(await page.evaluate(() => (window as any).notificationViews)).toEqual([
       { hash: `#/notice/${encodeURIComponent(notice.id)}`, oldTitle: null, opening: true }
     ]);
-    release(); await expect(page.getByLabel('Task title', { exact: true })).toHaveValue('Prepared reminder');
+    release(); await expect((await detailsField(page, 'Task title'))).toHaveValue('Prepared reminder');
   } finally { release(); }
 });
 
@@ -73,10 +74,10 @@ test('a warm notification switches to its task and test Settings without a docum
   const documentStarted = await page.evaluate(() => performance.timeOrigin), documents: string[] = [];
   page.on('request', request => { if (request.resourceType() === 'document') documents.push(request.url()); });
   await deliver(page, { id: first.id });
-  await expect(page.getByLabel('Task title', { exact: true })).toHaveValue('In-place reminder one');
+  await expect((await detailsField(page, 'Task title'))).toHaveValue('In-place reminder one');
   await deliver(page, { id: second.id });
   await expect(page).toHaveURL(new RegExp(`#/task/${second.taskId}$`));
-  await expect(page.getByLabel('Task title', { exact: true })).toHaveValue('In-place reminder two');
+  await expect((await detailsField(page, 'Task title'))).toHaveValue('In-place reminder two');
   await deliver(page, { kind: 'test' });
   await expect(page.getByRole('heading', { name: 'Notifications on this device' })).toBeVisible();
   expect(await page.evaluate(() => performance.timeOrigin)).toBe(documentStarted); expect(documents).toEqual([]);
@@ -114,16 +115,16 @@ test('notification intent survives offline reload and cold launches wait for the
     await expect(page.getByText('Waiting for a connection to open this notification…')).toBeVisible();
     await page.reload(); await expect(page.getByText('Waiting for a connection to open this notification…')).toBeVisible();
   } finally { await context.setOffline(false); }
-  await expect(page.getByLabel('Task title', { exact: true })).toHaveValue('Recovered reminder');
+  await expect((await detailsField(page, 'Task title'))).toHaveValue('Recovered reminder');
   let release!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
   await page.route(`**/api/v1/notifications/${encodeURIComponent(notice.id)}`, async route => { await gate; await route.continue(); });
   try {
     await page.goto(`/?notice=${encodeURIComponent(notice.id)}`);
     await expect(page.getByText('Opening notification…', { exact: true })).toBeVisible();
-    await expect(page.getByLabel('New task title', { exact: true })).toHaveCount(0);
+    await expect(page.getByLabel('Message Hermes', { exact: true })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Notifications on this device' })).toHaveCount(0);
-    release(); await expect(page.getByLabel('Task title', { exact: true })).toHaveValue('Recovered reminder');
+    release(); await expect((await detailsField(page, 'Task title'))).toHaveValue('Recovered reminder');
     expect(new URL(page.url()).search).toBe('');
   } finally { release(); }
 });

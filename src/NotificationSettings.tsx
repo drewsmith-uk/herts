@@ -121,9 +121,9 @@ export function NotificationSettings() {
   };
   const disabled = !online || !pushKey || busy || view.kind === 'checking';
   const currentStatus = [descriptions[view.kind], view.error].filter(Boolean).join(' ');
-  return <SettingsSection title="Notifications on this device" icon={<Bell size={22}/>} description="Approval requests, completed work and failures for conversations you send messages to in Herts, plus reminders from enabled plugins.">
-    <p className="subtle-note">Alerts include the conversation or item title. Open the app to view the details.</p>
+  return <SettingsSection title="Notifications on this device" icon={<Bell size={22}/>}>
     <p role="status">{currentStatus}</p>
+    {view.kind === 'off' && <p className="subtle-note">Notifications include conversation and item titles.</p>}
     <div className="notification-actions">
       {['off', 'repair'].includes(view.kind) && <button disabled={disabled} onClick={() => void run(enable)}>{view.kind === 'repair' ? 'Repair notifications' : 'Enable notifications'}</button>}
       {view.kind === 'enabled' && <button disabled={disabled} onClick={() => void run(sendTest)}>Send test notification</button>}

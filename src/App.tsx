@@ -1,5 +1,7 @@
 import { PageHeader, SectionNav, SectionLink, SettingsSection, Button } from './ui';
-import { useState } from 'react';
+import { useListPosition } from './listState';
+import { useVisualViewport } from './useVisualViewport';
+import { useRef, useState } from 'react';
 import { MessageSquare, Settings, Check, WifiOff, RefreshCw, LoaderCircle, Plug, Link2 } from 'lucide-react';
 import { useApp, refresh } from './data';
 import { useRoute } from './useRoute';
@@ -16,11 +18,15 @@ import type { SharedContent } from '../shared/plugins';
 export { ConversationPanel, HistoryView } from './Conversation';
 export function App() { return <><PluginLoader /><Shell /></>; }
 function Shell() {
+    useVisualViewport();
     const state = useApp(), plugins = usePlugins(), route = useRoute();
     const tabs = state.plugins.order.flatMap(id => { if (id === 'conversations')
         return [{ id, title: 'Conversations', path: '/conversations', Icon: MessageSquare }]; const plugin = plugins.find(p => p.id === id), tab = plugin?.definition.tab; return tab ? [{ id, title: tab.title, path: tab.path, Icon: tab.icon || Plug }] : []; });
     const path = route.path === '/' ? (tabs[0]?.path || '/conversations') : route.path, parts = path.split('/').filter(Boolean), [screen, id] = parts;
     const plugin = plugins.find(p => matchPluginRoute(p, path)), match = plugin && matchPluginRoute(plugin, path);
+    const newEntry = useRef({ path: '', id: '' });
+    if (screen === 'new' && newEntry.current.path !== path) newEntry.current.id = crypto.randomUUID();
+    newEntry.current.path = path;
     const sidebar = plugin?.definition.Sidebar;
     const props: RouteProps = { path, parts };
     const pending = state.pluginPending.length + state.visibilityPending.length + (state.settingsPending?.length || 0);
@@ -34,7 +40,7 @@ function Shell() {
     else if (screen === 'conversation')
         page = <ConversationView key={id} id={decodeURIComponent(id)}/>;
     else if (screen === 'new' || screen === 'draft')
-        page = <NewConversation key={id || 'new'} id={id}/>;
+        page = <NewConversation key={id || newEntry.current.id} id={id} initialId={newEntry.current.id}/>;
     else if (screen === 'settings')
         page = <Preferences plugins={id === 'plugins'}/>;
     else if (screen === 'share')
@@ -45,10 +51,11 @@ function Shell() {
     }
     else
         page = <PluginUnavailable id={screen === 'plugins' || screen === 'plugins-unavailable' ? id : state.plugins.entries.find(e => e.manifest.routes?.some(prefix => path === prefix || path.startsWith(prefix + '/')))?.manifest.id || ''}/>;
+    useListPosition(path);
     const activeId = plugin?.id || (['conversations', 'conversation', 'draft', 'new'].includes(screen) ? 'conversations' : '');
     const Sidebar = sidebar;
     const layout = <div className="app-shell"><aside className="sidebar"><a href="#/" className="brand"><span className="brand-mark"><MessageSquare size={22}/></span>Herts</a><nav aria-label="Main navigation">{tabs.map(t => <a key={t.id} href={`#${t.path}`} className={`nav-item ${activeId === t.id ? 'active' : ''}`}><PluginIcon id={t.id} icon={t.Icon} size={19}/><span>{t.title}</span></a>)}</nav>{Sidebar && plugin && <PluginContent plugin={plugin}><div className="sidebar-rule"/><Sidebar {...props}/></PluginContent>}<div className="sidebar-bottom"><span className="private-dot"/> Private workspace</div></aside>
-    <main><div className="topbar"><span className="breadcrumb"><span className="breadcrumb-prefix">Herts<span className="breadcrumb-separator">/</span></span>{screen === 'settings' ? 'Settings' : tabs.find(t => t.id === activeId)?.title || 'Conversations'}</span><div className={`save-state ${!state.online ? 'offline' : ''}`} aria-live="polite">{!state.online ? <WifiOff size={14}/> : pending ? <RefreshCw size={14}/> : <Check size={14}/>} {!state.online ? 'Offline · saved on device' : pending ? `${pending} change${pending === 1 ? '' : 's'} to sync` : 'All changes saved'}</div><a href="#/settings" className="icon-button settings-link" aria-label="Settings"><Settings size={19}/></a></div><div className="page-content">{state.error && <div className="error-banner" role="alert">{state.error}</div>}{state.lifecycleNotice && <div className="error-banner" role="status">{state.lifecycleNotice}</div>}<PluginConflicts />{page}</div></main>
+    <main><div className="topbar"><span className="breadcrumb"><span className="breadcrumb-prefix">Herts<span className="breadcrumb-separator">/</span></span>{screen === 'settings' ? 'Settings' : tabs.find(t => t.id === activeId)?.title || 'Conversations'}</span><div className={`save-state ${!state.online ? 'offline' : ''}`} aria-live="polite">{!state.online ? <WifiOff size={14}/> : pending ? <RefreshCw size={14}/> : <Check size={14}/>} {!state.online ? 'Offline · saved on device' : pending ? `${pending} change${pending === 1 ? '' : 's'} to sync` : 'Changes synced'}</div><a href="#/settings" className="icon-button settings-link" aria-label="Settings"><Settings size={19}/></a></div><div className="page-content">{state.error && <div className="error-banner" role="alert">{state.error}</div>}{state.lifecycleNotice && <div className="error-banner" role="status">{state.lifecycleNotice}</div>}<PluginConflicts />{page}</div></main>
     <nav className="mobile-nav" aria-label="Main navigation">{tabs.map(t => <a key={t.id} className={activeId === t.id ? 'active' : ''} href={`#${t.path}`}><PluginIcon id={t.id} icon={t.Icon} size={21}/>{t.title}</a>)}</nav></div>;
     const Provider = plugin?.definition.Provider;
     return Provider && plugin ? <PluginContent plugin={plugin}><Provider>{layout}</Provider></PluginContent> : layout;
@@ -59,8 +66,8 @@ function Preferences({ plugins }: { plugins: boolean }) {
       <SectionNav variant="sections" className="settings-tabs" aria-label="Settings sections"><SectionLink active={!plugins} href="#/settings">General</SectionLink><SectionLink active={plugins} href="#/settings/plugins">Plugins</SectionLink></SectionNav>
       {plugins ? <PluginSettings /> : <><AppearanceSettings /><AppUpdateSettings /><NewConversationDefaults /><NotificationSettings />
         <SettingsSection title="Hermes connection" icon={<Link2 size={22}/>} description={state.gateway.promptError || (state.gateway.online ? `Connected to your ${state.gateway.profile || 'default'} profile.` : state.gateway.configured ? 'Hermes is currently unavailable. Saved data remains usable.' : 'The Hermes connection has not been configured yet.')} >{state.gateway.promptWarning && <p role="status">{state.gateway.promptWarning}</p>}</SettingsSection>
-        <SettingsSection title="Saved on this device" icon={<WifiOff size={22}/>} description="Drafts, recordings and viewed conversations remain available offline. Plugin changes sync when you return. Hermes messages are never automatically resent.">
-          <p className="subtle-note">Clearing browser storage removes unsynced work.</p><Button onClick={() => void refresh()} disabled={!navigator.onLine}>Sync now</Button>
+        <SettingsSection title="Sync" icon={<RefreshCw size={22}/>}>
+          <Button onClick={() => void refresh()} disabled={!navigator.onLine}>Sync now</Button>
         </SettingsSection>
       </>}
     </>;
@@ -79,5 +86,5 @@ function ShareChooser() {
         const p = selected.plugin, Screen = matchPluginRoute(p, selected.path)?.component;
         return Screen ? <PluginContent plugin={p}><Screen path={selected.path} parts={selected.path.split('/').filter(Boolean)} shared={shared}/></PluginContent> : <PluginUnavailable id={p.id}/>;
     }
-    return <><h1>Share to Herts</h1><p>Choose where to save this content.</p><div className="share-destinations">{destinations.map(d => <button key={d.id} onClick={() => setChoice(d.id)}>{d.title}</button>)}</div><a href="#/conversations">Cancel</a></>;
+    return <><h1>Share to Herts</h1><div className="share-destinations">{destinations.map(d => <button key={d.id} onClick={() => setChoice(d.id)}>{d.title}</button>)}</div><a href="#/conversations">Cancel</a></>;
 }

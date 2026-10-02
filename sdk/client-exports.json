@@ -46,5 +46,9 @@
   "FormField",
   "EmptyState",
   "StatusMessage",
-  "DialogFrame"
+  "DialogFrame",
+  "MessageComposer",
+  "useEntryDraft",
+  "entryDraftStatus",
+  "firstLine"
 ]

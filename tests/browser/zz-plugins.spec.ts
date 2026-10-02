@@ -1,3 +1,4 @@
+import { detailsField, detailsControl } from './composer-helpers';
 import {test,expect,type APIRequestContext} from '@playwright/test';
 const headers={'x-herts-request':'1'};
 const agentWrites=async(request:APIRequestContext)=>(await(await request.get('http://127.0.0.1:8791/calls')).json() as string[]).filter(method=>['session.create','session.resume','config.set','session.cwd.set','prompt.submit','session.interrupt'].includes(method));
@@ -54,11 +55,11 @@ test('a folder plugin is discovered live and embeds conversation hooks from othe
 test('typed reset removes offline plugin edits without erasing core conversation drafts',async({page,context,browser,request})=>{
   const otherContext=await browser.newContext(),other=await otherContext.newPage();
   try{
-    await page.goto('/#/tasks');await page.getByLabel('New task title',{exact:true}).fill('Reset race task');await page.getByRole('button',{name:'Add task',exact:true}).click();
-    await page.getByRole('link',{name:'Reset race task',exact:true}).click();await expect(page.locator('.save-state')).toContainText('All changes saved');
+    await page.goto('/#/tasks');await page.getByLabel('Message Hermes',{exact:true}).fill('Reset race task');await page.getByRole('button',{name:'Save to Inbox',exact:true}).click();
+    await page.getByRole('link',{name:'Reset race task',exact:true}).click();await expect(page.locator('.save-state')).toContainText('Changes synced');
     await page.getByLabel('Message Hermes').fill('Core draft must survive reset');
     await page.evaluate(()=>navigator.serviceWorker.ready);await context.setOffline(true);
-    await page.getByLabel('Task title',{exact:true}).fill('Late offline rename');await page.getByLabel('Task title',{exact:true}).press('Tab');
+    await (await detailsField(page, 'Task title')).fill('Late offline rename');await (await detailsField(page, 'Task title')).press('Tab');
     await other.goto('/#/settings/plugins');const card=other.locator('.plugin-card').filter({has:other.getByRole('checkbox',{name:'Enable Tasks',exact:true})});
     await card.getByRole('button',{name:'Reset data',exact:true}).click();
     await expect(other.getByRole('button',{name:'Permanently reset data',exact:true})).toBeDisabled();
@@ -69,7 +70,7 @@ test('typed reset removes offline plugin edits without erasing core conversation
     await other.getByRole('button',{name:'Permanently reset data',exact:true}).click();
     expect((await resetResponse).ok()).toBe(true);
     await expect.poll(async()=>{const {catalogue}=await(await request.get('/api/v1/plugins')).json();return catalogue.entries.find((e:any)=>e.manifest.id==='tasks').generation;}).toBeGreaterThan(0);
-    await context.setOffline(false);await expect(page.locator('.save-state')).toContainText('All changes saved');
+    await context.setOffline(false);await expect(page.locator('.save-state')).toContainText('Changes synced');
     await page.goto('/#/tasks');await expect(page.getByRole('link',{name:'Late offline rename',exact:true})).toHaveCount(0);
     const saved=await page.evaluate(async()=>{const db=await new Promise<IDBDatabase>((resolve,reject)=>{const r=indexedDB.open('hermes-tasks');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});const drafts=await new Promise<any[]>((resolve,reject)=>{const r=db.transaction('drafts').objectStore('drafts').getAll();r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});db.close();return drafts.map(d=>d.text);});
     expect(saved).toContain('Core draft must survive reset');

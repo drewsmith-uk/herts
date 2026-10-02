@@ -29,7 +29,7 @@ function useSettingsView(contextId?: string) {
     return () => { alive.current = false; sequence.current++; };
   }, [contextId]);
   const settings = state.snapshot.sessionSettings || emptySettings();
-  const change = `${settings.defaults.revision}:${contextId ? settings.conversations[contextId]?.revision || 0 : ''}:${state.actions.find(a => a.taskId === contextId && a.kind === 'send')?.updatedAt || ''}`;
+  const change = `${settings.defaults.revision}:${contextId ? settings.conversations[contextId]?.revision || 0 : ''}:${JSON.stringify(state.actions.filter(a => a.taskId === contextId && a.kind === 'send').slice(0, 1).map(a => [a.id, a.receipt, a.state === 'finished' || a.state === 'failed', a.settings]))}`;
   useEffect(() => { void refresh(); }, [contextId, state.online, state.gateway.online, change]);
   const merged = view ? { ...view, defaults: settings.defaults, pending: contextId ? settings.conversations[contextId] || { revision: 0, values: {} } : view.pending } : undefined;
   return { view: merged, error, loading, refresh };
@@ -43,11 +43,12 @@ export function SessionSettingsControls({ context, onOpen, onClose }: { context:
   const model = values.model?.id || (loading ? 'Loading settings…' : 'Model unknown');
   const effort = values.effort === 'none' ? 'Reasoning off' : values.effort ? `${labels[values.effort]} effort` : 'Effort unknown';
   const wireEffort = view?.wireEffort && !pending && view.wireEffort !== values.effort ? ` → ${view.wireEffort}` : '';
+  const note = [pending ? 'Applies on next Send' : context.link && view && view.source !== 'live' ? currentSettingsLabel(view) : '', local ? 'Saved on this device until synced' : ''].filter(Boolean).join(' · ');
   return <div className="session-settings-controls">
     <button type="button" className="session-settings-button" aria-label={`Conversation settings: ${model} · ${effort}${wireEffort}`} aria-haspopup="dialog" aria-expanded={editing} title={`Conversation settings: ${model} · ${effort}${wireEffort}`} disabled={!view || saving} onClick={open}>
       <SlidersHorizontal size={18} aria-hidden="true"/><span className="session-settings-model">{model}</span><span aria-hidden="true">·</span><span className="session-settings-effort">{effort}{wireEffort}</span>
     </button>
-    <p className="session-settings-note">{pending ? 'Applies on next Send · kept for this conversation' : !context.link ? 'New conversation defaults' : currentSettingsLabel(view)}{local ? ' · Saved on this device' : ''}</p>
+    {note && <p className="session-settings-note">{note}</p>}
     {local?.conflict && <p role="alert" className="inline-error">{local.conflict} <button type="button" className="text-button" onClick={() => void useSyncedSessionChoices(context.id)}>Use synced choices</button><button type="button" className="text-button" onClick={open}>Review choices</button></p>}
     {error && <p className="session-settings-note">{error} <button type="button" className="text-button" disabled={loading} onClick={() => void refresh(true)}>Refresh settings</button></p>}
     {editing && view && <SettingsDialog context={context} initial={view} reload={() => refresh(true)} close={() => { setEditing(false); onClose(); }}/>}
@@ -58,9 +59,7 @@ export function NewConversationDefaults() {
   const state = useApp(), { view, error, loading, refresh } = useSettingsView(), [editing, setEditing] = useState(false);
   const defaults = state.snapshot.sessionSettings?.defaults.values || {}, local = state.settingsPending?.find(p => !p.contextId);
   return <SettingsSection title="New conversation defaults" icon={<SlidersHorizontal size={22}/>}>
-    <p>Choose Herts defaults for the model, effort, fast mode and working folder of new conversations. Unset choices use your Hermes profile defaults. These defaults apply across your devices.</p>
-    <p className="subtle-note">Existing conversations keep their settings. Individual conversations can override these defaults.</p>
-    <p>Model: {defaults.model ? `${defaults.model.id} (Herts default)` : 'Hermes default'} · Effort: {defaults.effort ? `${labels[defaults.effort]} (Herts default)` : 'Hermes default'}{defaults.fast !== undefined ? ` · Fast mode ${defaults.fast ? 'on' : 'off'} (Herts default)` : ''}</p>
+    <p>Model: {defaults.model?.id || 'Hermes default'} · Effort: {defaults.effort ? labels[defaults.effort] : 'Hermes default'}{defaults.fast !== undefined ? ` · Fast mode ${defaults.fast ? 'on' : 'off'}` : ''}</p>
     {defaults.cwd && <p className="settings-path">{defaults.cwd}</p>}
     <button disabled={!view} onClick={() => setEditing(true)}>Edit conversation defaults</button>
     {local && <p className="subtle-note">Saved on this device until synced.</p>}
@@ -116,8 +115,8 @@ function SettingsDialog({ context, initial, reload, close }: { context?: Convers
   return <DialogFrame className="session-settings-dialog" size="wide" aria-labelledby="session-settings-title" close={close} busy={busy}>
     <form onSubmit={event => { event.preventDefault(); void work(save()); }}>
       <div className="session-dialog-heading"><h2 id="session-settings-title">{defaults ? 'New conversation defaults' : 'Conversation settings'}</h2><button className="icon-button" type="button" aria-label="Close settings" disabled={busy} onClick={close}><X size={20}/></button></div>
-      <p>{defaults ? 'Herts defaults apply when the first message starts a new conversation. Unset choices use your Hermes profile defaults. Existing sessions keep their own settings.' : 'Choices apply only on your next Send, then stay with this conversation until changed.'}</p>
-      {!defaults && <p className="subtle-note">{context.link ? currentSettingsLabel(view) : 'New conversation defaults'}: {inherited.model?.id || 'model unknown'}{inherited.effort ? ` · ${labels[inherited.effort]}` : ''}{inherited.cwd ? ` · ${inherited.cwd}` : ''}</p>}
+      {!defaults && <p>Changes apply on your next Send.</p>}
+      {context?.link && view.source !== 'live' && <p className="subtle-note">{currentSettingsLabel(view)}</p>}
       {view.uncertain && <p role="alert" className="error-banner">An earlier settings change is unconfirmed. Refresh and review the current values. Applying reviewed choices allows them to be tried again only when you next press Send.</p>}
       <FormField label="Find a model"><input type="search" aria-label="Find a model" value={search} onChange={e => setSearch(e.target.value)} placeholder="Model or provider" disabled={busy}/></FormField>
       <FormField label="Model and provider"><select aria-label="Conversation model" disabled={busy || !view.models.length} value={modelKey(values.model)} onChange={e => set('model', e.target.value ? JSON.parse(e.target.value) as ModelChoice : undefined)}>
@@ -138,7 +137,7 @@ function SettingsDialog({ context, initial, reload, close }: { context?: Convers
       {browsing && folder && <div className="session-folder-browser"><div className="settings-path">{folder.path}</div><div className="button-row">{folder.parent && <button type="button" disabled={busy} onClick={() => void work(browse(folder.parent!))}>Parent folder</button>}<button type="button" disabled={busy} onClick={() => { set('cwd', folder.path); setBrowsing(false); }}>Use this folder</button><button type="button" disabled={busy} onClick={() => setBrowsing(false)}>Close browser</button></div><ul>{folder.directories.map(dir => <li key={dir.path}><button type="button" disabled={busy} onClick={() => void work(browse(dir.path))}><Folder size={16}/>{dir.name}</button></li>)}</ul>{!folder.directories.length && <p>No subfolders.</p>}</div>}
       {unsupported && <p role="alert" className="inline-error">{unsupported}</p>}
       {view.error && <p className="subtle-note">{view.error}</p>}
-      {!state.online && <p className="subtle-note">Choices are saved on this device and synced when Herts is reachable. They do not send a message.</p>}
+      {!state.online && <p className="subtle-note">Choices are saved on this device until synced.</p>}
       {error && <p className="inline-error" role="alert">{error}</p>}
       <div className="session-dialog-actions"><button type="button" className="text-button" disabled={busy || !state.online} onClick={() => void work(refreshView())}><RefreshCw size={15}/> Refresh current settings</button>
         {!defaults && hasSettings(view.pending.values) && <button type="button" disabled={busy} onClick={() => void work(save({}))}>Discard pending changes</button>}

@@ -16,9 +16,7 @@
 .create-from-chat h2 { margin-bottom: 18px; }
 
 .conversation-activity { margin: 16px 0 0; }
-.conversation-status-anchor { min-height: 48px; }
 .conversation-status { display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 2px 6px; border: var(--border-width, 1px) solid var(--color-border); border-radius: var(--radius-control); background: var(--color-surface); color: var(--color-text-secondary); }
-.conversation-status.is-docked { position: fixed; z-index: 8; box-shadow: var(--shadow-floating); }
 .conversation-status.needs-attention { background: var(--color-warning-surface); border-color: var(--color-warning-border); color: var(--color-warning); }
 .conversation-status-link, .conversation-stop { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; border: 0; background: transparent; color: inherit; padding: 6px 8px; font-size: .85rem; }
 .conversation-status-link { flex: 1; min-width: 0; justify-content: flex-start; text-align: left; }
@@ -26,7 +24,7 @@
 .conversation-status-link svg { flex-shrink: 0; }
 .conversation-status-link svg:last-child { margin-left: auto; }
 .conversation-stop { flex-shrink: 0; color: var(--color-text); border-left: var(--border-width, 1px) solid var(--color-border); border-radius: 0; }
-.conversation-attention { margin-bottom: 12px; padding: 14px; border: var(--border-width, 1px) solid var(--color-warning-border); border-radius: var(--radius-panel); background: var(--color-surface); scroll-margin-top: var(--conversation-header-space, 80px); scroll-margin-bottom: calc(var(--conversation-status-height, 0px) + 90px); }
+.conversation-attention { margin-bottom: 12px; padding: 14px; border: var(--border-width, 1px) solid var(--color-warning-border); border-radius: var(--radius-panel); background: var(--color-surface); scroll-margin-block: 12px; }
 .conversation-attention:focus { outline: 2px solid var(--color-focus); outline-offset: 2px; }
 .conversation-attention p + p, .conversation-attention .button-row { margin-top: 10px; }
 .conversation-attention pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 40vh; overflow: auto; }
@@ -37,7 +35,6 @@
 .clarify-form fieldset { min-width: 0; padding: 0; margin: 0 0 16px; border: 0; }
 .clarify-form legend { padding: 0; margin-bottom: 8px; overflow-wrap: anywhere; }
 .clarify-form [aria-pressed="true"] { background: var(--color-primary-action); color: var(--color-primary-action-text); }
-html:has(.conversation-panel) { scroll-padding-bottom: calc(var(--conversation-status-height, 0px) + 80px); }
 @media(max-width:700px) {
   .conversation-toolbar { gap: 4px; }
   .conversation-toolbar .conversation-plugin-actions > button { padding-inline: 8px; font-size: .78rem; }

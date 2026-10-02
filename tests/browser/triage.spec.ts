@@ -1,3 +1,4 @@
+import { detailsField, detailsControl } from './composer-helpers';
 import { test, expect, type Locator, type Page } from '@playwright/test';
 
 async function mouseSwipe(page: Page, item: Locator, dx: number) {
@@ -7,7 +8,7 @@ async function mouseSwipe(page: Page, item: Locator, dx: number) {
 }
 async function changeVisibilityFromView(page: Page, id: string, hidden: boolean) {
   await page.goto(`/#/conversation/${id}`);
-  await page.getByRole('button', { name: hidden ? 'Hide conversation' : 'Unhide conversation', exact: true }).click();
+  await (await detailsControl(page, 'button', hidden ? 'Hide conversation' : 'Unhide conversation')).click();
   await expect(page.getByRole('button', { name: hidden ? 'Unhide conversation' : 'Hide conversation', exact: true })).toBeEnabled();
   await page.getByRole('link', { name: 'Back to Conversations', exact: true }).click();
 }
@@ -50,7 +51,7 @@ test('phone swipes respect scrolling and cancellation, hide with undo, and creat
     await page.getByLabel('Show all').check(); await expect(item).toBeVisible();
     const state = await (await request.get('/api/v1/state')).json();
     expect(state.snapshot.tasks.filter((t: any) => t.link?.key === 'swipe-first')).toHaveLength(1);
-    await swipe(item, 150); await expect(page.getByLabel('Task title', { exact: true })).toHaveValue('Swipe conversation one');
+    await swipe(item, 150); await expect((await detailsField(page, 'Task title'))).toHaveValue('Swipe conversation one');
     expect((await (await request.get('/api/v1/state')).json()).snapshot.tasks.filter((t: any) => t.link?.key === 'swipe-first')).toHaveLength(1);
     const after: string[] = await (await request.get('http://127.0.0.1:8791/calls')).json();
     expect(after.slice(before.length).filter(m => ['session.create', 'session.resume', 'prompt.submit', 'session.interrupt'].includes(m))).toEqual([]);
@@ -59,7 +60,7 @@ test('phone swipes respect scrolling and cancellation, hide with undo, and creat
 
 test('hidden items survive offline reload, search saved results and sync between devices', async ({ page, context, browser }) => {
   await page.setViewportSize({ width: 1280, height: 844 });
-  await page.goto('/#/conversations');
+  await page.goto('/#/conversations'); await page.getByLabel('Search conversations').fill('Offline triage');
   const item = page.locator('[data-conversation-key="hidden-offline"]'); await expect(item).toBeVisible();
   await page.getByLabel('Show all').check(); await expect(item).toBeVisible();
   await page.getByLabel('Show all').uncheck(); await expect(item).toBeVisible();
@@ -75,7 +76,7 @@ test('hidden items survive offline reload, search saved results and sync between
     await page.getByLabel('Search conversations').fill('Offline triage'); await expect(item).toBeVisible();
     await page.getByLabel('Show all').uncheck(); await expect(item).toHaveCount(0);
     await page.getByLabel('Show all').check(); await expect(item).toBeVisible();
-    await context.setOffline(false); await expect(page.locator('.save-state')).toContainText('All changes saved');
+    await context.setOffline(false); await expect(page.locator('.save-state')).toContainText('Changes synced');
     await expect(otherItem).toHaveCount(0);
     // Cache an empty filtered result, then unhide offline: the restored item must still be found.
     await page.getByLabel('Show all').uncheck(); await expect(item).toHaveCount(0); await expect(page.locator('.loading')).toHaveCount(0);
@@ -87,10 +88,10 @@ test('hidden items survive offline reload, search saved results and sync between
     await page.reload(); await page.getByLabel('Search conversations').fill('Offline triage'); await expect(item).toBeVisible();
     await changeVisibilityFromView(page, 'hidden-offline', true); await expect(item).toHaveCount(0);
     await page.getByLabel('Show all').check(); await expect(item).toBeVisible();
-    await context.setOffline(false); await expect(page.locator('.save-state')).toContainText('All changes saved');
+    await context.setOffline(false); await expect(page.locator('.save-state')).toContainText('Changes synced');
     await other.getByLabel('Show all').check(); await expect(otherItem.locator('.hidden-item-badge')).toHaveText('Hidden');
     await changeVisibilityFromView(other, 'hidden-offline', false);
-    await expect(other.locator('.save-state')).toContainText('All changes saved');
+    await expect(other.locator('.save-state')).toContainText('Changes synced');
     await expect(item.locator('.hidden-item-badge')).toHaveCount(0);
     await page.reload(); await page.getByLabel('Search conversations').fill('Offline triage'); await expect(item).toBeVisible();
     await expect(page.getByLabel('Show all')).not.toBeChecked();
@@ -117,7 +118,7 @@ test('recovering task creation after a lost response and reload reuses the saved
   await expect.poll(() => ids.length).toBeGreaterThanOrEqual(2);
   holdState = false;
   await page.evaluate(() => window.dispatchEvent(new Event('online')));
-  await expect(page.locator('.save-state')).toContainText('All changes saved');
+  await expect(page.locator('.save-state')).toContainText('Changes synced');
   await expect(page.getByLabel('Show all')).not.toBeChecked();
   await page.getByLabel('Show all').check();
   // Reload clears the search; unrelated fixtures can fill the first page.
@@ -141,7 +142,7 @@ test('hiding on a later page preserves loaded conversations and the reading posi
   const item = page.locator('[data-conversation-key="page-60"]'); await item.scrollIntoViewIfNeeded();
   const before = await page.locator('[data-conversation-key="page-61"]').evaluate(e => e.getBoundingClientRect().top);
   await mouseSwipe(page, item, -150);
-  await expect(page.locator('.save-state')).toContainText('All changes saved');
+  await expect(page.locator('.save-state')).toContainText('Changes synced');
   await expect(page.locator('.loading')).toHaveCount(0); await expect(page.locator('.conversation-row')).toHaveCount(69);
   await expect(page.locator('[data-conversation-key="page-69"]')).toHaveCount(1);
   await expect(page.getByRole('button', { name: 'Load more conversations' })).toHaveCount(0);

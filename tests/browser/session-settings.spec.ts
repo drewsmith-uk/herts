@@ -3,8 +3,8 @@ const state = async (request: APIRequestContext) => (await request.get('/api/v1/
 // A reused fixture socket can reset; retry only this read-only observation.
 const writes = async (request: APIRequestContext): Promise<{ method: string; params: any }[]> => ((await (await request.get('http://127.0.0.1:8791/call-details', { maxRetries: 2 })).json()) as any[]).filter(c => ['session.create', 'session.resume', 'config.set', 'session.cwd.set', 'prompt.submit'].includes(c.method));
 const model = (id: string) => JSON.stringify({ id, provider: 'configured' });
-const settingsButton = (page: Page) => page.getByRole('button', { name: /^Conversation settings:/ });
-async function open(page: Page) { await settingsButton(page).click(); await expect(page.getByRole('dialog')).toBeVisible(); }
+const settingsButton = (page: Page) => page.getByRole('button', { name: /^Conversation settings:/, includeHidden: true });
+async function open(page: Page) { await page.getByLabel('Message Hermes').focus(); await settingsButton(page).click(); await expect(page.getByRole('dialog')).toBeVisible(); }
 async function setDefaults(request: APIRequestContext, values = {}) { const revision = (await state(request)).snapshot.sessionSettings.defaults.revision; expect((await request.post('/api/v1/session-defaults', { headers: { 'x-herts-request': '1' }, data: { id: crypto.randomUUID(), revision, values } })).ok()).toBe(true); }
 test.afterEach(async ({ request }) => { await setDefaults(request); });
 
@@ -16,6 +16,7 @@ for (const width of [390, 1280]) test(`stages actual conversation settings witho
   await expect(settingsButton(page)).toContainText('existing-model');
   await expect(settingsButton(page)).toContainText('High');
   await expect(page.locator('.session-settings-controls button')).toHaveCount(1);
+  await page.getByLabel('Message Hermes').focus();
   expect((await settingsButton(page).boundingBox())!.height).toBeGreaterThanOrEqual(44);
   await page.screenshot({ path: `test-results/session-settings-button-${width}.png`, fullPage: true });
   await open(page);
@@ -35,6 +36,7 @@ for (const width of [390, 1280]) test(`stages actual conversation settings witho
   await page.getByRole('button', { name: 'Apply', exact: true }).click(); await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.locator('.session-settings-note').first()).toContainText('Applies on next Send');
+  await expect(page.locator('.session-settings-note').first()).toBeVisible();
   expect(await writes(request)).toEqual(before);
   await page.reload();
   await expect(settingsButton(page)).toContainText('chosen-model');
@@ -48,7 +50,7 @@ for (const width of [390, 1280]) test(`stages actual conversation settings witho
   expect(sent.filter(c => c.method === 'config.set').map(c => c.params.key)).toEqual(['model', 'reasoning', 'fast']);
   expect(sent.find(c => c.method === 'config.set' && c.params.key === 'model')?.params.value).toBe('chosen-model --provider configured --session');
   expect(sent.find(c => c.method === 'session.cwd.set')?.params.cwd).toBe('/projects/work');
-  await expect(page.locator('.session-settings-note').first()).toHaveText('Current session settings');
+  await expect(page.locator('.session-settings-controls > .session-settings-note')).toHaveCount(0);
   await open(page);
   await expect(page.getByLabel('Conversation model', { exact: true }).locator('option:checked')).toHaveText('Keep current session setting (chosen-model)');
   await expect(page.getByLabel('Reasoning effort', { exact: true }).locator('option:checked')).toHaveText('Keep current session setting (Ultra)');
@@ -92,8 +94,8 @@ test('new conversation fields distinguish Herts overrides from Hermes defaults e
   await page.getByRole('button', { name: 'Apply', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(settingsButton(page)).toContainText('profile-model');
-  await expect(page.locator('.session-settings-note').first()).toContainText('New conversation defaults');
-  await expect(page.locator('.session-settings-note').first()).not.toContainText('Applies on next Send');
+  await expect(page.locator('.session-settings-controls')).not.toContainText('Applies on next Send');
+  await expect(page.locator('.session-settings-controls')).not.toContainText('New conversation defaults');
   expect(await writes(request)).toEqual(before);
 });
 

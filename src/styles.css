@@ -6,7 +6,7 @@ input, textarea, select, dialog { background-color: var(--color-surface); color:
 input[type="checkbox"], input[type="radio"] { accent-color: var(--color-primary-action); }
 h1, .detail-title, .brand { font-family: var(--font-heading); font-weight: var(--weight-heading); }
 code, pre { font-family: var(--font-mono); }
-.eyebrow, .sidebar-label, .space-switcher>span, .list-summary-label { font-family: var(--font-label, var(--font-body)); }
+.eyebrow, .sidebar-label, .space-switcher>span { font-family: var(--font-label, var(--font-body)); }
 .primary-button, .capture-add { box-shadow: var(--shadow-action, none); }
 .primary-button:disabled, .capture-add:disabled { box-shadow: none; }
 .markdown h1, .markdown h2, .markdown h3 { font-family: var(--font-body); }
@@ -14,7 +14,6 @@ code, pre { font-family: var(--font-mono); }
 .nav-item.active { box-shadow: var(--shadow-nav-active); }
 .mobile-nav a.active { background: var(--mobile-active-background); box-shadow: var(--shadow-tab-active); }
 .appearance-settings>div:last-child { min-width: 0; flex: 1; }
-.appearance-settings #appearance-description { margin-top: 8px; margin-bottom: 0; }
 .appearance-settings p[role="status"], .theme-errors { margin-top: 12px; font-size: .85rem; }
 .appearance-settings .theme-refresh { margin-top: 12px; min-height: 44px; }
 .theme-errors { color: var(--color-warning); overflow-wrap: anywhere; }
@@ -168,6 +167,7 @@ code, pre { font-family: var(--font-mono); }
 .session-folder-browser { padding: .75rem; border: var(--border-width, 1px) solid var(--color-border); border-radius: var(--radius-panel) }
 .session-folder-browser ul { list-style: none; padding: 0; margin: .5rem 0; max-height: 12rem; overflow: auto }
 .session-folder-browser li button { width: 100%; justify-content: flex-start; border: 0; background: transparent; text-align: left; overflow-wrap: anywhere }
+.session-folder-browser li button:focus-visible { outline-offset: -3px }
 .session-folder-browser .button-row { margin-top: .5rem; flex-wrap: wrap }
 @media(max-width:560px){
 .session-settings-grid { grid-template-columns: 1fr }

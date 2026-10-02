@@ -175,12 +175,12 @@ export function AppUpdates({ children }: { children: ReactNode }) {
 export function AppUpdateSettings() {
   const controls = useContext(UpdateContext);
   if (!controls) return null;
+  const status = controls.checking ? 'Checking for updates…' : controls.available ? 'An update is ready to install.' : controls.message;
   return <SettingsSection className="app-update-settings" title="App updates" headingId="app-updates-heading" icon={<RefreshCw size={22}/>}>
     {pageVersion && <p className="subtle-note">App version: {pageVersion.replace(/^tasks-shell-/, '')}</p>}
-    <p role="status">{controls.checking ? 'Checking for updates…' : controls.available ? 'An update is ready to install.' : controls.message || 'Herts checks automatically when you open or return to the app.'}</p>
+    {status && <p role="status">{status}</p>}
     {controls.checkError && <p role="alert">{controls.checkError}</p>}
     <div className="button-row"><button disabled={!supported() || controls.checking || controls.busy} onClick={() => void controls.check()}>Check for updates</button>{controls.available && <button className="primary-button" disabled={controls.checking || controls.busy} onClick={() => void controls.apply()}>Update now</button>}</div>
-    <p className="subtle-note">Android’s launcher name, icon and shortcuts update separately through Chrome.</p>
     {!supported() && <p>Update checks are available in the installed or hosted app on a supported browser.</p>}
   </SettingsSection>;
 }

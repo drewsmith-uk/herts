@@ -1,3 +1,4 @@
+import { detailsField, detailsControl } from './composer-helpers';
 import { test, expect } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 
@@ -18,9 +19,9 @@ for (const width of [390, 1280]) test(`filters linked conversations, search and 
   await row.click();
   await page.getByRole('button', { name: 'Make a task' }).click();
   await page.getByRole('button', { name: 'Create task', exact: true }).click();
-  await expect(page.getByLabel('Task title', { exact: true })).toHaveValue(`Filter conversation ${width}`);
-  await page.getByLabel('Task list', { exact: true }).selectOption('done');
-  await expect(page.locator('.save-state')).toContainText('All changes saved');
+  await expect((await detailsField(page, 'Task title'))).toHaveValue(`Filter conversation ${width}`);
+  await (await detailsField(page, 'Task list')).selectOption('done');
+  await expect(page.locator('.save-state')).toContainText('Changes synced');
   await context.setOffline(true);
   await page.goto('/#/conversations'); await page.reload();
   await expect(page.getByText('SAVED ON THIS DEVICE', { exact: true })).toBeVisible();
@@ -39,7 +40,7 @@ for (const width of [390, 1280]) test(`filters linked conversations, search and 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: `test-results/conversation-filter-${width}.png` });
   await row.click(); await page.getByRole('button', { name: 'Open task', exact: true }).click();
-  await expect(page.getByLabel('Task list', { exact: true })).toHaveValue('done');
+  await expect((await detailsField(page, 'Task list'))).toHaveValue('done');
   const after: string[] = await (await request.get('http://127.0.0.1:8791/calls')).json();
   expect(after.slice(before.length).filter(method => ['session.create', 'session.resume', 'prompt.submit'].includes(method))).toEqual([]);
 });

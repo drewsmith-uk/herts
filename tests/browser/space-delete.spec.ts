@@ -25,7 +25,7 @@ test('an empty added space can be deleted with confirmation and a default fallba
   await expect.poll(async () => (await state(request)).spaces.some((space: any) => space.id === id)).toBe(false);
   await page.reload(); await expect(page.getByLabel('Default space', { exact: true })).toHaveValue(original);
   await page.goto(`/#/spaces/${id}/inbox`); await page.getByRole('link', { name: /^Go to .* Inbox$/ }).click();
-  await expect(page.getByLabel('New task title', { exact: true })).toBeEditable();
+  await expect(page.getByLabel('Message Hermes', { exact: true })).toBeEditable();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
@@ -47,10 +47,10 @@ test('a task arriving from another device prevents deletion and can be kept', as
 test('a task captured offline in a deleted space can be recovered into the default Inbox', async ({ page, context, request }) => {
   const id = await createSpace(request, 'Removed while offline');
   await page.goto(`/#/spaces/${id}/inbox`); await page.evaluate(() => navigator.serviceWorker.ready);
-  await expect(page.getByLabel('New task title', { exact: true })).toBeEditable();
+  await expect(page.getByLabel('Message Hermes', { exact: true })).toBeEditable();
   await context.setOffline(true);
-  await page.getByLabel('New task title', { exact: true }).fill('Keep my offline task');
-  await page.getByRole('button', { name: 'Add task', exact: true }).click();
+  await page.getByLabel('Message Hermes', { exact: true }).fill('Keep my offline task');
+  await page.getByRole('button', { name: 'Save to Inbox', exact: true }).click();
   await expect(page.getByRole('link', { name: 'Keep my offline task', exact: true })).toBeVisible();
   const input = { id: crypto.randomUUID(), spaceId: id, kind: 'delete', baseName: 'Removed while offline', baseDefaultSpaceId: (await state(request)).defaultSpaceId, at: Date.now() };
   expect((await request.post('/api/v1/plugins/tasks/commands', { headers, data: { id: input.id, generation: 0, command: 'space', input } })).ok()).toBe(true);

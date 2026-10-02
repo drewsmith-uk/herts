@@ -68,3 +68,9 @@ describe('conversation activity groups', () => {
     expect(after[0]).toMatchObject({kind:'activity',calls:2,entries:[{page:older,index:0},{page:recent,index:0},{page:recent,index:1},{page:recent,index:2}]});
   });
 });
+
+it('does not duplicate messages across overlapping refreshed history pages', () => {
+  const groups = groupHistory([page([{ id: 1, role: 'user', content: 'Question' }, call(2)], 200), page([call(2), output(3), { id: 4, role: 'assistant', content: 'Answer' }])]);
+  expect(groups.map(group => group.kind)).toEqual(['message', 'activity', 'message']);
+  expect(groups[1]).toMatchObject({ calls: 1, entries: [{ message: { id: 2 } }, { message: { id: 3 } }] });
+});

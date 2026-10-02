@@ -7,7 +7,7 @@ for (const width of [390,1280]) test(`submitted messages and tool-only work upda
   await expect(page).toHaveURL(/#\/task\//);
   const url=page.url(),text=`Live transcript ${width}: show my message and tool activity immediately.`;
   await expect(page.getByLabel('Message Hermes')).toBeInViewport();
-  const bottom=await page.evaluate(()=>scrollY);await page.mouse.move(width/2,450);await page.mouse.wheel(0,-500);await expect.poll(()=>page.evaluate(()=>scrollY)).toBeLessThan(bottom-100);
+  const bottom=await page.locator('.conversation-scroll').evaluate(el=>el.scrollTop);await page.mouse.move(width/2,450);await page.mouse.wheel(0,-500);await expect.poll(()=>page.locator('.conversation-scroll').evaluate(el=>el.scrollTop)).toBeLessThan(bottom-100);
   const before=(await(await request.get('http://127.0.0.1:8791/calls')).json()).filter((m:string)=>m==='prompt.submit').length;
   await page.getByLabel('Message Hermes').fill(text);await page.getByRole('button',{name:'Send',exact:true}).click();
   await expect(page.locator('.outgoing-message')).toContainText(text,{timeout:1500});await expect(page.locator('.outgoing-message')).toBeInViewport();

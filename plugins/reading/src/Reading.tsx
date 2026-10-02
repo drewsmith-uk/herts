@@ -1,3 +1,4 @@
+import { MessageComposer, useEntryDraft, type Draft } from '@herts/plugin-api/client';
 import { PageHeader, Button, ButtonLink, IconButton, SectionNav, SectionLink, ItemList, ItemRow, ItemMeta, EmptyState, StatusMessage, SettingsSection, SettingRow, FormField } from '@herts/plugin-api/client';
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { BookOpen, Bookmark, BookmarkCheck, Plus, Check, Circle, ArrowUp, ArrowDown, Pencil, ChevronLeft, ExternalLink, Download, Trash2, LoaderCircle, Send } from 'lucide-react';
@@ -6,7 +7,7 @@ import { useHoldSensors, holdListeners, useDragClickGuard } from '@herts/plugin-
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { emptyReading, normalizeUrl, sharedUrls, type ReadingItem, type Article } from './model';
-import { useApp, addReading, readingChange, db, sync, sendReadingLink, publish, getArticle } from './data';
+import { useApp, addReading, readingChange, db, sync, publish, getArticle } from './data';
 import { ConversationPanel } from '@herts/plugin-api/client';
 import { ConversationHeader } from '@herts/plugin-api/client';
 import { useDraftPersistence, useUpdatePreparation, useUpdateWork } from '@herts/plugin-api/client';
@@ -33,7 +34,7 @@ export function ReadingList({ read }: {
     }
     return <><PageHeader title="Reading list" count={items.length} actions={(items.length > 0 || edit) && <Button variant="quiet" className={edit ? 'selected' : ''} onClick={() => setEdit(!edit)}><Pencil size={15}/>{edit ? 'Finish editing' : 'Edit list'}</Button>}/>
     <div className="reading-toolbar"><SectionNav className="reading-tabs" aria-label="Reading lists"><SectionLink href="#/reading" active={!read}>Unread <small>{reading.unread.ids.length}</small></SectionLink><SectionLink href="#/reading/read" active={read}>Read <small>{reading.items.length - reading.unread.ids.length}</small></SectionLink></SectionNav><ButtonLink variant="primary" className="reading-add" href="#/reading/add"><Plus size={17}/> Add link</ButtonLink></div>
-    {error && <StatusMessage>{error}</StatusMessage>}{items.length > 0 && <div className="list-summary">{!read && <span className="list-summary-label">MANUAL ORDER</span>}<span>{read ? 'Most recently read first' : 'New links at the top'}</span></div>}
+    {error && <StatusMessage>{error}</StatusMessage>}
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={drag} onDragStart={clickGuard.start} onDragCancel={clickGuard.end}><SortableContext items={items.map(i => i.id)} strategy={verticalListSortingStrategy}><ItemList className="task-list">{items.map((item, index) => <ReadingRow key={item.id} item={item} index={index} items={items} edit={edit}/>)}</ItemList></SortableContext></DndContext>
     {!items.length && <EmptyState icon={<BookOpen size={30}/>} title={read ? 'Nothing marked read yet' : 'Your next good read'} description={read ? 'Finished articles will appear here.' : 'Add a link, share one from another app, or bookmark a link in a conversation.'}/>}
   </>;
@@ -55,64 +56,27 @@ function ReadingRow({ item, index, items, edit }: {
 
   </ItemRow>{(error || title.error) && <StatusMessage>{error || title.error}</StatusMessage>}</div>;
 }
-export function ReadingCapture({ sharedContent }: {
-    sharedContent?: import('@herts/plugin-api/types').SharedContent;
-}) {
-    const state = useApp(), [busy, setBusy] = useState(false), [error, setError] = useState('');
+export function ReadingCapture({ sharedContent, id }: { sharedContent?: import('@herts/plugin-api/types').SharedContent; id?: string }) {
     const shared = !!sharedContent;
-    const [candidates] = useState(() => shared ? sharedUrls(sharedContent?.url || '', sharedContent?.text || '', sharedContent?.title || '') : []);
-    const [url, setUrl] = useState(() => candidates.length === 1 ? candidates[0] : ''), [title, setTitle] = useState(() => shared && !sharedUrls(sharedContent?.title || '').length ? (sharedContent?.title || '').slice(0, 2000) : ''), [loaded, setLoaded] = useState(shared);
-    const submitting = useRef(false);
-    const saveDraft = useDraftPersistence(db.drafts);
-    useUpdatePreparation({
-        blocked: () => submitting.current || shared ? 'Save or cancel this link before updating.' : undefined,
+    const text = sharedContent ? [sharedContent.text, sharedContent.url].filter((v, i, a) => v && a.indexOf(v) === i).join('\n') || sharedContent.title : undefined;
+    const entry = useEntryDraft({ key: shared ? `share:${JSON.stringify(sharedContent)}` : 'reading-capture', pluginId: 'reading', id,
+      route: draftId => `/reading/add/${draftId}`, initialText: text,
+      initialFields: sharedContent?.title && !sharedUrls(sharedContent.title).length ? { title: sharedContent.title.slice(0, 2000) } : undefined,
+      legacy: shared ? undefined : { read: async () => { const saved = await db.drafts.get('reading-capture'); if (!saved) return; try { const old = JSON.parse(saved.text); return { text: old.url || '', files: saved.files, fields: { title: old.title || '' } }; } catch { return { text: saved.text, files: saved.files }; } }, clear: () => db.drafts.delete('reading-capture') },
     });
-    useEffect(() => { if (!shared)
-        void db.drafts.get('reading-capture').then(d => { if (d) {
-            try {
-                const v = JSON.parse(d.text);
-                setUrl(v.url);
-                setTitle(v.title);
-            }
-            catch {
-                setUrl(d.text);
-            }
-        } setLoaded(true); }).catch(() => setError('Your draft could not be opened. Reload to try again.')); }, []);
-    function update(nextUrl: string, nextTitle: string) { setUrl(nextUrl); setTitle(nextTitle); void saveDraft({ id: 'reading-capture', text: JSON.stringify({ url: nextUrl, title: nextTitle }), files: [] }).catch(() => setError('The draft could not be saved on this device.')); }
-    async function capture(e: FormEvent) {
-        e.preventDefault();
-        if (submitting.current)
-            return;
-        submitting.current = true;
-        setBusy(true);
-        setError('');
-        try {
-            const normalized = normalizeUrl(url), canSend = state.online && state.gateway.online;
-            const itemId = await addReading(normalized, title);
-            await db.drafts.delete('reading-capture');
-            if (shared)
-                history.replaceState(null, '', '/');
-            navigate(`/reading-item/${itemId}`);
-            if (canSend)
-                void sync().then(() => sendReadingLink(itemId)).catch(e => publish({ error: `Link saved. ${e.message}` }));
-        }
-        catch (e) {
-            setError((e as Error).message);
-        }
-        finally {
-            submitting.current = false;
-            setBusy(false);
-        }
+    async function prepare(draft: Draft) {
+      const urls = sharedUrls(draft.text), chosen = entry.fields.url && urls.includes(entry.fields.url) ? entry.fields.url : urls.length === 1 ? urls[0] : undefined;
+      if (!chosen) throw new Error(urls.length ? 'Choose which link to save to Reading.' : 'Add a link to your message first.');
+      await addReading(chosen, entry.fields.title || '', undefined, draft.id);
     }
-    function cancel() { if (shared)
-        history.replaceState(null, '', '/'); navigate('/reading'); }
-    return <><a href="#/reading" className="back-link" onClick={e => { e.preventDefault(); cancel(); }}><ChevronLeft size={17}/> Reading list</a><PageHeader title="Add a link" description="Save it to Reading and send the link to Hermes."/>
-    <form className="reading-capture" onSubmit={capture}>{candidates.length > 1 && <fieldset><legend>Choose the link to save</legend>{candidates.map(candidate => <label className="share-choice" key={candidate}><input type="radio" name="shared-link" value={candidate} checked={url === candidate} onChange={() => update(candidate, title)}/><span>{candidate}</span></label>)}</fieldset>}
-      <FormField label="Link"><input type="url" aria-label="Article link" value={url} disabled={!loaded || busy} onChange={e => update(e.target.value, title)} placeholder="https://…" required maxLength={8192}/></FormField>
-      <FormField label={<>Title <span className="subtle-note">(optional)</span></>}><input aria-label="Reading title" placeholder="A name for this link" value={title} disabled={!loaded || busy} onChange={e => update(url, e.target.value)} maxLength={2000}/></FormField>
-      <div className="button-row"><button className="primary-button" disabled={!loaded || busy || !url.trim()}>{busy ? <LoaderCircle className="spin" size={16}/> : <Plus size={16}/>} {state.online && state.gateway.online ? 'Add & send' : 'Save link'}</button><button type="button" onClick={cancel}>Cancel</button></div>
-      {(!state.online || !state.gateway.online) && <p>Hermes is unavailable. Save the link now and use Send to Hermes when connected.</p>}{error && <p role="alert" className="inline-error">{error}</p>}
-    </form></>;
+    const leave = async (sent: boolean) => { await entry.complete(); if (shared) history.replaceState(null, '', '/'); navigate(sent ? `/reading-item/${entry.id}` : '/reading'); };
+    return <><a href="#/reading" className="back-link">Reading list</a><PageHeader title="Add to Reading"/>
+      {entry.id ? <MessageComposer context={entry.context} persist={entry.persist} prepare={prepare} owner={entry.owner} saveLabel="Save link" onSaved={() => leave(false)} onSent={() => leave(true)} fields={draft => {
+        const urls = sharedUrls(draft.text);
+        return <>{urls.length > 1 && <fieldset className="entry-links"><legend>Which link belongs in Reading?</legend>{urls.map(url => <label className="share-choice" key={url}><input type="radio" name="reading-link" checked={entry.fields.url === url} onChange={() => void entry.updateFields({ url })}/><span>{url}</span></label>)}</fieldset>}
+          <details className="entry-details"><summary>Reading details</summary><FormField label="Title (optional)"><input aria-label="Reading title" maxLength={2000} value={entry.fields.title || ''} placeholder="A name for this link" onChange={event => void entry.updateFields({ title: event.target.value })}/></FormField></details></>;
+      }}/> : <p role="status">Opening draft…</p>}{entry.error && <StatusMessage>{entry.error}</StatusMessage>}
+    </>;
 }
 export function ReadingDetail({ id }: {
     id: string;
@@ -128,14 +92,13 @@ export function ReadingDetail({ id }: {
         return <div className="empty"><p>This reading item is not available on this device yet.</p><a href="#/reading">Reading list</a></div>;
     const article = state.articleCopies[id];
     const hasSubmission = state.actions.some(a => a.taskId === item.contextId && !a.cancelled) || state.localSubmissions.some(s => s.taskId === item.contextId);
-    const showSendNote = !!context && !context.link && !hasSubmission;
+    const needsInitialMessage = !!context && !context.link && !hasSubmission;
     return <div className="reading-detail"><ConversationHeader title={item.title} backHref={item.readAt === null ? '#/reading' : '#/reading/read'} backLabel="Reading list" context={context}><ReadingTitle item={item}/><div className="reading-detail-controls">
-    <a className="primary-button" href={!state.online && article?.html ? `#/reader/${id}` : item.url} {...(state.online || !article?.html ? { target: '_blank', rel: 'noopener noreferrer' } : {})}><BookOpen size={16}/> Read article</a>
-    <a className="quiet-button" href={`#/reader/${id}`}>Reading mode</a><button onClick={() => run(() => readingChange(id, { kind: 'read', read: item.readAt === null }))}><Check size={16}/>{item.readAt === null ? 'Mark read' : 'Mark unread'}</button>
+    <a className="primary-button" href={item.url} target="_blank" rel="noopener noreferrer"><BookOpen size={16}/> Open original</a>
+    <a className="quiet-button" href={`#/reader/${id}`}>Read in Herts</a><button onClick={() => run(() => readingChange(id, { kind: 'read', read: item.readAt === null }))}><Check size={16}/>{item.readAt === null ? 'Mark read' : 'Mark unread'}</button>
   </div>{error && <StatusMessage>{error}</StatusMessage>}</ConversationHeader>
     <div className="article-status"><a href={item.url} target="_blank" rel="noopener noreferrer"><ExternalLink size={14}/> {new URL(item.url).hostname}</a><OfflineControls item={item}/></div>
-    {showSendNote && <div className="reading-send-note"><p>Your link is saved. Send it to start its Hermes conversation.</p><button className="primary-button" disabled={!state.online || !state.gateway.online || busy} onClick={() => { setBusy(true); run(() => sync().then(() => sendReadingLink(id)).finally(() => setBusy(false))); }}><Send size={16}/> Send to Hermes</button></div>}
-    {context && <ConversationPanel key={context.id} context={context} initialText={showSendNote ? item.url : ''} showActions={false} showEmptyNotice={!showSendNote}/>}
+    {context && <ConversationPanel key={context.id} context={context} initialText={needsInitialMessage ? item.url : ''} showActions={false}/>}
   </div>;
 }
 function useReadingTitle(item: ReadingItem) {
@@ -177,7 +140,7 @@ function OfflineControls({ item }: {
     const storageError = state.articleErrors[item.id]?.version === item.downloadVersion ? state.articleErrors[item.id]?.message : undefined;
     const enabled = item.offline === 'keep' || (item.offline === 'auto' && (state.snapshot.reading?.autoDownload ?? true));
     return <div className="offline-controls"><span role="status">{article?.html ? `Available offline${article.status === 'excerpt' ? ' · saved excerpt' : ''}` : article ? 'Unavailable offline' : item.readAt !== null ? 'Download removed after reading' : storageError ? 'Unavailable offline' : enabled ? 'Waiting for offline copy' : 'No offline download'}</span>
-    {article?.warning && <p>{article.warning}</p>}{storageError && <p role="alert">{storageError}</p>}
+    {article?.warning && article.status !== 'saved' && <p>{article.warning}</p>}{storageError && <p role="alert">{storageError}</p>}
     {item.readAt === null && <div className="button-row">{(!article?.html || !enabled) && <button onClick={() => run(() => readingChange(item.id, { kind: 'offline', offline: 'keep' }))}><Download size={14}/>{article || storageError ? 'Retry download' : 'Make available offline'}</button>}{(enabled || article) && <button onClick={() => run(() => readingChange(item.id, { kind: 'offline', offline: 'remove' }))}><Trash2 size={14}/> Remove download</button>}</div>}
     {error && <p role="alert" className="inline-error">{error}</p>}
   </div>;
@@ -193,7 +156,7 @@ export function Reader({ id }: {
         setBusy(false); }); return () => { current = false; }; }, [id]);
     return <><ConversationHeader><a className="back-link" href={`#/reading-item/${id}`}><ChevronLeft size={17}/> Conversation</a><div className="reader-heading"><h1>{article?.title || item?.title || 'Reading mode'}</h1>{item && <a className="quiet-button" href={item.url} target="_blank" rel="noopener noreferrer"><ExternalLink size={16}/> Open in browser</a>}</div></ConversationHeader>
     {busy && <p className="loading"><LoaderCircle size={17} className="spin"/>Preparing article…</p>}{error && <p className="inline-error" role="alert">{error}</p>}
-    {article && <><p className="reader-source">{article.siteName}{article.byline ? ` · ${article.byline}` : ''} · Saved {date(article.fetchedAt)}</p><p className="reader-warning">{article.warning}</p>{article.html && <article className="markdown reader-article" dangerouslySetInnerHTML={{ __html: article.html }}/>}</>}
+    {article && <><p className="reader-source">{article.siteName}{article.byline ? ` · ${article.byline}` : ''} · Saved {date(article.fetchedAt)}</p>{article.warning && article.status !== 'saved' && <p className="reader-warning">{article.warning}</p>}{article.html && <article className="markdown reader-article" dangerouslySetInnerHTML={{ __html: article.html }}/>}</>}
   </>;
 }
 export function BookmarkLink({ href, conversationId, children }: {
@@ -233,5 +196,5 @@ export function BookmarkLink({ href, conversationId, children }: {
 }
 export function ReadingSettings() {
     const state = useApp(), { run, error } = useReadingAction();
-    return <SettingsSection title="Offline reading" icon={<Download size={22}/>}><SettingRow label="Automatically download unread articles" htmlFor="reading-auto-download" control={<input id="reading-auto-download" type="checkbox" checked={state.snapshot.reading?.autoDownload ?? true} onChange={e => run(() => readingChange(crypto.randomUUID(), { kind: 'settings', autoDownload: e.target.checked }))}/>}/><p>Article text is saved on this device when Herts is reachable. Marking an item read removes its download; other devices clean up when they next sync.</p><p className="subtle-note">Some websites only provide an excerpt. Open the original link if the saved article is incomplete.</p>{error && <StatusMessage>{error}</StatusMessage>}</SettingsSection>;
+    return <SettingsSection title="Offline reading" icon={<Download size={22}/>}><SettingRow label="Automatically download unread articles" htmlFor="reading-auto-download" control={<input id="reading-auto-download" type="checkbox" checked={state.snapshot.reading?.autoDownload ?? true} onChange={e => run(() => readingChange(crypto.randomUUID(), { kind: 'settings', autoDownload: e.target.checked }))}/>}/><p>Marking an item read removes its offline download.</p>{error && <StatusMessage>{error}</StatusMessage>}</SettingsSection>;
 }

@@ -1,15 +1,11 @@
-import { NotificationSettings } from './NotificationSettings';
-import { AppUpdateSettings } from './AppUpdates';
-import { NotificationLanding } from './NotificationLanding';
-import { outgoingInHistory, outgoingStatus, type OutgoingMessage } from './transcriptFeedback';
-import { liveQuery } from 'dexie';
+import { createPortal } from 'react-dom';
+import { MessageComposer } from './MessageComposer';
+import { outgoingInHistory, outgoingStatus, liveReplyReplacement, type OutgoingMessage } from './transcriptFeedback';
 import type { ConversationContext } from '../shared/conversations';
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { Inbox, ArrowRight, Clock3, Pause, Check, Plus, Search, MessageSquare, Settings, ChevronLeft, ArrowUp, ArrowDown, AlarmClock, Pencil, CheckCheck, WifiOff, Link2, Send, Paperclip, X, Square, RefreshCw, Volume2, Circle, LoaderCircle, Eye, EyeOff, BookOpen } from 'lucide-react';
-import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { MessageSquare, Square, RefreshCw, Volume2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Voice } from './Voice';
 import { MessageMedia } from './Media';
 import { useConversationHistory } from './useConversationHistory';
 import { activitySummary, groupHistory, type HistoryEntry, type HistoryGroup } from './historyGroups';
@@ -17,17 +13,11 @@ import { backgroundResultLabel } from '../shared/messagePresentation';
 import { HistoryDisclosure } from './HistoryDisclosure';
 import { Clarification } from './Clarification';
 import { ConversationActivity } from './ConversationActivity';
-import { ConversationRow } from './ConversationRow';
-import { SavedMessages } from './SavedMessages';
-import { copySavedMessage } from './savedMessages';
-import { useDraftPersistence, useUpdatePreparation, useUpdateWork } from './updateSafety';
-import { SessionSettingsControls } from './SessionSettings';
+import { useUpdateWork } from './updateSafety';
+import { messageText, type Action, type History } from '../shared/core';
+import { useApp, submit, api, cacheRead, saveSessionChoices } from './data';
+import { ConversationContributions, MessageLinkContributions } from './plugins';
 
-import {messageText,type Action,type Conversation,type History} from '../shared/core';
-import {db,useApp,addFile,submit,refresh,resolveSubmission,api,cacheRead,saveSessionChoices,saveConversationDraft,type Draft,type LocalFile} from './data';
-import {ConversationContributions,MessageLinkContributions} from './plugins';
-
-function time(at:number){return new Date(at).toLocaleString();}
 const messageTimeFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 function MessageTime({ timestamp }: { timestamp?: number }) {
   if (typeof timestamp !== 'number' || !Number.isFinite(timestamp) || timestamp <= 0) return null;
@@ -37,8 +27,9 @@ function MessageTime({ timestamp }: { timestamp?: number }) {
 }
 const finished = (a?: Action) => !!a && ['finished','failed','ready','unknown'].includes(a.state);
 
-export function ConversationPanel({ context: task, initialText = '', showActions = true, showHeading = true, showEmptyNotice = true }: { context: ConversationContext; initialText?: string; showActions?: boolean; showHeading?: boolean; showEmptyNotice?: boolean }) {
+export function ConversationPanel({ context: task, initialText = '', showActions = true, showHeading = true, readOnly = false, saveDraftAction }: { context: ConversationContext; initialText?: string; showActions?: boolean; showHeading?: boolean; showEmptyNotice?: boolean; readOnly?: boolean; saveDraftAction?: () => void }) {
   const state = useApp(); const [error, setError] = useState(''), [busy, setBusy] = useState(false);
+  const [statusHost, setStatusHost] = useState<HTMLDivElement | null>(null), [savedHost, setSavedHost] = useState<HTMLDivElement | null>(null);
   const main = state.actions.find(a => !a.cancelled && a.taskId === task.id && ['send','continue'].includes(a.kind)); const binding = state.bindings[task.id];
   const active = !!main && !finished(main) && !binding?.unavailable; const [historyVersion, setHistoryVersion] = useState(0), [sendVersion, setSendVersion] = useState(0);
   const send = state.actions.find(a => !a.cancelled && a.taskId === task.id && a.kind === 'send');
@@ -61,10 +52,11 @@ export function ConversationPanel({ context: task, initialText = '', showActions
   const attention = !!(needsInput || main?.promptWarning || failedControls.length || main?.error || main?.state === 'failed' || main?.state === 'unknown' || main?.receipt === 'unknown' || uncertainControls.length || error || modelConfirmation);
   const statusLabel = needsInput ? 'Needs your input' : modelConfirmation ? 'Confirm model switch' : attention ? main?.sendStage === 'preparing' || main?.receipt === 'rejected' ? 'Message not sent' : main?.state === 'failed' ? 'Conversation failed' : 'Check conversation' : main?.state === 'stopping' ? 'Stopping…' : main?.phase === 'stopped' ? 'Stopped' : main?.state === 'preparing' ? 'Preparing…' : `Working${main?.phase && !['working','streaming'].includes(main.phase) ? ` · ${main.phase}` : '…'}`;
   return <section className="conversation-panel" data-phase={main?.phase || 'idle'}>
+    <div className="conversation-scroll" tabIndex={0} aria-label="Conversation messages">
     {showActions&&<ConversationContributions context={task}/>}
     {showHeading && <div className="conversation-heading"><span><MessageSquare size={17}/> Conversation</span></div>}
-    {task.link ? <HistoryView key={task.link.key} conversationId={task.link.storedId} version={historyChange} liveText={main?.liveText} working={active} phase={main?.phase} outgoing={outgoing} outgoingAction={outgoingAction} sendVersion={sendVersion}/> : outgoing ? <div className="history"><OutgoingFeedback message={outgoing} action={outgoingAction}/></div> : showEmptyNotice && <div className="unlinked-note"><p>This item is saved. Sending the first message will start a new Hermes conversation.</p></div>}
-    {(active || attention || main?.phase === 'stopped') && <ConversationActivity label={statusLabel} active={active} attention={attention} stopping={main?.state === 'stopping'} disabled={busy || !state.online || !state.gateway.online || !binding} onStop={() => void control('stop')} onLatest={() => setSendVersion(v => v + 1)}>
+    <HistoryView conversationId={task.link?.storedId || ''} version={historyChange} liveText={main?.liveText} working={active} phase={main?.phase} outgoing={outgoing} outgoingAction={outgoingAction} sendVersion={sendVersion}/>
+    {(active || attention || main?.phase === 'stopped') && <ConversationActivity statusHost={statusHost} label={statusLabel} active={active} attention={attention} stopping={main?.state === 'stopping'} disabled={busy || !state.online || !state.gateway.online || !binding} onStop={() => void control('stop')} onLatest={() => setSendVersion(v => v + 1)}>
       {attention && <>
         {main?.error && !modelConfirmation && <p className="inline-error" role="alert">{main.error}</p>}
         {!main?.error && main?.state === 'failed' && <p className="inline-error" role="alert">Hermes reported that this run failed.</p>}
@@ -79,7 +71,8 @@ export function ConversationPanel({ context: task, initialText = '', showActions
         {modelConfirmation && main && <ModelSwitchConfirmation action={main}/>}
       </>}
     </ConversationActivity>}
-    <Composer key={task.id} task={task} initialText={initialText} canSend={state.online && state.gateway.online && !active} onSending={() => setSendVersion(v => v + 1)} onSent={() => setHistoryVersion(v => v + 1)}/>
+    <div ref={setSavedHost}/>
+    </div><div className="conversation-control-slot" ref={setStatusHost}/>{readOnly ? <div className="composer-placeholder" role="status">{state.online ? 'Opening message controls…' : 'Connect once to enable messaging for this conversation.'}</div> : <MessageComposer key={task.id} savedMessagesHost={savedHost} docked={!!task.link} context={task} saveLabel={saveDraftAction ? 'Save draft' : undefined} onSaved={saveDraftAction} initialText={initialText} canSend={state.online && state.gateway.online && !active} onSending={() => setSendVersion(v => v + 1)} onSent={() => { setHistoryVersion(v => v + 1); }}/>}
   </section>;
 }
 function ModelSwitchConfirmation({ action }: { action: Action }) {
@@ -95,71 +88,20 @@ function ModelSwitchConfirmation({ action }: { action: Action }) {
   return <section className="error-banner" role="alert"><strong>Confirm model switch</strong><p>{action.settings!.confirmation}</p><p>Your message is saved and has not been sent.</p><div className="button-row"><button disabled={busy || !state.gateway.online} onClick={() => void work(choose(true))}>Switch and send saved message</button><button disabled={busy} onClick={() => void work(choose(false))}>Keep current settings</button></div>{error && <p>{error}</p>}</section>;
 }
 
-function Composer({ task, canSend, onSent, onSending, initialText }: { task: ConversationContext; canSend: boolean; onSent: () => void; onSending: () => void; initialText: string }) {
-  const state = useApp(); const [draft, setDraft] = useState<Draft>({ id: task.id, text: initialText, files: [] }), [files, setFiles] = useState<LocalFile[]>([]), [busy, setBusy] = useState(false), [error, setError] = useState(''), [countdown, setCountdown] = useState<number | null>(null), [loaded, setLoaded] = useState(false), [settingsOpen, setSettingsOpen] = useState(false);
-  const input = useRef<HTMLInputElement>(null); const deadline = useRef(0); const draftRef = useRef(draft); draftRef.current = draft; const sending = useRef(false); const canSendRef = useRef(canSend); canSendRef.current = canSend && !settingsOpen && !state.localSubmissions.some(s => s.taskId === task.id);
-  const attaching = useRef(false);
-  const restoring = useRef(false), textarea = useRef<HTMLTextAreaElement>(null);
-  const [restoreNotice, setRestoreNotice] = useState('');
-  const saveDraft = useDraftPersistence();
-  useUpdatePreparation({
-    pause: cancelTimer,
-    blocked: () => sending.current || attaching.current || restoring.current ? 'Wait for the message or attachment to finish saving before updating.' : undefined,
-  });
-  useEffect(() => { const subscription = liveQuery(() => db.drafts.get(task.id)).subscribe({ next: d => { const next = d || { id: task.id, text: initialText, files: [] }; setDraft(next); draftRef.current = next; setLoaded(true); }, error: () => setError('The saved draft could not be opened. Reload to try again.') }); return () => subscription.unsubscribe(); }, [task.id]);
-  useEffect(() => { void db.files.bulkGet(draft.files).then(fs => setFiles(fs.filter(Boolean) as LocalFile[])); }, [draft.files.join(',')]);
-  function cancelTimer() { deadline.current = 0; setCountdown(null); }
-  function update(next: Draft) { cancelTimer(); draftRef.current = next; setDraft(next); return saveDraft(next).catch(() => { setError('Could not save the draft. Do not leave this page until storage is available.'); throw new Error('Draft storage unavailable'); }); }
-  async function restore(action: Action) {
-    cancelTimer(); if (sending.current || attaching.current || restoring.current) return;
-    restoring.current = true; setBusy(true); setError(''); setRestoreNotice('');
-    try {
-      const next = await copySavedMessage(action, draftRef.current);
-      draftRef.current = next; setDraft(next); setRestoreNotice('Message added to your draft. Review it, then press Send when ready.');
-      requestAnimationFrame(() => { textarea.current?.focus(); textarea.current?.scrollIntoView({ block: 'center', behavior: 'smooth' }); });
-    } catch (e) { setError((e as Error).message); }
-    finally { cancelTimer(); restoring.current = false; setBusy(false); }
-  }
-  async function send() {
-    cancelTimer(); if (sending.current || restoring.current || !canSendRef.current || document.hidden) return;
-    const d = draftRef.current; if (!d.text.trim() && !d.files.length) return;
-    sending.current = true; setBusy(true); setError('');
-    try { await saveConversationDraft(d); onSending(); await submit({ id: crypto.randomUUID(), contextId: task.id, kind: 'send', text: d.text, uploadIds: d.files }); await update({ id: task.id, text: '', files: [] }); onSent(); }
-    catch(e) { setError((e as Error).message); }
-    finally { sending.current = false; setBusy(false); }
-  }
-  useEffect(() => {
-    const cancel = () => cancelTimer(); const visibility = () => { if (document.hidden) cancelTimer(); };
-    addEventListener('offline', cancel); addEventListener('hashchange', cancel); document.addEventListener('visibilitychange', visibility);
-    const timer = setInterval(() => { if (!deadline.current) return; if (!canSendRef.current || document.hidden || !navigator.onLine) { cancelTimer(); return; } const left = Math.ceil((deadline.current - Date.now()) / 1000); if (left <= 0) { cancelTimer(); void send(); } else setCountdown(left); }, 100);
-    return () => { deadline.current = 0; clearInterval(timer); removeEventListener('offline', cancel); removeEventListener('hashchange', cancel); document.removeEventListener('visibilitychange', visibility); };
-  }, []);
-  useEffect(() => { if (!canSend) cancelTimer(); }, [canSend]);
-  async function attach(selected: FileList | null) { cancelTimer(); if (!selected) return; attaching.current = true; setError(''); try { const ids = []; for (const file of Array.from(selected)) ids.push(await addFile(file, file.name)); await update({ ...draftRef.current, files: [...draftRef.current.files, ...ids] }); } catch(e) { setError((e as Error).message); } finally { attaching.current = false; } if (input.current) input.current.value = ''; }
-  const uncertainLocal = state.localSubmissions.some(s => s.taskId === task.id);
-  return <div className="composer-wrap"><SessionSettingsControls context={task} onOpen={() => { cancelTimer(); setSettingsOpen(true); }} onClose={() => setSettingsOpen(false)}/><form className="composer" onSubmit={e => { e.preventDefault(); void send(); }}>
-    <textarea ref={textarea} aria-label="Message Hermes" placeholder={task.link ? 'Message Hermes…' : 'Tell Hermes what you want to do…'} value={draft.text} disabled={!loaded || busy} onChange={e => { setRestoreNotice(''); void update({ ...draft, text: e.target.value }); }} rows={3} onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); void send(); } }}/>
-    {files.length > 0 && <div className="attachment-list">{files.map(f => <span className="attachment" key={f.id}><Paperclip size={13}/>{f.name}<small>{(f.blob.size / 1024).toFixed(0)} KB</small><button type="button" className="icon-button" aria-label={`Remove ${f.name}`} onClick={() => void update({ ...draft, files: draft.files.filter(id => id !== f.id) })}><X size={14}/></button></span>)}</div>}
-    <div className="composer-tools"><div className="button-row"><button type="button" className="icon-button" aria-label="Attach files" onClick={() => input.current?.click()} disabled={busy}><Paperclip size={20}/></button><input type="file" ref={input} hidden multiple onChange={e => void attach(e.target.files)}/><Voice owner={`chat:${task.id}`} onTranscript={(text, fresh) => { return update({ ...draftRef.current, text: draftRef.current.text ? `${draftRef.current.text}\n${text}` : text }).then(() => { if (fresh && canSendRef.current && !uncertainLocal && !document.hidden) { deadline.current = Date.now() + 5000; setCountdown(5); } }); }}/></div><button className="primary-button send-button" disabled={!canSend || busy || !loaded || uncertainLocal || (!draft.text.trim() && !draft.files.length)}>{busy ? <LoaderCircle size={16} className="spin"/> : <Send size={16}/>} Send</button></div>
-  </form>{countdown !== null && <div className="countdown" role="status"><span>Sending voice message in <strong>{countdown}s</strong></span><button onClick={cancelTimer}>Cancel auto-send</button></div>}
-    {error && <p className="inline-error" role="alert">{error}</p>}
-    {restoreNotice && <p className="subtle-note" role="status">{restoreNotice}</p>}
-    {uncertainLocal && <div className="error-banner">A submitted request has not been confirmed. Your draft is saved. <button className="text-button" onClick={() => void refresh()}>Check status</button>{state.localSubmissions.filter(s => s.taskId === task.id).map(s => <button className="text-button" key={s.id} onClick={() => void resolveSubmission(s.id).catch(e => setError(e.message))}>Cancel if not yet received</button>)}<p>This prevents a delayed request from being sent if Herts has not received it. Received work keeps its current status.</p></div>}
-    <p className="composer-note">{!state.online ? 'Offline. Your draft and attachments stay on this device.' : !state.gateway.configured ? 'Hermes connection is being configured. You can keep writing.' : !state.gateway.online ? 'Hermes is unavailable. Your draft is saved; send when it reconnects.' : countdown === null ? 'Dictation sends after a cancellable 5-second countdown. Editing cancels it.' : 'You can also edit the message to cancel.'}</p>
-    <SavedMessages contextId={task.id} disabled={!loaded || busy} onCopy={restore}/>
-  </div>;
-}
 
 export function HistoryView({ conversationId, version = 0, liveText, working = false, phase, outgoing, outgoingAction, sendVersion = 0 }: { conversationId: string; version?: number | string; liveText?: string; working?: boolean; phase?: string; outgoing?: OutgoingMessage; outgoingAction?: Action; sendVersion?: number }) {
   const feedback = `${outgoing?.id}:${outgoingStatus(outgoingAction)}:${working}:${version}`;
-  const { pages, cached, busy, error, setError, newMessages, latest, older, root, end, pauseFollowing } = useConversationHistory(conversationId, version, liveText, working, sendVersion, feedback);
+  const { pages, cached, busy, error, setError, newMessages, latest, refresh, older, root, end, pauseFollowing } = useConversationHistory(conversationId, version, liveText, working, sendVersion, feedback);
+  const [toolbar, setToolbar] = useState<HTMLElement | null>(null);
+  useEffect(() => { setToolbar(root.current?.closest('.conversation-panel')?.parentElement?.querySelector<HTMLElement>('.conversation-toolbar') || null); }, []);
   const confirmed = useRef(new Set<string>());
   if (outgoing && outgoingInHistory(outgoing, pages)) confirmed.current.add(outgoing.id);
   const showOutgoing = outgoing && !confirmed.current.has(outgoing.id);
   const previousGroups = useRef<HistoryGroup[]>([]);
   const groups = useMemo(() => previousGroups.current = groupHistory(pages, previousGroups.current), [pages]);
   const lastAssistant = pages.flatMap(p => p.messages).findLast(m => m.role === 'assistant' && messageText(m).trim());
-  const showLive = liveText && messageText(lastAssistant || { role: 'assistant' }).trim() !== liveText.trim();
+  const replaceReply = liveReplyReplacement(pages, liveText, outgoing);
+  const showLive = !replaceReply && liveText && messageText(lastAssistant || { role: 'assistant' }).trim() !== liveText.trim();
   const [speaking, setSpeaking] = useState<string | null>(null);
   const playback = useRef(0); const audio = useRef<HTMLAudioElement | null>(null); const mounted = useRef(true);
   useEffect(() => () => { mounted.current = false; playback.current++; audio.current?.pause(); }, []);
@@ -172,28 +114,35 @@ export function HistoryView({ conversationId, version = 0, liveText, working = f
       if (!mounted.current || generation !== playback.current) return; const a = new Audio(data.value.data_url); audio.current = a; a.onended = () => setSpeaking(null); await a.play();
     } catch(e) { if (mounted.current && generation === playback.current) { setError((e as Error).message); setSpeaking(null); } }
   }
-  function renderMessage({ key, message: m, page, index }: HistoryEntry) {
-    const text = messageText(m), background = backgroundResultLabel(m), assistant = !background && m.role === 'assistant';
-    return <article className={`message ${!background && m.role === 'user' ? 'from-user' : ''} ${m.role === 'tool' ? 'tool-message' : ''}`} key={key} data-history-message={key}>
-      <div className="message-author">{background ? <><span className="hermes-mark">H</span>{background}</> : assistant ? <><span className="hermes-mark">H</span>Hermes</> : m.role === 'user' ? 'You' : 'Tool output'}<MessageTime timestamp={m.timestamp}/>{assistant && text.trim() && <button className="read-aloud icon-button" aria-label={speaking === `${page.offset}:${index}` ? 'Stop reading aloud' : 'Read response aloud'} title="Read response aloud" onClick={() => void speak(m, page, index)}>{speaking === `${page.offset}:${index}` ? <Square size={15}/> : <Volume2 size={16}/>}</button>}</div>
-      {m.role === 'tool' ? <HistoryDisclosure label="View tool output" onInteract={pauseFollowing}><pre>{text || 'No output.'}</pre></HistoryDisclosure> : <div className="markdown">
-        <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({ href, children }) => <MessageLinkContributions href={href} conversationId={conversationId}>{children}</MessageLinkContributions>, img: ({ alt }) => <span className="attachment-placeholder">[{alt || 'Image attachment'}]</span> }}>{text}</ReactMarkdown>
-        <MessageMedia message={m} conversationId={conversationId} offset={page.offset} index={index} order={page.order || 'oldest'}/>
-        {!!m.tool_calls?.length && <HistoryDisclosure label={`${m.tool_calls.length} tool call${m.tool_calls.length === 1 ? '' : 's'}`} onInteract={pauseFollowing}><pre>{JSON.stringify(m.tool_calls, null, 2)}</pre></HistoryDisclosure>}
-      </div>}
-    </article>;
-  }
-  return <div className="history" ref={root}><div className="history-note"><span>{cached ? 'Saved history · ' : 'Available history · '}{pages[0] ? time(pages[0].fetchedAt) : 'Hermes'}<small>Earlier messages may be unavailable after compaction or rotation.</small></span><button className="icon-button" aria-label="Refresh conversation history" disabled={busy} onClick={() => void latest()}><RefreshCw size={15} className={busy ? 'spin' : ''}/></button></div>
+  const speakRef = useRef(speak); speakRef.current = speak;
+  const onSpeak = useCallback((message: any, page: History, index: number) => { void speakRef.current(message, page, index); }, []);
+  function renderMessage(entry: HistoryEntry) { if (entry.key === replaceReply) entry = { ...entry, message: { ...entry.message, content: liveText } }; return <HistoryMessage key={entry.key} entry={entry} conversationId={conversationId} speaking={speaking === `${entry.page.offset}:${entry.index}`} onSpeak={onSpeak} pauseFollowing={pauseFollowing}/>; }
+  const refreshButton = <button className="icon-button history-refresh" aria-label="Refresh conversation history" disabled={busy || !conversationId} onClick={() => void refresh()}><RefreshCw size={15} className={busy ? 'spin' : ''}/></button>;
+  return <div className="history" ref={root}>{(cached || !toolbar) && <div className="history-note">{cached && <span role="status">Showing saved messages</span>}{!toolbar && refreshButton}</div>}{toolbar && createPortal(refreshButton, toolbar)}
     {error && <p className="inline-error" role="alert">{error}</p>}
     {pages[0]?.hasMore && <button className="load-more" disabled={busy} onClick={() => void older()}>{busy ? 'Loading…' : 'Load older messages'}</button>}
     {groups.map(group => group.kind === 'message' ? renderMessage(group.entry) : <HistoryDisclosure key={group.key} activityKey={group.key} label={<><span className="hermes-mark">H</span><span>Hermes activity</span><span className="activity-count">{activitySummary(group)}</span></>} onInteract={pauseFollowing}>{group.entries.map(renderMessage)}</HistoryDisclosure>)}
     {showOutgoing && <OutgoingFeedback message={outgoing} action={outgoingAction}/>}
     {showLive && <article className="message live-message"><div className="message-author"><span className="hermes-mark">H</span>Hermes </div><div className="markdown"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({ href, children }) => <MessageLinkContributions href={href} conversationId={conversationId}>{children}</MessageLinkContributions>, img: ({alt}) => <span>[{alt || 'Image'}]</span> }}>{liveText}</ReactMarkdown></div></article>}
     {!pages.some(p => p.messages.length) && !outgoing && !liveText && !busy && !error && <p className="history-empty">No messages are available yet.</p>}
-    {newMessages && <button className="load-more" onClick={() => void latest()}>Show latest messages</button>}
+    {newMessages && <button className="history-latest" onClick={() => void latest()}>Show latest messages</button>}
     <div ref={end}/>
   </div>;
 }
 function OutgoingFeedback({ message, action }: { message: OutgoingMessage; action?: Action }) {
   return <article className="message from-user outgoing-message" data-outgoing-id={message.id}><div className="message-author">You <span className="submission-status">{outgoingStatus(action)}</span></div>{message.text && <div className="outgoing-text">{message.text}</div>}{message.uploadIds.length > 0 && <div className="subtle-note">{message.uploadIds.length} attachment{message.uploadIds.length === 1 ? '' : 's'}</div>}</article>;
 }
+
+const HistoryMessage = memo(function HistoryMessage({ entry: { key: entryKey, message: m, page, index }, conversationId, speaking, onSpeak, pauseFollowing }: {
+  entry: HistoryEntry; conversationId: string; speaking: boolean; onSpeak: (message: any, page: History, index: number) => void; pauseFollowing: () => void;
+}) {
+    const text = messageText(m), background = backgroundResultLabel(m), assistant = !background && m.role === 'assistant';
+    return <article className={`message ${!background && m.role === 'user' ? 'from-user' : ''} ${m.role === 'tool' ? 'tool-message' : ''}`} key={entryKey} data-history-message={entryKey}>
+      <div className="message-author">{background ? <><span className="hermes-mark">H</span>{background}</> : assistant ? <><span className="hermes-mark">H</span>Hermes</> : m.role === 'user' ? 'You' : 'Tool output'}<MessageTime timestamp={m.timestamp}/>{assistant && text.trim() && <button className="read-aloud icon-button" aria-label={speaking ? 'Stop reading aloud' : 'Read response aloud'} title="Read response aloud" onClick={() => onSpeak(m, page, index)}>{speaking ? <Square size={15}/> : <Volume2 size={16}/>}</button>}</div>
+      {m.role === 'tool' ? <HistoryDisclosure label="View tool output" onInteract={pauseFollowing}><pre>{text || 'No output.'}</pre></HistoryDisclosure> : <div className="markdown">
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({ href, children }) => <MessageLinkContributions href={href} conversationId={conversationId}>{children}</MessageLinkContributions>, img: ({ alt }) => <span className="attachment-placeholder">[{alt || 'Image attachment'}]</span> }}>{text}</ReactMarkdown>
+        <MessageMedia message={m} conversationId={conversationId} offset={page.offset} index={index} order={page.order || 'oldest'}/>
+        {!!m.tool_calls?.length && <HistoryDisclosure label={`${m.tool_calls.length} tool call${m.tool_calls.length === 1 ? '' : 's'}`} onInteract={pauseFollowing}><pre>{JSON.stringify(m.tool_calls, null, 2)}</pre></HistoryDisclosure>}
+      </div>}
+    </article>;
+}, (a, b) => a.conversationId === b.conversationId && a.speaking === b.speaking && a.entry.key === b.entry.key && a.entry.page.offset === b.entry.page.offset && a.entry.page.order === b.entry.page.order && a.entry.index === b.entry.index && JSON.stringify(a.entry.message) === JSON.stringify(b.entry.message));

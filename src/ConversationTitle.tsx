@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { ConversationContext } from '../shared/conversations';
-import { renameConversationTitle, useApp } from './data';
+import { createLocalConversation, getState, renameConversationTitle, useApp } from './data';
 import { useUpdatePreparation, useUpdateWork } from './updateSafety';
 import { cleanConversationTitle } from '../shared/conversationTitles';
 
@@ -15,7 +15,7 @@ export function ConversationTitle({ context }: { context: ConversationContext })
     const next = cleanConversationTitle(draft.text);
     if (!next || next === draft.baseTitle) { setDraft(null); setError(''); return; }
     setBusy(true); setError('');
-    try { await renameConversationTitle(context.id, next, draft.baseTitle); setDraft(null); }
+    try { if (!getState().snapshot.contexts.some(c => c.id === context.id)) await createLocalConversation(next, context.id); else await renameConversationTitle(context.id, next, draft.baseTitle); setDraft(null); }
     catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   }

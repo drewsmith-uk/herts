@@ -2,6 +2,8 @@
 
 Herts is a personal app with manual priorities and deliberate agent execution.
 
+Headings, field labels and actions should explain the interface without a permanent tutorial. Supporting text is reserved for current status, errors, recovery and consequences that a control does not make clear. General behaviour, storage details and optional shortcuts belong in documentation. Show relevant advice at the point of need; for example, an excerpt warning belongs with an incomplete article, and update results appear after checking.
+
 Conversations is always available. Tasks and Reading are optional plugins, enabled through **Settings → Plugins**. New installations start with Conversations only; existing installations retain both plugins and their data. Disabling or removing a plugin pauses its jobs and hides its screens and contributions, while retaining its data and core conversations. Reset is a separate, explicitly confirmed deletion. See [plugin lifecycle and data retention](plugins.md).
 
 ## Tasks and spaces
@@ -10,7 +12,7 @@ Each task space has Inbox, Next, Waiting, Parked, Snoozed and Done. Create and r
 
 Delete empty added spaces from **Settings → Plugins → Tasks**, after confirmation. Done and Snoozed tasks also count as content; move them elsewhere first. Local capture drafts and saved dictation must be saved or cleared first. The original space remains as a renameable fallback, and becomes the default if the deleted space was the default. The server rechecks emptiness so concurrent task creation cannot be erased by a stale deletion.
 
-Capture requires only a title. A task has no Hermes conversation until its first deliberate send. List order expresses priority. Moves normally put tasks at the top of the destination; Done is sorted by completion time and Snoozed by reminder time. Moving between spaces puts the same task in the destination Inbox, retaining its conversation and ongoing work. Settings selects the default space for conversation conversion and the voice shortcut.
+Capture accepts a message, attachments or an optional title. Save to Inbox creates an unsent task in the selected space's Inbox, including when viewing another list. A task has no Hermes conversation until its first deliberate send. List order expresses priority. Moves normally put tasks at the top of the destination; Done is sorted by completion time and Snoozed by reminder time. Moving between spaces puts the same task in the destination Inbox, retaining its conversation and ongoing work. Settings selects the default space for conversation conversion and the voice shortcut.
 
 Hold an item still to begin dragging. Drop it between items, onto another list, or onto a space tab (that space's Inbox). Edit list provides accessible reorder buttons and inline title editing. Otherwise edit titles on the detail page. Completing/reopening a task never stops Hermes or deletes history.
 
@@ -44,7 +46,7 @@ Pending choices survive reloads and offline use. Settings have revisions; concur
 
 ## Reading
 
-Reading items are separate from tasks. Adding a new URL creates a reading context and deliberately sends the URL to Hermes. Sharing a URL into the app uses this flow, with a title review. Bookmark a link in an existing conversation to create a reading item without another agent message. The selected link is its reading target; the same conversation may have several different reading links, but the same conversation/link pair is deduplicated. A bookmark already saved opens its existing reading item.
+Reading items are separate from tasks. Adding or sharing a URL opens a reviewable message draft. Save link creates an unsent reading item; Send creates the item and submits the reviewed message to Hermes. Bookmark a link in an existing conversation to create a reading item without another agent message. The selected link is its reading target; the same conversation may have several different reading links, but the same conversation/link pair is deduplicated. A bookmark already saved opens its existing reading item.
 
 A reading association does not count as a task link and does not hide the conversation from browsing. A reading conversation can still become a task. Both views continue the same conversation and share execution controls. Marking a reading item read is independent of task completion.
 
@@ -58,6 +60,6 @@ Server SQLite stores task/space/reading data, conversation links, uploads, actio
 
 Submitted messages have durable IDs/receipts. If acceptance cannot be confirmed, Herts retains the submission and distinguishes uncertainty from rejection. It does not automatically repeat an uncertain agent action. Browser drafts are not server backups. Device security protects cached data; clearing browser storage loses unsynced work.
 
-Microphone capture and read-aloud are explicit. Title dictation fills a capture field for review/save. Conversation dictation can send after a cancellable countdown. Read-aloud applies to backend assistant responses, with playback controls. Audio is processed through the selected Hermes profile; OS/browser dictation is not substituted.
+Microphone capture and read-aloud are explicit. Dictation appends to the shared editable message draft for review. Messages are sent only by pressing Send; there is no countdown or automatic sending. Read-aloud applies to backend assistant responses, with playback controls. Audio is processed through the selected Hermes profile; OS/browser dictation is not substituted.
 
 Production access requires the configured Tailscale user and app origin. Secrets stay on the server. Notifications intentionally include task titles. Herts supports one user per deployment; spaces are organisational groups, not security boundaries. The backend token may grant broad access to Hermes, so keep it private and bind the backend to loopback or protect its HTTPS endpoint.

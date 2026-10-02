@@ -6,7 +6,7 @@ import type { ConversationContext } from '../shared/conversations';
 import { emptySettings, sameSetting, type SettingsState, type SessionValues } from '../shared/sessionSettings';
 import { emptyCatalogue, type PluginCatalogue, type PluginData, type PluginOperation } from '../shared/plugins';
 import { migrateDevice, migrateDeviceSpaces } from './legacyDeviceMigration';
-import { discardResetDrafts } from './draftJournal';
+import { discardResetDrafts, stageDraft, pendingDraft, pendingDraftKeys, draftIsCurrent, acknowledgeDraft, type DraftWrite } from './draftJournal';
 import type { ClientPlugin } from './pluginContract';
 export interface LocalFile {
     owner?: string;
@@ -17,6 +17,8 @@ export interface LocalFile {
     hash?: string;
 }
 export interface Draft {
+    /** Receipt for this exact text/files; editing clears it. Never an instruction to resend. */
+    submissionId?: string;
     id: string;
     text: string;
     files: string[];
@@ -197,6 +199,16 @@ export async function acceptPlugins(catalogue: PluginCatalogue, data: Record<str
             const prior = (await db.kv.get(`plugin-generation:${entry.manifest.id}`))?.value ?? 0;
             if (entry.generation > 0) {
                 await db.pluginPending.where('pluginId').equals(entry.manifest.id).filter(p => p.operation.generation < entry.generation).delete();
+                for (const row of await db.kv.where('key').startsWith('entry-owner:').toArray()) {
+                    const owner = row.value, id = row.key.slice('entry-owner:'.length);
+                    if (owner.id !== entry.manifest.id || owner.generation >= entry.generation) continue;
+                    if (await db.kv.get(`entry-route:${id}`)) {
+                        await db.drafts.delete(id); await db.recordings.where('owner').equals(`chat:${id}`).delete();
+                        await db.kv.bulkDelete([`context-draft:${id}`, `entry-route:${id}`, `entry-fields:${id}`]);
+                        await db.kv.put({ key: `context-draft-deleted:${id}`, value: true });
+                    }
+                }
+
                 for (const row of await db.pluginLocal.where('key').startsWith(`${entry.manifest.id}:`).toArray())
                     if (Number(row.key.split(':')[1]) < entry.generation)
                         await db.pluginLocal.delete(row.key);
@@ -227,6 +239,7 @@ export async function acceptPlugins(catalogue: PluginCatalogue, data: Record<str
 }
 export async function initialise() {
     try {
+        for (const key of pendingDraftKeys('core:draft:')) { const write = pendingDraft(key); if (write) await commitConversationDraft(key, write); }
         const saved = (await db.kv.get('state'))?.value, plugins = (await db.kv.get('plugins'))?.value;
         if (saved)
             publish({ remote: { ...empty(), ...saved.snapshot }, actions: saved.actions || [], bindings: {} });
@@ -442,8 +455,10 @@ export async function createLocalConversation(title = 'New conversation', id: st
     const context = { id, title, link: null, aliases: [] } satisfies ConversationContext;
     await db.transaction('rw', db.kv, async () => {
         await assertDraftAvailable(id);
-        await db.kv.put({ key: `context:${id}`, value: context });
-        await db.kv.put({ key: `context-draft:${id}`, value: true });
+        if (!await db.kv.get(`context:${id}`) && !state.snapshot.contexts.some(c => c.id === id)) {
+            await db.kv.put({ key: `context:${id}`, value: context });
+            await db.kv.put({ key: `context-draft:${id}`, value: true });
+        }
     });
     await rebuild();
     return context;
@@ -455,11 +470,24 @@ async function assertDraftAvailable(id: string) {
     if (!state.snapshot.contexts.find(c => c.id === id)?.link && !saved?.snapshot.contexts.find((c: ConversationContext) => c.id === id)?.link)
         throw new Error('This draft was deleted. Start a new conversation to write another message.');
 }
-export async function saveConversationDraft(draft: Draft) {
-    return db.transaction('rw', db.kv, db.drafts, async () => {
-        await assertDraftAvailable(draft.id);
-        return db.drafts.put(draft);
+async function commitConversationDraft(key: string, write: DraftWrite) {
+    const draft = write.value as Draft;
+    await db.transaction('rw', db.kv, db.drafts, async () => {
+        if (!draftIsCurrent(key, write)) return;
+        if (await db.kv.get(`context-draft-deleted:${draft.id}`)) {
+            const saved = (await db.kv.get('state'))?.value;
+            if (!state.snapshot.contexts.find(c => c.id === draft.id)?.link && !saved?.snapshot.contexts.find((c: ConversationContext) => c.id === draft.id)?.link) return;
+        }
+        const owner = (await db.kv.get(`entry-owner:${draft.id}`))?.value;
+        if (owner && ((await db.kv.get(`plugin-generation:${owner.id}`))?.value ?? 0) !== owner.generation) return;
+        await db.drafts.put(draft);
     });
+    acknowledgeDraft(key, write);
+}
+export async function saveConversationDraft(draft: Draft) {
+    const key = `core:draft:${draft.id}`, write = stageDraft(key, draft);
+    await assertDraftAvailable(draft.id);
+    await commitConversationDraft(key, write);
 }
 export async function deleteConversationDraft(id: string) {
     await db.transaction('rw', [db.kv, db.drafts, db.files, db.recordings, db.submissions, db.pluginPending], async () => {
@@ -477,7 +505,7 @@ export async function deleteConversationDraft(id: string) {
         const draft = await db.drafts.get(id);
         await db.drafts.delete(id);
         await db.recordings.where('owner').equals(`chat:${id}`).delete();
-        await db.kv.delete(`context-draft:${id}`);
+        await db.kv.bulkDelete([`context-draft:${id}`, `entry-route:${id}`, `entry-fields:${id}`, `entry-owner:${id}`]);
         // Retain a small deletion marker so a failed-send snapshot, stale URL,
         // or an older editor cannot restore the local draft after a refresh.
         await db.kv.put({ key: `context-draft-deleted:${id}`, value: true });

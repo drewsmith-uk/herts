@@ -16,7 +16,7 @@
   "shortcuts": [
     {
       "name": "New voice task",
-      "description": "Record a task title, then review and add it to Inbox",
+      "description": "Dictate a message, then review and save it or send to Hermes",
       "url": "/#/tasks/inbox/record"
     }
   ]

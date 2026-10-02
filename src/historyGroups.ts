@@ -15,7 +15,7 @@ export function activitySummary(group: Extract<HistoryGroup, { kind: 'activity' 
 // Keep page coordinates for media and read-aloud, but group across page boundaries.
 export function groupHistory(pages: History[], previous: HistoryGroup[] = []): HistoryGroup[] {
   const priorKeys = new Map(previous.flatMap(group => group.kind === 'activity' ? group.entries.map(entry => [entry.key, group.key] as const) : []));
-  const groups: HistoryGroup[] = [], usedKeys = new Set<string>();
+  const groups: HistoryGroup[] = [], usedKeys = new Set<string>(), seen = new Set<string>();
   let activity: HistoryEntry[] = [];
   function flush() {
     if (!activity.length) return;
@@ -26,8 +26,10 @@ export function groupHistory(pages: History[], previous: HistoryGroup[] = []): H
     groups.push({ kind: 'activity', key, entries: activity, calls: activity.reduce((n, entry) => n + (entry.message.tool_calls?.length || 0), 0), results: activity.filter(entry => backgroundResultLabel(entry.message)).length });
     activity = [];
   }
+  const latest = new Map<string, ChatMessage>(pages.flatMap(page => page.messages.map((message, index) => [`${page.sessionId}:${message.id ?? `${page.offset}:${index}`}`, message] as const)));
   for (const page of pages) for (const [index, message] of page.messages.entries()) {
     const entry = { key: `${page.sessionId}:${message.id ?? `${page.offset}:${index}`}`, message, page, index };
+    if (latest.get(entry.key) !== message || seen.has(entry.key)) continue; seen.add(entry.key);
     const hasContent = !!messageText(message).trim() || mediaRefs(message).length > 0;
     if (backgroundResultLabel(message) || message.role === 'tool' || (message.role === 'assistant' && !hasContent && !!message.tool_calls?.length)) {
       activity.push(entry);

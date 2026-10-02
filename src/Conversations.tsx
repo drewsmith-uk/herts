@@ -4,6 +4,9 @@ import { liveQuery } from 'dexie';
 import { Search, X, MessageSquare, LoaderCircle, Plus, Trash2, Eye, EyeOff } from 'lucide-react';
 import { db, useApp, cacheRead, api, setConversationHidden, contextForConversation, openConversation, createLocalConversation, deleteConversationDraft, saveConversationDraft, type Draft } from './data';
 import { conversationHidden, messageText, type Conversation } from '../shared/core';
+import { MessageComposer } from './MessageComposer';
+import { useListState } from './listState';
+import { useEntryDraft } from './entryDraft';
 import { ConversationPanel, HistoryView } from './Conversation';
 import { ConversationHeader } from './ConversationHeader';
 import { ConversationTitle } from './ConversationTitle';
@@ -14,14 +17,14 @@ const time = (at: number) => new Date(at).toLocaleString(undefined, { dateStyle:
 async function savedConversations(query: string, known: Conversation[] = []) { const entries = await db.kv.toArray(), lists = entries.filter(r => r.key.startsWith('conversations:')); const matches = new Set(known.map(c => c.key)); const all = [...new Map(lists.flatMap(r => r.value.conversations || []).map((c: Conversation) => [c.key, c])).values()] as Conversation[]; return all.filter(c => matches.has(c.key) || `${c.title} ${c.preview} ${entries.filter(e => c.aliases.some(id => e.key.startsWith(`history:${id}:`))).flatMap(e => e.value.messages || []).map(messageText).join(' ')}`.toLowerCase().includes(query.toLowerCase())).sort((a, b) => b.updatedAt - a.updatedAt); }
 export function Conversations() {
     const state = useApp(), plugins = usePlugins();
-    const [showAll, setShowAll] = useState(false);
+    const [showAll, setShowAll] = useListState('conversations:all', false);
     const [retry, setRetry] = useState(0);
-    const [query, setQuery] = useState(''), [rows, setRows] = useState<Conversation[]>([]), [offset, setOffset] = useState(0), [more, setMore] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(''), [cached, setCached] = useState(false), [notice, setNotice] = useState<{
+    const [query, setQuery] = useListState('conversations:query', ''), [rows, setRows] = useState<Conversation[]>([]), [offset, setOffset] = useListState('conversations:offset', 0), [more, setMore] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(''), [cached, setCached] = useState(false), [notice, setNotice] = useState<{
         text: string;
         route?: string;
         undo?: Conversation;
     }>(), [working, setWorking] = useState(''), [chooser, setChooser] = useState<Conversation>();
-    const [savedDrafts, setSavedDrafts] = useState<{ ids: string[]; deleted: string[]; messages: Draft[] }>({ ids: [], deleted: [], messages: [] });
+    const [savedDrafts, setSavedDrafts] = useState<{ ids: string[]; deleted: string[]; messages: Draft[]; routes: Record<string, string>; recordings: string[] }>({ ids: [], deleted: [], messages: [], routes: {}, recordings: [] });
     const [draftError, setDraftError] = useState(''), [showAllDrafts, setShowAllDrafts] = useState(false);
     const [deletingDraft, setDeletingDraft] = useState<{ id: string; title: string }>(), [deleting, setDeleting] = useState(false), [deleteError, setDeleteError] = useState(''), [draftNotice, setDraftNotice] = useState('');
     async function removeDraft() {
@@ -37,7 +40,8 @@ export function Conversations() {
     const filterPlugins = plugins.filter(p => p.definition.filter), swipes = plugins.filter(p => p.definition.swipe);
     const activeFilterPlugins = showAll ? [] : filterPlugins;
     const filterKey = activeFilterPlugins.map(p => `${p.id}:${p.definition.filter!.id}`).join(','), listVersion = JSON.stringify([state.snapshot.hiddenConversations, state.plugins.revision, ...plugins.map(p => state.pluginData[p.id]?.revision), state.pluginPending.map(p => p.id)]);
-    useEffect(() => { setOffset(0); setRows([]); }, [query, showAll, filterKey]);
+    const previousFilter = useRef([query, showAll, filterKey].join(':'));
+    useEffect(() => { const key = [query, showAll, filterKey].join(':'); if (previousFilter.current !== key) { setOffset(0); setRows([]); previousFilter.current = key; } }, [query, showAll, filterKey]);
     useEffect(() => {
         let alive = true;
         const controller = new AbortController();
@@ -100,6 +104,8 @@ export function Conversations() {
             ids: (await db.kv.where('key').startsWith('context-draft:').primaryKeys()).map(key => key.slice('context-draft:'.length)),
             deleted: (await db.kv.where('key').startsWith('context-draft-deleted:').primaryKeys()).map(key => key.slice('context-draft-deleted:'.length)),
             messages: await db.drafts.toArray(),
+            routes: Object.fromEntries((await db.kv.where('key').startsWith('entry-route:').toArray()).map(row => [row.key.slice('entry-route:'.length), row.value])),
+            recordings: (await db.recordings.toArray()).map(row => row.owner),
         })).subscribe({ next: value => { setSavedDrafts(value); setDraftError(''); }, error: () => setDraftError('Saved drafts could not be loaded. Reload to try again.') });
         return () => subscription.unsubscribe();
     }, []);
@@ -109,7 +115,7 @@ export function Conversations() {
         const attempt = state.actions.filter(a => !a.cancelled && a.kind === 'send' && a.taskId === context.id).sort((a, b) => b.createdAt - a.createdAt)[0];
         const hasDraft = !!message?.text.trim() || !!message?.files.length;
         return { ...context, preview: hasDraft ? message!.text : attempt?.text || '', files: hasDraft ? message!.files.length : attempt?.uploadIds.length || 0 };
-    });
+    }).filter(c => c.preview.trim() || c.files || savedDrafts.recordings.includes(`chat:${c.id}`) || savedDrafts.routes[c.id] || c.title !== 'New conversation' || state.actions.some(a => a.taskId === c.id && !a.cancelled));
     const draftQuery = query.trim().toLowerCase();
     const matchingDrafts = drafts.filter(c => `${c.title} ${c.preview}`.toLowerCase().includes(draftQuery));
     const displayedDrafts = showAllDrafts || draftQuery ? matchingDrafts : matchingDrafts.slice(0, 3);
@@ -119,9 +125,8 @@ export function Conversations() {
     {draftNotice && <StatusMessage tone="notice">{draftNotice}</StatusMessage>}
     {drafts.length > 0 && <section className="conversation-drafts" aria-labelledby="conversation-drafts-heading">
       <h2 id="conversation-drafts-heading">Drafts <span className="heading-count">{matchingDrafts.length}</span></h2>
-      <p className="conversation-drafts-note">Not sent to Hermes. Draft text is saved on this device.</p>
       <ItemList id="conversation-drafts-list">{displayedDrafts.map(c => <ItemRow key={c.id} trailing={<Button variant="quiet" aria-label={`Delete draft: ${c.title}`} onClick={() => { setDeleteError(''); setDraftNotice(''); setDeletingDraft({ id: c.id, title: c.title }); }}><Trash2 size={16} aria-hidden="true"/> Delete</Button>}>
-        <a className="draft-open" href={`#/draft/${encodeURIComponent(c.id)}`}><h3 className="item-title">{c.title}</h3><p className="item-preview">{c.preview || (c.files ? `${c.files} attachment${c.files === 1 ? '' : 's'}` : 'No message yet')}</p>
+        <a className="draft-open" href={`#${savedDrafts.routes[c.id] || `/draft/${encodeURIComponent(c.id)}`}`}><h3 className="item-title">{c.title}</h3><p className="item-preview">{c.preview || (c.files ? `${c.files} attachment${c.files === 1 ? '' : 's'}` : 'No message yet')}</p>
         {!!c.files && !!c.preview && <ItemMeta><span>{c.files} attachment{c.files === 1 ? '' : 's'}</span></ItemMeta>}
         </a>
       </ItemRow>)}</ItemList>
@@ -138,7 +143,6 @@ export function Conversations() {
     </DialogFrame>}
     {drafts.length > 0 && <h2 className="conversation-list-heading">Hermes conversations</h2>}
     <div className="conversation-filters"><label className="conversation-filter"><input type="checkbox" checked={showAll} onChange={e => setShowAll(e.target.checked)}/>Show all</label></div>
-    <p className="conversation-gesture-hint">{swipes.length ? 'Swipe right for conversation actions, left to hide.' : 'Swipe left to hide.'}</p>
     {notice && <StatusMessage tone="notice" className="conversation-notice"><span>{notice.text}</span>{notice.route && <a href={`#${notice.route}`}>Open</a>}{notice.undo && <button onClick={() => void hide({ ...notice.undo!, hidden: true })}>Undo</button>}</StatusMessage>}
     {error && <StatusMessage>{error}</StatusMessage>}{cached && <div><span className="eyebrow">SAVED ON THIS DEVICE</span><p>Offline results cover conversations previously viewed on this device.</p></div>}
     <ItemList divided className="conversation-list">{visible.map(c => <ConversationRow key={c.key} conversation={c} badges={<ConversationBadges conversation={c}/>} canActOffline={swipes.some(p=>pluginHook(p,()=>p.definition.swipe?.canRunOffline?.(c)||false,false))} updatedAt={time(c.updatedAt)} online={state.online} busy={working === c.key} actionLabel={swipes.length === 1 ? pluginHook(swipes[0], () => swipes[0].definition.swipe!.label(c), 'Actions') : swipes.length ? 'Actions' : undefined} onAction={kind => kind === 'visibility' ? hide(c) : swipe(c)}/>)}</ItemList>
@@ -167,18 +171,19 @@ export function ConversationView({ id }: {
         setBusy(false);
     } }
     return <div className="conversation-detail"><ConversationHeader title={current.title} backHref="#/conversations" backLabel="Conversations" context={context} conversation={current}><div className="page-heading conversation-detail-heading">{context ? <ConversationTitle context={context}/> : <h1>{current.title}</h1>}</div><div className="conversation-header-actions"><button disabled={busy} onClick={() => void hide()}>{hidden ? <Eye size={16}/> : <EyeOff size={16}/>} {hidden ? 'Unhide conversation' : 'Hide conversation'}</button></div></ConversationHeader>
-    {context ? <ConversationPanel key={context.id} context={context} showActions={false} showHeading={false}/> : <><HistoryView conversationId={id}/><p role="status">{state.online ? error || 'Opening conversation…' : 'Connect once to enable messaging for this conversation.'}</p>{state.online && error && <button onClick={() => setAttempt(n => n + 1)}>Try again</button>}</>}{context && error && <p role="alert">{error}</p>}</div>;
+    <ConversationPanel context={context || { id, title: current.title, aliases: current.aliases, link: { ...current, storedId: id } }} readOnly={!context} showActions={false} showHeading={false}/>{!context && error && <p role="alert"><span>{error}</span> <button onClick={() => setAttempt(n => n + 1)}>Try again</button></p>}</div>;
 }
-export function NewConversation({ id, shared }: {
-    id?: string;
-    shared?: SharedContent;
-}) {
-    const state = useApp(), [draftId] = useState(() => id || crypto.randomUUID()), [error, setError] = useState(''), [deleted, setDeleted] = useState<boolean | null>(null);
-    const context = state.snapshot.contexts.find(c => c.id === draftId);
-    useEffect(() => { const subscription = liveQuery(() => db.kv.get(`context-draft-deleted:${draftId}`)).subscribe({ next: row => setDeleted(!!row), error: () => setError('This draft could not be opened. Reload to try again.') }); return () => subscription.unsubscribe(); }, [draftId]);
-    useEffect(() => { if (id || context)
-        return; let active = true; void createLocalConversation(shared?.title || 'New conversation', draftId).then(async () => { if (shared)
-        await saveConversationDraft({ id: draftId, text: [shared.text, shared.url].filter((v, i, a) => v && a.indexOf(v) === i).join('\n'), files: [] }); if (active) { history.replaceState(null, '', `/#/draft/${draftId}`); dispatchEvent(new PopStateEvent('popstate')); } }).catch(e => { if (active) setError(e.message); }); return () => { active = false; }; }, [draftId]);
-    if (deleted && !context?.link || id && state.loaded && !context) return <><PageHeader title="Draft unavailable" description={deleted ? 'This draft was deleted from this device.' : 'This draft is not saved on this device.'}/><ButtonLink href="#/conversations">Back to conversations</ButtonLink></>;
-    return <div className="conversation-detail"><ConversationHeader title={context?.title || 'New conversation'} backHref="#/conversations" backLabel="Conversations" context={context}>{context ? <ConversationTitle context={context}/> : <h1>New conversation</h1>}</ConversationHeader>{context && deleted !== null && <ConversationPanel context={context} showActions={false} showHeading={false}/>} {error && <p role="alert">{error}</p>}</div>;
+export function NewConversation({ id, shared, initialId }: { id?: string; shared?: SharedContent; initialId?: string }) {
+    const state = useApp(), [draftId] = useState(() => id || initialId || crypto.randomUUID());
+    const entry = useEntryDraft({ key: shared ? `share:${JSON.stringify(shared)}` : 'new', id: shared ? undefined : draftId, route: draftId => `/draft/${draftId}`,
+      initialText: shared ? [shared.text, shared.url].filter((v, i, a) => v && a.indexOf(v) === i).join('\n') || shared.title : undefined,
+      initialFields: shared?.title ? { title: shared.title } : undefined });
+    const [deleted, setDeleted] = useState(false);
+    useEffect(() => { if (!id && !shared && entry.id && state.snapshot.contexts.some(c => c.id === entry.id)) { history.replaceState(history.state, '', `/#/draft/${entry.id}`); dispatchEvent(new PopStateEvent('popstate')); } }, [id, shared, entry.id, state.snapshot.contexts]);
+    useEffect(() => { if (!entry.id) return; const sub = liveQuery(() => db.kv.get(`context-draft-deleted:${entry.id}`)).subscribe(row => setDeleted(!!row)); return () => sub.unsubscribe(); }, [entry.id]);
+    if ((deleted && !entry.context.link) || (id && entry.id && state.loaded && !state.snapshot.contexts.some(c => c.id === id))) return <><PageHeader title="Draft unavailable" description="This draft was deleted from this device."/><ButtonLink href="#/conversations">Back to conversations</ButtonLink></>;
+    return <div className="conversation-detail"><ConversationHeader title={entry.context.title} backHref="#/conversations" backLabel="Conversations" context={entry.id ? entry.context : undefined}>{entry.id && <ConversationTitle context={entry.context}/>}</ConversationHeader>
+      {entry.id && (entry.context.link ? <ConversationPanel context={entry.context} showActions={false} showHeading={false}/> : <MessageComposer context={entry.context} persist={entry.persist} allowSaveEmpty={entry.context.title !== 'New conversation'} saveLabel="Save draft" onSaved={async () => { await entry.complete(); location.hash = '/conversations'; }} onSent={async () => { await entry.complete(); history.replaceState(null, '', `/#/draft/${entry.id}`); dispatchEvent(new PopStateEvent('popstate')); }}/>) }
+      {entry.error && <p role="alert">{entry.error}</p>}
+    </div>;
 }

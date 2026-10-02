@@ -1,3 +1,4 @@
+import { detailsField, detailsControl } from './composer-helpers';
 import { randomUUID } from 'node:crypto';
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 
@@ -7,7 +8,7 @@ async function create(request: APIRequestContext, title: string) {
   expect(response.ok()).toBe(true); return `/#/reading-item/${itemId}`;
 }
 async function edit(page: Page, title: string) {
-  await page.getByLabel('Reading title', { exact: true }).fill(title);
+  await (await detailsField(page, 'Reading title')).fill(title);
 }
 const agentCalls = async (request: APIRequestContext) => (await (await request.get('http://127.0.0.1:8791/calls')).json() as string[]).filter(method => ['session.create', 'session.resume', 'prompt.submit'].includes(method));
 
@@ -18,31 +19,31 @@ test('reading titles save on blur, restore blank edits, survive offline reload a
   await expect(page.locator('.offline-controls')).toContainText('Available offline');
   await expect(page.getByRole('button', { name: /^(Edit title|Save title)$/ })).toHaveCount(0);
   await edit(page, '   ');
-  await page.getByLabel('Reading title', { exact: true }).blur();
-  await expect(page.getByLabel('Reading title', { exact: true })).toHaveValue('Shared reading title');
+  await (await detailsField(page, 'Reading title')).blur();
+  await expect((await detailsField(page, 'Reading title'))).toHaveValue('Shared reading title');
   await page.evaluate(() => navigator.serviceWorker.ready);
   await context.setOffline(true);
   await edit(page, '  Saved offline reading title  ');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/reading-title-edit-phone.png', fullPage: true });
-  await page.getByLabel('Reading title', { exact: true }).blur();
-  await expect(page.getByLabel('Reading title', { exact: true })).toHaveValue('Saved offline reading title');
+  await (await detailsField(page, 'Reading title')).blur();
+  await expect((await detailsField(page, 'Reading title'))).toHaveValue('Saved offline reading title');
   await page.reload();
-  await expect(page.getByLabel('Reading title', { exact: true })).toHaveValue('Saved offline reading title');
+  await expect((await detailsField(page, 'Reading title'))).toHaveValue('Saved offline reading title');
   await expect(page.locator('.offline-controls')).toContainText('Available offline');
   await page.goto('/#/reading');
   await expect(page.getByRole('link', { name: 'Saved offline reading title', exact: true })).toBeVisible();
   await context.setOffline(false);
-  await expect(page.locator('.save-state')).toContainText('All changes saved');
+  await expect(page.locator('.save-state')).toContainText('Changes synced');
   await page.getByRole('link', { name: 'Saved offline reading title', exact: true }).click();
-  await page.getByRole('button', { name: 'Mark read', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Mark unread', exact: true })).toBeVisible();
+  await (await detailsControl(page, 'button', 'Mark read')).click();
+  await expect((await detailsControl(page, 'button', 'Mark unread'))).toBeVisible();
   await edit(page, 'Finished article title');
-  await page.getByLabel('Reading title', { exact: true }).blur();
-  await expect(page.locator('.save-state')).toContainText('All changes saved');
+  await (await detailsField(page, 'Reading title')).blur();
+  await expect(page.locator('.save-state')).toContainText('Changes synced');
   await page.reload();
-  await expect(page.getByLabel('Reading title', { exact: true })).toHaveValue('Finished article title');
-  await expect(page.getByRole('button', { name: 'Mark unread', exact: true })).toBeVisible();
+  await expect((await detailsField(page, 'Reading title'))).toHaveValue('Finished article title');
+  await expect((await detailsControl(page, 'button', 'Mark unread'))).toBeVisible();
   await page.getByRole('link', { name: 'Back to Reading list', exact: true }).click();
   await expect(page.getByRole('link', { name: 'Finished article title', exact: true })).toBeVisible();
   expect(await agentCalls(request)).toEqual(before);
@@ -53,24 +54,24 @@ for (const keepMine of [true, false]) test(`competing reading-title edits preser
   const second = await browser.newContext(), other = await second.newPage();
   try {
     await page.goto(url); await other.goto(`http://127.0.0.1:8790${url}`);
-    await expect(page.locator('.save-state')).toContainText('All changes saved');
-    await expect(other.locator('.save-state')).toContainText('All changes saved');
+    await expect(page.locator('.save-state')).toContainText('Changes synced');
+    await expect(other.locator('.save-state')).toContainText('Changes synced');
     await edit(page, 'My draft title');
     await edit(other, 'Other device title');
-    await other.getByLabel('Reading title', { exact: true }).blur();
-    await expect(other.locator('.save-state')).toContainText('All changes saved');
-    await expect(page.getByLabel('Reading title', { exact: true })).toHaveValue('My draft title');
-    await page.getByLabel('Reading title', { exact: true }).blur();
+    await (await detailsField(other, 'Reading title')).blur();
+    await expect(other.locator('.save-state')).toContainText('Changes synced');
+    await expect((await detailsField(page, 'Reading title'))).toHaveValue('My draft title');
+    await (await detailsField(page, 'Reading title')).blur();
     const conflict = page.locator('.conflict-banner');
     await expect(conflict).toContainText('Your title: My draft title');
     await expect(conflict).toContainText('Synced title: Other device title');
     await conflict.getByRole('button', { name: keepMine ? 'Keep my change' : 'Use synced version', exact: true }).click();
     await expect(conflict).toHaveCount(0);
-    await expect(page.locator('.save-state')).toContainText('All changes saved');
+    await expect(page.locator('.save-state')).toContainText('Changes synced');
     const title = keepMine ? 'My draft title' : 'Other device title';
-    await expect(page.getByLabel('Reading title', { exact: true })).toHaveValue(title);
-    await expect(other.getByLabel('Reading title', { exact: true })).toHaveValue(title);
-    await page.reload(); await expect(page.getByLabel('Reading title', { exact: true })).toHaveValue(title);
+    await expect((await detailsField(page, 'Reading title'))).toHaveValue(title);
+    await expect((await detailsField(other, 'Reading title'))).toHaveValue(title);
+    await page.reload(); await expect((await detailsField(page, 'Reading title'))).toHaveValue(title);
     expect(await agentCalls(request)).toEqual(before);
   } finally { await second.close(); }
 });
@@ -88,10 +89,10 @@ for (const width of [390, 1280]) test(`reading list Edit mode saves inline title
   await input.fill(updated);
   await page.getByRole('button', { name: 'Finish editing', exact: true }).click();
   await expect(page.getByRole('link', { name: updated, exact: true })).toBeVisible();
-  await expect(page.locator('.save-state')).toContainText('All changes saved');
-  await page.goto(url); await expect(page.getByLabel('Reading title', { exact: true })).toHaveValue(updated);
-  await page.getByRole('button', { name: 'Mark read', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Mark unread', exact: true })).toBeVisible();
+  await expect(page.locator('.save-state')).toContainText('Changes synced');
+  await page.goto(url); await expect((await detailsField(page, 'Reading title'))).toHaveValue(updated);
+  await (await detailsControl(page, 'button', 'Mark read')).click();
+  await expect((await detailsControl(page, 'button', 'Mark unread'))).toBeVisible();
   await page.getByRole('link', { name: 'Back to Reading list', exact: true }).click();
   await page.getByRole('button', { name: 'Edit list', exact: true }).click();
   const readRow = page.getByRole('group', { name: updated, exact: true });
@@ -99,7 +100,7 @@ for (const width of [390, 1280]) test(`reading list Edit mode saves inline title
   await readRow.getByLabel('Edit reading title', { exact: true }).fill(finished);
   await readRow.getByLabel('Edit reading title', { exact: true }).press('Enter');
   await expect(page.getByRole('group', { name: finished, exact: true }).getByLabel('Edit reading title', { exact: true })).toHaveValue(finished);
-  await expect(page.locator('.save-state')).toContainText('All changes saved');
+  await expect(page.locator('.save-state')).toContainText('Changes synced');
   await page.reload(); await expect(page.getByRole('link', { name: finished, exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(await agentCalls(request)).toEqual(before);

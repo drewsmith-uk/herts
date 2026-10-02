@@ -1,3 +1,4 @@
+import { detailsField, detailsControl } from './composer-helpers';
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 
 const state = async (request: APIRequestContext) => (await request.get('/api/v1/state')).json();
@@ -17,8 +18,8 @@ for (const width of [390, 1280]) test(`continues a conversation directly with ap
   await page.getByLabel('Search conversations').fill(`Direct conversation ${id}`);
   await page.getByRole('link', { name: new RegExp(`Direct conversation ${id}`) }).click();
   await expect(page.getByLabel('Message Hermes')).toBeEditable();
-  await expect(page.getByLabel('Conversation title', { exact: true })).toHaveValue(`Direct conversation ${id}`);
-  await expect(page.getByLabel('Conversation title', { exact: true })).toBeInViewport();
+  await expect((await detailsField(page, 'Conversation title'))).toHaveValue(`Direct conversation ${id}`);
+  await expect((await detailsField(page, 'Conversation title'))).toBeInViewport();
   await expect(page.getByRole('button', { name: 'Continue', exact: true })).toHaveCount(0);
   expect(await calls(request)).toEqual(beforeCalls);
   await page.getByLabel('Message Hermes').fill(`Please ask approval from ${width}.`);

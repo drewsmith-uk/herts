@@ -28,7 +28,7 @@ for(const width of [390,1280])test(`Stop retires a missing completed session wit
   await expect(page.getByRole('button',{name:'Stop',exact:true})).toHaveCount(0);
   await expect(page.getByLabel('Message Hermes')).toHaveValue('My next question');
   expect(await workCalls(request)).toEqual(before);
-  await page.getByRole('button',{name:'Send',exact:true}).click();
+  await page.getByLabel('Message Hermes').focus(); await page.getByRole('button',{name:'Send',exact:true}).click();
   await expect.poll(async()=>(await workCalls(request)).slice(before.length)).toEqual(['session.resume','prompt.submit']);
   await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
   expect((await workCalls(request)).slice(before.length)).toEqual(['session.resume','prompt.submit']);

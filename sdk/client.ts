@@ -12,3 +12,6 @@ export { useHoldSensors, useDragClickGuard, holdListeners } from '../src/draggin
 import { db } from '../src/data';
 export const conversationDrafts = db.drafts;
 export { PageHeader, Button, ButtonLink, IconButton, SectionNav, SectionLink, ItemList, ItemRow, ItemMeta, SettingsSection, SettingRow, FormField, EmptyState, StatusMessage, DialogFrame } from '../src/ui';
+
+export { MessageComposer, type MessageComposerProps } from '../src/MessageComposer';
+export { useEntryDraft, entryDraftStatus, firstLine, type CaptureAdapter } from '../src/entryDraft';

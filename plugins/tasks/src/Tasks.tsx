@@ -1,3 +1,4 @@
+import { TaskCapture } from './TaskCapture';
 import { PageHeader, Button, IconButton, SectionNav, ItemList, EmptyState, StatusMessage, DialogFrame } from '@herts/plugin-api/client';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Inbox, ArrowRight, Clock3, Pause, Check, Plus, ChevronLeft, ArrowUp, ArrowDown, AlarmClock, Pencil, CheckCheck } from 'lucide-react';
@@ -16,40 +17,15 @@ function TaskList({ spaceId, status, recordRequest }: {
     recordRequest?: string;
 }) {
     const { snapshot } = useApp();
-    const captureId = `capture:${spaceId}`;
     const lists = spaceLists(snapshot, spaceId);
-    const [edit, setEdit] = useState(false), [title, setTitle] = useState(''), [error, setError] = useState('');
-    const [draftLoaded, setDraftLoaded] = useState(false);
-    const saveDraft = useDraftPersistence(db.drafts), savingCapture = useUpdateWork();
+    const [edit, setEdit] = useState(false);
     const tasks = lists[status].ids.map(id => snapshot.tasks.find(t => t.id === id)!).filter(Boolean);
-    async function capture(e: FormEvent) { e.preventDefault(); if (!title.trim())
-        return; try {
-        await createTask(title, spaceId);
-        setTitle('');
-        await db.drafts.delete(captureId);
-    }
-    catch {
-        setError('The task could not be saved. Your title is still here.');
-    } }
-    useEffect(() => {
-        let active = true;
-        void db.drafts.get(captureId).then(d => { if (active) {
-            if (d)
-                setTitle(d.text);
-            setDraftLoaded(true);
-        } }).catch(() => { if (active)
-            setError('Your saved draft could not be opened. Reload to try again.'); });
-        return () => { active = false; };
-    }, []);
-    function updateTitle(text: string) { setTitle(text); return saveDraft({ id: captureId, text, files: [] }).then(() => { }).catch(() => { setError('Draft could not be saved.'); throw new Error('Draft storage unavailable'); }); }
-    const subtitle = { inbox: undefined, next: 'What you want to do next, in your order.', waiting: 'Things waiting on someone or something.', parked: 'Out of the way, ready when you are.', snoozed: 'Back in your Inbox when the reminder is due.', done: 'Finished work, most recent first.' }[status];
-    return <><SpaceTabs spaceId={spaceId}/><PageHeader title={labels[status]} count={tasks.length} description={subtitle} actions={(tasks.length > 0 || edit) && <Button variant="quiet" className={edit ? 'selected' : ''} onClick={() => setEdit(!edit)}><Pencil size={15}/>{edit ? 'Finish editing' : 'Edit list'}</Button>}/>
-    <SectionNav className="mobile-lists" aria-label="Task lists">{statuses.map(s => <TaskDropLink key={s} surface="tabs" spaceId={spaceId} status={s} current={s === status} className={s === status ? 'active' : ''}>{labels[s]} <small>{lists[s].ids.length}</small></TaskDropLink>)}</SectionNav>
-    <form className="capture" onSubmit={e => { void savingCapture(capture(e)); }}><input value={title} disabled={!draftLoaded} onChange={e => updateTitle(e.target.value)} placeholder="What do you need to do?" aria-label="New task title" maxLength={2000}/><Voice owner={captureId} startRequest={draftLoaded ? recordRequest : undefined} onTranscript={text => updateTitle(title ? `${title} ${text}` : text)}/><IconButton type="submit" className="capture-add" disabled={!draftLoaded || !title.trim()} aria-label="Add task"><ArrowRight size={20}/></IconButton></form>
-    {status !== 'inbox' && <p className="capture-note">New tasks go to {spaceName(snapshot, spaceId)} Inbox.</p>}{error && <StatusMessage>{error}</StatusMessage>}
-    {tasks.length > 0 && <div className="list-summary">{status !== 'done' && <span className="list-summary-label">{status === 'snoozed' ? 'REMINDERS' : 'MANUAL ORDER'}</span>}<span>{status === 'done' ? 'Newest first' : status === 'snoozed' ? 'Soonest first' : 'Most important at the top'}</span></div>}
+    const emptyDescription = { inbox: 'Add a task above, or find a conversation worth returning to.', next: 'Move tasks here when you want to work on them next.', waiting: 'Keep tasks here while waiting on someone or something.', parked: 'Keep tasks here until you want to return to them.', snoozed: 'Tasks with reminders appear here until they return to Inbox.', done: 'Completed tasks will appear here.' }[status];
+    return <><SpaceTabs spaceId={spaceId}/><PageHeader title={labels[status]} count={tasks.length} actions={(tasks.length > 0 || edit) && <Button variant="quiet" className={edit ? 'selected' : ''} onClick={() => setEdit(!edit)}><Pencil size={15}/>{edit ? 'Finish editing' : 'Edit list'}</Button>}/>
+    <SectionNav className="mobile-lists" aria-label="Task lists" data-list-position={`tasks:${spaceId}:${status}`}>{statuses.map(s => <TaskDropLink key={s} surface="tabs" spaceId={spaceId} status={s} current={s === status} className={s === status ? 'active' : ''}>{labels[s]} <small>{lists[s].ids.length}</small></TaskDropLink>)}</SectionNav>
+    <TaskCapture spaceId={spaceId} recordRequest={recordRequest}/>
     <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}><ItemList className="task-list">{tasks.map((t, i) => <TaskRow key={t.id} task={t} edit={edit} index={i} tasks={tasks}/>)}</ItemList></SortableContext>
-    {!tasks.length && <EmptyState className="list-empty" icon={status === 'done' ? <CheckCheck size={30}/> : <Inbox size={30}/>} title={status === 'inbox' ? 'A clear Inbox' : `Nothing ${status === 'next' ? 'up next' : status === 'done' ? 'completed yet' : `in ${labels[status]}`}`} description={status === 'inbox' ? 'Add a task above, or find a conversation worth returning to.' : 'Move a task here when it belongs on this list.'}>{status === 'inbox' && <a className="text-link" href="#/conversations">Browse Hermes conversations <ArrowRight size={15}/></a>}</EmptyState>}
+    {!tasks.length && <EmptyState className="list-empty" icon={status === 'done' ? <CheckCheck size={30}/> : <Inbox size={30}/>} title={status === 'inbox' ? 'A clear Inbox' : `Nothing ${status === 'next' ? 'up next' : status === 'done' ? 'completed yet' : `in ${labels[status]}`}`} description={emptyDescription}>{status === 'inbox' && <a className="text-link" href="#/conversations">Browse Hermes conversations <ArrowRight size={15}/></a>}</EmptyState>}
   </>;
 }
 function TaskDetail({ task }: {
@@ -88,7 +64,8 @@ export function TasksScreen({ path, parts, recordRequest, shared }: RouteProps) 
     if (screen === 'plugins' && id === 'tasks' && status === 'reminders')
         return <ReminderSummary id={parts[3]}/>;
     if (path === '/plugins/tasks/share' && shared)
-        return <ShareTask shared={shared}/>;
+        return <TaskCapture spaceId={state.snapshot.defaultSpaceId || originalSpaceId} shared={shared}/>;
+    if (screen === 'plugins' && id === 'tasks' && status === 'capture') return <TaskCapture spaceId={parts[3]} id={parts[4]}/>;
     if (screen === 'task')
         return task ? <TaskDetail key={task.id} task={task}/> : <div className="empty"><p>This task is not available on this device yet.</p><button onClick={() => void refresh()}>Refresh</button></div>;
     return state.snapshot.spaces?.some(s => s.id === space) ? <TaskList key={`${space}:${current}`} spaceId={space} status={current} recordRequest={record || recordRequest}/> : <div className="empty"><p>This space was removed or is not available on this device yet.</p><a href={`#${spacePath(state.viewedSpaceId)}`}>Go to {spaceName(state.snapshot, state.viewedSpaceId)} Inbox</a><button onClick={() => void refresh()}>Refresh</button></div>;
@@ -119,7 +96,7 @@ export function TaskActions({ context, conversation }: ConversationActionProps) 
     finally {
         setBusy(false);
     } }
-    return linked ? <button className="quiet-button" onClick={() => { location.hash = `/task/${linked.id}`; }}>Open task <ArrowRight size={15}/></button> : <><button className="quiet-button" disabled={!state.online} onClick={() => { setTitle(conversation.title); setError(''); setOpen(true); }}><Plus size={16}/> Make a task</button>{open && <DialogFrame close={() => setOpen(false)} busy={busy} aria-labelledby="create-task-title"><form className="create-from-chat" onSubmit={save}><h2 id="create-task-title">Make a task</h2><label>New task in {spaceName(state.snapshot, destination)} Inbox<input autoFocus aria-label="New task from conversation title" value={title} maxLength={2000} onChange={e => setTitle(e.target.value)}/></label><div className="button-row"><button disabled={busy || !title.trim()}>Create task</button><button type="button" disabled={busy} onClick={() => setOpen(false)}>Cancel</button></div><p>This saves a task. It does not start Hermes.</p>{error && <p role="alert">{error}</p>}</form></DialogFrame>}</>;
+    return linked ? <button className="quiet-button" onClick={() => { location.hash = `/task/${linked.id}`; }}>Open task <ArrowRight size={15}/></button> : <><button className="quiet-button" disabled={!state.online} onClick={() => { setTitle(conversation.title); setError(''); setOpen(true); }}><Plus size={16}/> Make a task</button>{open && <DialogFrame close={() => setOpen(false)} busy={busy} aria-labelledby="create-task-title"><form className="create-from-chat" onSubmit={save}><h2 id="create-task-title">Make a task</h2><label>New task in {spaceName(state.snapshot, destination)} Inbox<input autoFocus aria-label="New task from conversation title" value={title} maxLength={2000} onChange={e => setTitle(e.target.value)}/></label><div className="button-row"><button disabled={busy || !title.trim()}>Create task</button><button type="button" disabled={busy} onClick={() => setOpen(false)}>Cancel</button></div>{error && <p role="alert">{error}</p>}</form></DialogFrame>}</>;
 }
 export function TaskConflicts() { const state = useApp(); return <>{state.pending.filter(p => p.conflict).map(p => <div className="conflict-banner" key={p.id}><strong>A change needs your choice</strong><p>{p.conflict}</p><p>Your change: {p.op.title || (p.op.kind === 'snooze' ? `Snooze until ${new Date(p.op.snoozedUntil!).toLocaleString()}` : p.op.status || 'Task reminder')}</p><p>Synced version: {state.remote.tasks.find(t => t.id === p.op.taskId)?.title}</p>{p.op.spaceId && !state.remote.spaces?.some(s => s.id === p.op.spaceId) && <p>The space was deleted. Keeping this change saves it in {spaceName(state.remote, state.remote.defaultSpaceId)} Inbox.</p>}<div className="button-row"><button onClick={() => void resolveConflict(p.id, true)}>Keep my change</button><button onClick={() => void resolveConflict(p.id, false)}>Use synced version</button></div></div>)}{state.spacePending.filter(p => p.conflict).map(p => <SpaceConflict key={p.id} pending={p}/>)}</>; }
 function ReminderSummary({ id }: {
@@ -129,21 +106,3 @@ function ReminderSummary({ id }: {
     title: string;
     space: string;
 }[]; return <><h1>Missed reminders</h1><p>These tasks returned to Inbox when Tasks was enabled.</p>{tasks.map(t => <p key={t.id}><a href={`#/task/${t.id}`}>{t.title}</a> · {t.space}</p>)}</>; }
-function ShareTask({ shared }: {
-    shared: NonNullable<RouteProps['shared']>;
-}) {
-    const state = useApp(), [title, setTitle] = useState(shared.title || shared.url || shared.text), [error, setError] = useState(''), [busy, setBusy] = useState(false);
-    async function save(e: FormEvent) { e.preventDefault(); setBusy(true); try {
-        const id = await createTask(title, state.snapshot.defaultSpaceId);
-        await conversationDrafts.put({ id, text: [shared.text, shared.url].filter((v, i, a) => v && a.indexOf(v) === i).join('\n'), files: [] });
-        history.replaceState(null, '', '/');
-        location.hash = `/task/${id}`;
-    }
-    catch (e) {
-        setError((e as Error).message);
-    }
-    finally {
-        setBusy(false);
-    } }
-    return <form onSubmit={save}><h1>Add a task</h1><label>Task title<input aria-label="New task title" value={title} maxLength={2000} onChange={e => setTitle(e.target.value)}/></label><p>The shared text and link will be saved as its message draft.</p><button disabled={busy || !title.trim()}>Save task</button>{error && <p role="alert">{error}</p>}</form>;
-}

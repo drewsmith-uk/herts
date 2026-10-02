@@ -1,3 +1,4 @@
+import { detailsField, detailsControl } from './composer-helpers';
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 
 const agentCalls = async (request: APIRequestContext) => ((await (await request.get('http://127.0.0.1:8791/calls')).json()) as string[])
@@ -5,8 +6,9 @@ const agentCalls = async (request: APIRequestContext) => ((await (await request.
 
 async function createDraft(page: Page, title: string, text: string) {
   await page.goto('/#/new');
+  await page.getByLabel('Message Hermes').fill(text);
   await expect(page).toHaveURL(/#\/draft\//);
-  await page.getByLabel('Conversation title', { exact: true }).fill(title);
+  await (await detailsField(page, 'Conversation title')).fill(title);
   await page.getByLabel('Message Hermes').fill(text);
   const id = page.url().split('/').at(-1)!;
   await expect.poll(() => page.evaluate(async ({ id, text, title }) => {
@@ -106,7 +108,7 @@ for (const [theme, width] of [['press', 320], ['nocturne', 390]] as const) test(
   const before = await agentCalls(request);
   const id = await createDraft(page, 'Local research notes', 'Start with the outline.');
   await page.goto('/#/settings');
-  await page.getByLabel('Theme', { exact: true }).selectOption(theme);
+  await page.getByLabel('Theme on this device', { exact: true }).selectOption(theme);
   await page.route('**/api/v1/conversations?**', route => route.fulfill({ status: 503, json: { error: 'Hermes is unavailable for this test.' } }));
   await page.goto('/#/conversations');
   const draft = page.getByRole('region', { name: 'Drafts 1' }).getByRole('link');
