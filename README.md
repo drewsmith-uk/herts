@@ -169,7 +169,7 @@ npx playwright install --with-deps chromium
 npm run test:browser
 ```
 
-Browser tests start their own temporary app and fake Hermes on ports 8790/8791. They use synthetic data, not your Hermes profile. For a custom Chromium installation, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`; otherwise Playwright uses its installed full Chromium channel in headless mode, including the notification integration checks. Test traces/screenshots stay ignored locally and are not uploaded by CI.
+Browser tests start their own temporary app and fake Hermes on ports 8790/8791. They use synthetic data, not your Hermes profile. For a custom Chromium installation, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`; otherwise Playwright uses its installed full Chromium channel in headless mode, including the notification integration checks. Test traces/screenshots stay ignored locally; CI retains failure diagnostics containing synthetic fixture data for seven days.
 
 For interactive development, use a separate data directory:
 
