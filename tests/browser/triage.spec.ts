@@ -112,7 +112,20 @@ test('recovering task creation after a lost response and reload reuses the saved
     if (holdState) { await route.fetch(); await route.abort(); }
     else await route.continue();
   });
-  await mouseSwipe(page, item, 150);
+  // Finish the list refresh after the lost-reply warning appears. A successful
+  // list read must not erase the outcome of a separate conversation action.
+  let releaseRefresh!: () => void, refreshStarted = false;
+  const refreshGate = new Promise<void>(resolve => { releaseRefresh = resolve; });
+  await page.route('**/api/v1/conversations?*', async route => {
+    if (holdState && ids.length) { refreshStarted = true; await refreshGate; }
+    await route.continue();
+  });
+  try {
+    await mouseSwipe(page, item, 150);
+    await expect(page.getByRole('alert')).toContainText('The task request is saved');
+    await expect.poll(() => refreshStarted).toBe(true);
+  } finally { releaseRefresh(); }
+  await expect(page.locator('.loading')).toHaveCount(0);
   await expect(page.getByRole('alert')).toContainText('The task request is saved');
   await page.reload();
   await expect.poll(() => ids.length).toBeGreaterThanOrEqual(2);
