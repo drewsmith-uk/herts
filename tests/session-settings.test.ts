@@ -8,6 +8,8 @@ import { sessionValues } from '../server/sessionSettings';
 import type { SessionValues } from '../shared/sessionSettings';
 
 class SettingsGateway extends EventEmitter {
+  timers = new Set<ReturnType<typeof setTimeout>>();
+  close() { for (const timer of this.timers) clearTimeout(timer); this.timers.clear(); this.removeAllListeners(); }
   profile = 'research'; epoch = 'settings-epoch'; online = true; metadata = undefined;
   calls: { method: string; params: any }[] = []; running = false; seq = 0; confirm = false;
   lost?: string; applyBeforeLoss = true; rejectFolder = false; resumeBusy = false; lazy = false;
@@ -56,7 +58,7 @@ class SettingsGateway extends EventEmitter {
       if (this.lost === p.key) { if (this.applyBeforeLoss) apply(); throw new GatewayError('Settings reply lost', true); }
       apply(); return { value: p.key === 'model' ? this.current.model!.id : p.value, scope: 'session' };
     }
-    if (method === 'prompt.submit') { setTimeout(() => this.emit('event', { type: 'message.complete', session_id: 'runtime', seq: ++this.seq, payload: { status: 'complete' } }), 0); return { status: 'streaming' }; }
+    if (method === 'prompt.submit') { const timer = setTimeout(() => { this.timers.delete(timer); this.emit('event', { type: 'message.complete', session_id: 'runtime', seq: ++this.seq, payload: { status: 'complete' } }); }, 0); this.timers.add(timer); return { status: 'streaming' }; }
     throw new Error(`Unexpected RPC ${method}`);
   }
 }
@@ -65,7 +67,7 @@ afterEach(() => cleanup.splice(0).forEach(fn => fn()));
 function fixture(linked = true) {
   const store = new Store(':memory:'), gateway = new SettingsGateway(), actions = new Actions(store, gateway as unknown as Gateway, '/tmp'), id = randomUUID();
   store.saveContext({ id, title: 'Settings fixture', link: linked ? { key: 'stored', storedId: 'stored', title: 'Existing conversation', source: 'telegram' } : null, aliases: linked ? ['stored'] : [] });
-  cleanup.push(() => { actions.close(); store.close(); });
+  cleanup.push(() => { gateway.close(); actions.close(); store.close(); });
   const stage = (values: SessionValues, reviewed = false) => actions.settings.save(id, { id: randomUUID(), revision: actions.settings.record(id).revision, values, baseline: linked ? structuredClone(gateway.current) : undefined, reviewed });
   const send = (settingsConfirmation?: string) => { const input = { id: randomUUID(), contextId: id, kind: 'send' as const, text: 'Keep this message', settingsConfirmation }; actions.start(input); return input.id; };
   return { store, gateway, actions, id, stage, send };
@@ -147,7 +149,7 @@ describe('settings staged until Send', () => {
     actions.settings.save(undefined, { id: randomUUID(), revision: 0, values: { model: { id: 'chosen-model', provider: 'configured' }, effort: 'low', fast: true, cwd: '/projects/new' } });
     stage({ effort: 'ultra' }); const sent = send(); await expect.poll(() => store.action(sent)?.receipt).toBe('accepted');
     expect(gateway.calls.find(c => c.method === 'session.create')?.params).toMatchObject({ model: 'chosen-model', provider: 'configured', reasoning_effort: 'ultra', fast: true, cwd: '/projects/new', profile: 'research' });
-    expect(gateway.current.effort).toBe('ultra'); await actions.reconcile(id);
+    expect(gateway.current.effort).toBe('ultra'); await expect.poll(() => store.action(sent)?.state).toBe('finished'); await actions.reconcile(id);
     actions.settings.save(undefined, { id: randomUUID(), revision: 1, values: { effort: 'minimal' } });
     const again = send(); await expect.poll(() => store.action(again)?.receipt).toBe('accepted'); expect(gateway.current.effort).toBe('ultra');
   });

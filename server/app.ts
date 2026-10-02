@@ -19,6 +19,7 @@ import { bindHermesTarget } from './config.js';
 import { registerThemes } from './themes.js';
 import { mediaRefs } from '../shared/media.js';
 import { discardedUploads } from './discardedUploads.js';
+import { Transcriptions } from './transcriptions.js';
 
 const uuid = z.string().uuid();
 const historyOrder = z.enum(['oldest', 'latest']).default('oldest');
@@ -35,6 +36,8 @@ export async function createApp(config: Config) {
   const profile = config.hermesProfile || 'default';
   try { bindHermesTarget(store, config.hermesBase, profile); } catch (error) { store.close(); throw error; }
   store.scrubDeletedMessages();
+  const transcriptions = new Transcriptions(store);
+  await transcriptions.migrateLegacy(); transcriptions.sweep();
   const uploadLocks = new Set<string>(), cleanDiscardedUploads = discardedUploads(store, uploadDir, uploadLocks);
   // A disk cleanup failure must not take away conversation and stop controls.
   // Metadata is removed first; the durable queue retries remaining bytes later.
@@ -211,15 +214,22 @@ export async function createApp(config: Config) {
   });
   app.get('/api/v1/uploads/:id', async (req, reply) => { const id = uuid.parse((req.params as any).id); const u = store.upload(id); if (!u?.complete) return reply.code(404).send({ error: 'File is unavailable.' }); return reply.type('application/octet-stream').header('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(u.name)}`).send(createReadStream(join(uploadDir, id))); });
   app.post('/api/v1/audio/transcribe', async req => {
-    const p = z.object({ id: uuid, uploadId: uuid }).strict().parse(req.body); const prior = store.receipt(p.id, p); if (prior) return prior;
+    const p = z.object({ id: uuid, uploadId: uuid }).strict().parse(req.body); const prior = transcriptions.read(p); if (prior) return prior;
     const u = store.upload(p.uploadId); if (!u?.complete || !/^(audio\/|video\/webm)/.test(u.type)) throw new Conflict('A complete audio recording is required.');
     guardUpload(u);
     if(u.owner){const [id,generation]=u.owner.split(':');store.db.prepare('INSERT OR IGNORE INTO plugin_resources VALUES (?,?,?,?)').run(id,Number(generation),'transcription',p.id);}
-    const marker = store.getMeta(`audio:${p.id}`); if (marker) throw new Conflict('Transcription outcome is unconfirmed. Retry explicitly with a new request.');
-    store.setMeta(`audio:${p.id}`, true);
-    const bytes = await readFile(join(uploadDir, p.uploadId));
-    const r = await gateway.http(`/api/audio/transcribe?profile=${encodeURIComponent(profile)}`, { data_url: `data:${u.type};base64,${bytes.toString('base64')}`, mime_type: u.type });
-    guardUpload(u);const result = { transcript: String(r.transcript || '') }; store.saveReceipt(p.id, p, result); return result;
+    if (uploadLocks.has(p.uploadId)) throw new Conflict('This attachment is busy. Try again.');
+    transcriptions.begin(p);
+    uploadLocks.add(p.uploadId);
+    try {
+      const bytes = await readFile(join(uploadDir, p.uploadId));
+      const r = await gateway.http(`/api/audio/transcribe?profile=${encodeURIComponent(profile)}`, { data_url: `data:${u.type};base64,${bytes.toString('base64')}`, mime_type: u.type });
+      guardUpload(u); return transcriptions.finish(p, String(r.transcript || ''));
+    } finally { uploadLocks.delete(p.uploadId); await cleanDiscardedUploads().catch(() => {}); }
+  });
+  app.post('/api/v1/audio/discard', async req => {
+    transcriptions.discard(z.object({ id: uuid, uploadId: uuid }).strict().parse(req.body));
+    await cleanDiscardedUploads(); return { ok: true };
   });
   app.post('/api/v1/audio/speak', async req => {
     const p = z.object({ conversationId: z.string().min(1).max(300), messageId: z.union([z.string(), z.number()]).optional(), order: historyOrder, offset: z.number().int().nonnegative(), index: z.number().int().min(0).max(199), text: z.string().min(1) }).strict().parse(req.body);
@@ -249,7 +259,7 @@ export async function createApp(config: Config) {
   const dist = resolve('dist');
   if (existsSync(dist)) { await app.register(fastifyStatic, { root: dist, maxAge: 0 }); app.setNotFoundHandler((req, reply) => req.url.startsWith('/api/') ? reply.code(404).send({ error: 'Not found.' }) : reply.sendFile('index.html')); }
   app.addHook('preClose', async () => { for (const s of streams) s.end(); });
-  const cleanupTimer = setInterval(() => { void cleanDiscardedUploads().catch(() => {}); }, 60000); cleanupTimer.unref();
+  const cleanupTimer = setInterval(() => { void (async () => { transcriptions.sweep(); await cleanDiscardedUploads(); })().catch(() => {}); }, 60000); cleanupTimer.unref();
   app.addHook('onClose', async () => { clearInterval(cleanupTimer); await plugins.close(); actions.close(); notifications.close(); gateway.close(); await cleanDiscardedUploads().catch(() => {}); store.close(); });
   if (config.hermesBase && config.hermesToken) void gateway.connect().catch(() => {});
   return { app, store, gateway, actions, plugins, articles:plugins.web };

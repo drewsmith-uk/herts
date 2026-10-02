@@ -33,6 +33,8 @@ plugins/*/client.js
 plugins/*/server.mjs
 examples/*/client.js
 examples/*/server.mjs
+plugins/*/THIRD_PARTY_NOTICES.txt
+examples/*/THIRD_PARTY_NOTICES.txt
 
 # Local design captures and verification output may contain personal data.
 /output/

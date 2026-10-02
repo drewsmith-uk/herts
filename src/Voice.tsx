@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Mic, Square, RotateCcw, X } from 'lucide-react';
-import { db, addFile, uploadFile, api } from './data';
+import { db, addFile, uploadFile, api, ApiError } from './data';
+import { deleteRecording, queueTranscriptionDiscard, flushTranscriptionDiscards } from './fileRetention';
 import { useUpdatePreparation } from './updateSafety';
 const consumedRequests = new Set<string>();
 export type VoiceMode = 'idle' | 'starting' | 'recording' | 'transcribing';
@@ -34,10 +35,27 @@ export function Voice({ owner, onTranscript, startRequest, disabled = false, onM
     try {
       const r = await db.recordings.get(id); if (!r?.chunks.length) throw new Error('No recoverable audio was recorded.');
       const blob = new Blob(r.chunks, { type: r.type });
-      const fileId = await addFile(blob, `dictation.${r.type.includes('mp4') ? 'm4a' : 'webm'}`,owner.startsWith('plugin:')?owner.split(':').slice(1,3).join(':'):undefined); await uploadFile(fileId);
-      const result = await api('/audio/transcribe', { id: crypto.randomUUID(), uploadId: fileId });
-      if (!result.transcript) throw new Error('No speech detected. The recording is saved.');
-      if (mounted.current && attempt === generation.current && !cancelled.current) { await transcriptHandler.current(result.transcript, fresh && !document.hidden && navigator.onLine); await db.recordings.delete(id); }
+      const request = r.transcription || { id: crypto.randomUUID(), uploadId: await addFile(blob, `dictation.${r.type.includes('mp4') ? 'm4a' : 'webm'}`,owner.startsWith('plugin:')?owner.split(':').slice(1,3).join(':'):undefined) };
+      if (!await db.recordings.update(id, { transcription: request })) throw new Error('This recording was deleted.');
+      await uploadFile(request.uploadId);
+      let result: { transcript: string };
+      try { result = await api('/audio/transcribe', request); }
+      catch (error) {
+        if (error instanceof ApiError && [409, 410].includes(error.status)) {
+          // A new request requires another deliberate tap; never resend here.
+          await queueTranscriptionDiscard({ transcription: request });
+          await db.recordings.update(id, { transcription: undefined });
+          void flushTranscriptionDiscards();
+        }
+        throw error;
+      }
+      if (!result.transcript) {
+        await queueTranscriptionDiscard({ transcription: request });
+        await db.recordings.update(id, { transcription: undefined });
+        void flushTranscriptionDiscards();
+        throw new Error('No speech detected. The recording is saved.');
+      }
+      if (mounted.current && attempt === generation.current && !cancelled.current) { await transcriptHandler.current(result.transcript, fresh && !document.hidden && navigator.onLine); await deleteRecording(id); }
     } catch (e) { if (mounted.current && attempt === generation.current) setError((e as Error).message); }
     finally { if (mounted.current && attempt === generation.current) { changeMode('idle'); reload(); } }
   }
@@ -67,7 +85,9 @@ export function Voice({ owner, onTranscript, startRequest, disabled = false, onM
   return <div className="voice-control">
     <button type="button" className={`icon-button ${mode === 'recording' ? 'recording' : ''}`} aria-label={mode === 'recording' ? 'Stop recording and transcribe' : 'Dictate'} title={mode === 'recording' ? 'Stop and transcribe' : 'Dictate'} disabled={disabled || mode === 'starting' || mode === 'transcribing'} onClick={() => mode === 'recording' ? recorder.current?.stop() : void start()}>{mode === 'recording' ? <Square size={18}/> : <Mic size={19}/>}</button>
     {mode !== 'idle' && <span className="voice-state"><span role="status">{mode === 'recording' ? 'Recording…' : mode === 'starting' ? 'Starting microphone…' : 'Transcribing…'}</span> <button type="button" className="icon-button" aria-label="Cancel dictation" onClick={cancel}><X size={15}/></button></span>}
-    {error && <span className="inline-error" role="alert">{error}</span>}
-    {saved.length > 0 && mode === 'idle' && <span className="saved-recordings">{saved.map(id => <span key={id}><button type="button" className="text-button" onClick={() => { cancelled.current = false; void transcribe(id); }}><RotateCcw size={13}/> Transcribe saved recording</button><button type="button" className="icon-button" aria-label="Delete saved recording" onClick={() => { void db.recordings.delete(id).then(reload); }}><X size={13}/></button></span>)}</span>}
+    {(error || saved.length > 0 && mode === 'idle') && <div className="voice-feedback">
+      {error && <span className="inline-error" role="alert">{error}</span>}
+      {saved.length > 0 && mode === 'idle' && <span className="saved-recordings">{saved.map(id => <span key={id}><button type="button" className="text-button" onClick={() => { cancelled.current = false; void transcribe(id); }}><RotateCcw size={13}/> Transcribe saved recording</button><button type="button" className="icon-button" aria-label="Delete saved recording" onClick={() => { void deleteRecording(id).then(() => { setError(''); reload(); }).catch(e => setError(e.message)); }}><X size={13}/></button></span>)}</span>}
+    </div>}
   </div>;
 }

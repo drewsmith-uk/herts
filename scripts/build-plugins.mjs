@@ -1,15 +1,17 @@
 import { build } from 'esbuild';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
+import { thirdPartyNotices } from './licenses.mjs';
 import { checkBoundaries } from './check-plugin-boundaries.mjs';
 import * as React from 'react';
 const sdkExports=await readFile('sdk/client-exports.json','utf8');
 const roots=process.argv.slice(2).length?process.argv.slice(2):['plugins/tasks','plugins/reading'];
 for(const root of roots){
+  const inputs=[];
   await checkBoundaries(root);
   const manifest=JSON.parse(await readFile(`${root}/plugin.json`,'utf8'));
-  if(manifest.server)await build({entryPoints:[`${root}/src/server.ts`],outfile:`${root}/${manifest.server}`,bundle:true,platform:'node',target:'node24',format:'esm',banner:{js:"import { createRequire as __hertsRequire } from 'node:module'; const require = __hertsRequire(import.meta.url);"},logLevel:'warning'});
+  if(manifest.server) inputs.push(...Object.keys((await build({metafile:true,entryPoints:[`${root}/src/server.ts`],outfile:`${root}/${manifest.server}`,bundle:true,platform:'node',target:'node24',format:'esm',banner:{js:"/*! Third-party notices: THIRD_PARTY_NOTICES.txt */\nimport { createRequire as __hertsRequire } from 'node:module'; const require = __hertsRequire(import.meta.url);"},logLevel:'warning'})).metafile.inputs));
   // Prepared browser bundles use the host's React and public SDK, never a second React.
-  if(manifest.client)await build({entryPoints:[`${root}/src/client.tsx`],outfile:`${root}/${manifest.client}`,bundle:true,platform:'browser',target:'es2022',format:'esm',jsx:'automatic',plugins:[{
+  if(manifest.client) inputs.push(...Object.keys((await build({metafile:true,banner:{js:'/*! Third-party notices: THIRD_PARTY_NOTICES.txt */'},entryPoints:[`${root}/src/client.tsx`],outfile:`${root}/${manifest.client}`,bundle:true,platform:'browser',target:'es2022',format:'esm',jsx:'automatic',plugins:[{
     name:'herts-runtime',setup(b){
       b.onResolve({filter:/^(react-dom|react(?:\/jsx(?:-dev)?-runtime)?|@herts\/plugin-api\/client)$/},args=>({path:args.path,namespace:'herts-runtime'}));
       b.onLoad({filter:/.*/,namespace:'herts-runtime'},args=>{
@@ -20,6 +22,7 @@ for(const root of roots){
         return{contents:`const runtime=${base}.sdk;\n${JSON.parse(requireText()).map(k=>`export const ${k}=runtime.${k};`).join('\n')}`};
       });
     },
-  }],logLevel:'warning'});
+  }],logLevel:'warning'})).metafile.inputs));
+  await writeFile(`${root}/THIRD_PARTY_NOTICES.txt`, await thirdPartyNotices(inputs));
 }
 function requireText(){return sdkExports;}

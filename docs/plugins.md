@@ -20,6 +20,8 @@ Plugin changes require a server connection. Existing enabled screens and saved d
 
 The default directory is `plugins/` in the Herts checkout. Each direct child folder contains `plugin.json`, a prepared browser module, an optional prepared server module, and any assets. The two included plugins are built by `npm run build`.
 
+The build also generates `THIRD_PARTY_NOTICES.txt` from the dependencies included in each package. Keep it alongside the prepared modules when sharing or installing packages. Rebuild notices whenever dependencies change; package authors remain responsible for licences of any manually supplied assets or fonts.
+
 ```text
 plugins/
   tasks/plugin.json

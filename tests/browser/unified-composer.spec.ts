@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 
-const execution = async (request: any) => (await (await request.get('http://127.0.0.1:8791/calls')).json() as string[]).filter(m => ['session.create', 'session.resume', 'prompt.submit'].includes(m));
+// A read-only fixture probe may race Node closing an idle keep-alive socket.
+const execution = async (request: any) => (await (await request.get('http://127.0.0.1:8791/calls', { maxRetries: 2 })).json() as string[]).filter(m => ['session.create', 'session.resume', 'prompt.submit'].includes(m));
 async function openEditor(page: Page) {
   const open = page.getByRole('button', { name: /^(Message Hermes|Continue draft)…$/ });
   if (await open.isVisible()) await open.click();
@@ -64,7 +65,8 @@ for (const width of [390, 1280]) {
     expect(await history!.evaluate(el => el === document.querySelector('.history'))).toBe(true);
     const viewport = page.locator('.conversation-scroll');
     const header = await page.locator('.conversation-page-header').boundingBox();
-    await viewport.evaluate(el => { el.scrollTop = 0; });
+    await viewport.hover(); await page.mouse.wheel(0, -100000);
+    await expect.poll(() => viewport.evaluate(el => el.scrollTop)).toBe(0);
     const anchor = page.locator(`[data-history-message="${conversation}:251"]`);
     const top = await anchor.evaluate(el => el.getBoundingClientRect().top);
     await page.getByRole('button', { name: 'Load older messages', exact: true }).click();
@@ -200,8 +202,12 @@ for (const width of [390, 1280]) test(`refresh preserves a reader's first page a
   });
   await page.goto('/#/conversation/long-history');
   await expect(page.locator('[data-history-message="long-history:450"]')).toBeInViewport();
+  await expect(page.getByLabel('Message Hermes')).toBeEditable();
   const viewport = page.locator('.conversation-scroll');
-  await viewport.evaluate(el => { el.scrollTop = 0; });
+  // Express reader intent and await the asynchronous browser scroll. Directly
+  // assigning scrollTop can race the initial automatic layout adjustment.
+  await viewport.hover(); await page.mouse.wheel(0, -100000);
+  await expect.poll(() => viewport.evaluate(el => el.scrollTop)).toBe(0);
   const anchor = page.locator('[data-history-message="long-history:251"]');
   await expect(anchor).toBeInViewport();
   const top = await anchor.evaluate(el => el.getBoundingClientRect().top);

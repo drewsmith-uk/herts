@@ -20,6 +20,7 @@ self.addEventListener('message',event=>{if(event.data?.type==='GET_VERSION')even
 self.addEventListener('activate',event=>{event.waitUntil((async()=>{const keys=(await caches.keys()).filter(k=>k.startsWith('tasks-shell-'));for(const k of keys.slice(0,-2))if(k!==CACHE)await caches.delete(k);await self.clients.claim();})());});
 self.addEventListener('fetch',event=>{
  const url=new URL(event.request.url);if(url.origin!==self.location.origin||event.request.method!=='GET'||url.pathname.startsWith('/api/'))return;
+ if(url.pathname==='/THIRD_PARTY_NOTICES.txt'){event.respondWith(caches.open(CACHE).then(c=>c.match(url.pathname)).then(cached=>cached||fetch(event.request)));return;}
  if(event.request.mode==='navigate'){event.respondWith(fetch(event.request).catch(()=>caches.open(CACHE).then(c=>c.match('/index.html')).then(r=>r||Response.error())));return;}
  if(url.pathname==='/manifest.webmanifest'){event.respondWith(fetch(event.request).catch(()=>caches.open(CACHE).then(c=>c.match('/manifest.webmanifest')).then(r=>r||Response.error())));return;}
  if(PRECACHE.includes(url.pathname))event.respondWith(caches.match(event.request).then(cached=>cached||fetch(event.request)));

@@ -13,7 +13,9 @@ Herts runs on your Linux server behind **Tailscale Serve**. It is a **single-use
 - A configured [Hermes Agent](https://hermes-agent.nousresearch.com/docs/) installation for conversation, transcription and speech features, including its web/backend dependencies. Follow the [upstream prerequisites](https://hermes-agent.nousresearch.com/docs/user-guide/features/web-dashboard#prerequisites); for a source installation, run `uv pip install -e ".[web]"` from the Hermes checkout in its environment. Tasks remain usable without Hermes. Hermes owns model credentials, available models, project folders and tools; Herts exposes session settings through that backend.
 - A recent browser with IndexedDB and service workers. Android Chrome supports the installable app, share target, voice shortcut and web push. Browser/OS support for these features varies.
 
-The integration has been checked against Hermes Agent **0.21.2** source and an existing Desktop-compatible backend. It depends on session history/profile identity, WebSocket JSON-RPC and event replay; an arbitrary OpenAI-compatible API is not sufficient. See [backend compatibility](docs/hermes-compatibility.md) before connecting another version.
+The integration targets the **Hermes Desktop-compatible backend, through Desktop contract 8**. History/execution and session settings were checked against Hermes Agent 0.21.2/0.21.3 revisions; the newer interactive-prompt protocol was checked separately. Exact revisions and required capabilities are recorded in [backend compatibility](docs/hermes-compatibility.md). An arbitrary OpenAI-compatible API is not sufficient, and a version number alone does not establish compatibility.
+
+Automated browser checks run in Chromium at desktop and phone viewport sizes. Android Chrome is the primary installed-app target. Firefox and Safari are not covered by the automated suite; installation, sharing, recording and push support should be checked on the actual browser/device before relying on them.
 
 ## Install
 
@@ -139,7 +141,7 @@ Copy prepared third-party packages into `plugins/PLUGIN-ID/`, then rescan. Only 
 
 ## Backups and upgrades
 
-The data directory is **private**, including the SQLite database, uploads, environment files and notification keys. Keep it outside version control and restrict it to your server user. Backups are equally sensitive. Never attach it, browser profiles, HAR traces or transcripts to an issue.
+The data directory is **private**, including the SQLite database, uploads, environment files and notification keys. Keep it outside version control and restrict it to your server user. Backups are equally sensitive. Never attach it, browser profiles, HAR traces or transcripts to an issue. See [retention and provider processing](docs/decisions.md#execution-recovery-and-privacy) for temporary dictation copies and device caches. Private access to Herts does not imply that Hermes runs its model or audio processing locally.
 
 For a consistent backup, briefly stop the app while leaving the backend running:
 
@@ -192,4 +194,4 @@ Open `http://127.0.0.1:5173`. If inherited environment variables configure Herme
 | Old app name/shortcut | Open online and close/reopen the app; allow the browser to refresh installed metadata. Avoid clearing storage when drafts are unsynced. |
 | Article is only an excerpt | Some sites require login or an extra step. Use the original link; Herts does not bypass access controls. |
 
-Logs are available with `journalctl --user -u herts.service` (and `herts-backend.service` in managed mode). Inspect/redact logs before sharing: Hermes logs can contain conversation data. See [SECURITY.md](SECURITY.md) for reporting a vulnerability. License: [MIT](LICENSE).
+Logs are available with `journalctl --user -u herts.service` (and `herts-backend.service` in managed mode). Inspect/redact logs before sharing: Hermes logs can contain conversation data. See [SECURITY.md](SECURITY.md) for reporting a vulnerability. Herts is [MIT licensed](LICENSE). Builds include `THIRD_PARTY_NOTICES.txt` in `dist/` and every prepared plugin folder; retain those files when distributing builds. The app serves its notices at `/THIRD_PARTY_NOTICES.txt`, also available offline.

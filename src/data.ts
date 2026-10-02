@@ -8,7 +8,10 @@ import { emptyCatalogue, type PluginCatalogue, type PluginData, type PluginOpera
 import { migrateDevice, migrateDeviceSpaces } from './legacyDeviceMigration';
 import { discardResetDrafts, stageDraft, pendingDraft, pendingDraftKeys, draftIsCurrent, acknowledgeDraft, type DraftWrite } from './draftJournal';
 import type { ClientPlugin } from './pluginContract';
+import { cleanLocalFiles, flushTranscriptionDiscards, queueTranscriptionDiscard } from './fileRetention';
 export interface LocalFile {
+    unreferencedAt?: number;
+    discardRequested?: boolean;
     owner?: string;
     id: string;
     name: string;
@@ -24,6 +27,7 @@ export interface Draft {
     files: string[];
 }
 export interface Recording {
+    transcription?: { id: string; uploadId: string };
     id: string;
     owner: string;
     chunks: Blob[];
@@ -208,7 +212,9 @@ export async function acceptPlugins(catalogue: PluginCatalogue, data: Record<str
                     const owner = row.value, id = row.key.slice('entry-owner:'.length);
                     if (owner.id !== entry.manifest.id || owner.generation >= entry.generation) continue;
                     if (await db.kv.get(`entry-route:${id}`)) {
-                        await db.drafts.delete(id); await db.recordings.where('owner').equals(`chat:${id}`).delete();
+                        await db.drafts.delete(id);
+                        for (const row of await db.recordings.where('owner').equals(`chat:${id}`).toArray()) await queueTranscriptionDiscard(row);
+                        await db.recordings.where('owner').equals(`chat:${id}`).delete();
                         await db.kv.bulkDelete([`context-draft:${id}`, `entry-route:${id}`, `entry-fields:${id}`]);
                         await db.kv.put({ key: `context-draft-deleted:${id}`, value: true });
                     }
@@ -218,8 +224,9 @@ export async function acceptPlugins(catalogue: PluginCatalogue, data: Record<str
                     if (Number(row.key.split(':')[1]) < entry.generation)
                         await db.pluginLocal.delete(row.key);
                 for (const row of await db.recordings.where('owner').startsWith(`plugin:${entry.manifest.id}:`).toArray())
-                    if (Number(row.owner.split(':')[2]) < entry.generation)
-                        await db.recordings.delete(row.id);
+                    if (Number(row.owner.split(':')[2]) < entry.generation) {
+                        await queueTranscriptionDiscard(row); await db.recordings.delete(row.id);
+                    }
             }
             if (entry.generation > 0) {
                 const referenced = new Set([...(await db.drafts.toArray()).flatMap(d => d.files), ...(await db.submissions.toArray()).flatMap(s => s.input.uploadIds || []), ...state.actions.flatMap(a => a.uploadIds)]);
@@ -267,6 +274,8 @@ export async function initialise() {
         }
         await rebuild();
         publish({ loaded: true, defaultsReady: !!saved });
+        void cleanLocalFiles().catch(() => {});
+        setInterval(() => { if (!document.hidden) void cleanLocalFiles().catch(() => {}); }, 60000);
         if (navigator.storage?.persist)
             void navigator.storage.persist();
         void refresh().finally(() => publish({ defaultsReady: true }));
@@ -309,6 +318,7 @@ export async function refresh(recover = false) {
         await acceptPlugins(data.plugins, data.pluginData);
         const recovered = recover || !state.online || (!state.gateway.online && data.gateway.online);
         publish({ actions: data.actions, bindings: data.bindings, gateway: data.gateway, online: navigator.onLine, connectionVersion: state.connectionVersion + (recovered ? 1 : 0), pushKey: data.pushKey, error: '' });
+        void flushTranscriptionDiscards();
         for (const s of await db.submissions.toArray())
             if (data.actions.some((a: Action) => a.id === s.id))
                 await db.submissions.update(s.id, { confirmed: true });
@@ -519,6 +529,7 @@ export async function saveConversationDraft(draft: Draft) {
     await commitConversationDraft(key, write);
 }
 export async function deleteConversationDraft(id: string) {
+    let removedFiles: string[] = [];
     await db.transaction('rw', [db.kv, db.drafts, db.files, db.recordings, db.submissions, db.pluginPending], async () => {
         const saved = (await db.kv.get('state'))?.value;
         const remote = saved?.snapshot.contexts.find((c: ConversationContext) => c.id === id) || state.remote.contexts.find(c => c.id === id);
@@ -532,7 +543,9 @@ export async function deleteConversationDraft(id: string) {
             submissions.some(s => (s.input.contextId || s.input.taskId) === id && !s.confirmed && !actions.has(s.id)))
             throw new Error('A send is still in progress or unconfirmed. Open the draft and check its status before deleting it.');
         const draft = await db.drafts.get(id);
+        removedFiles = draft?.files || [];
         await db.drafts.delete(id);
+        for (const row of await db.recordings.where('owner').equals(`chat:${id}`).toArray()) await queueTranscriptionDiscard(row);
         await db.recordings.where('owner').equals(`chat:${id}`).delete();
         await db.kv.bulkDelete([`context-draft:${id}`, `entry-route:${id}`, `entry-fields:${id}`, `entry-owner:${id}`]);
         // Retain a small deletion marker so a failed-send snapshot, stale URL,
@@ -542,9 +555,8 @@ export async function deleteConversationDraft(id: string) {
         if (!remote && !referencedByPlugin) {
             await db.kv.bulkDelete([`context:${id}`, `settings-op:${id}`]);
         }
-        const referenced = new Set([...(await db.drafts.toArray()).flatMap(d => d.files), ...submissions.flatMap(s => s.input.uploadIds || []), ...[...actions.values()].flatMap(a => a.uploadIds)]);
-        await db.files.bulkDelete((draft?.files || []).filter(file => !referenced.has(file)));
     });
+    await cleanLocalFiles(removedFiles); void flushTranscriptionDiscards();
     await rebuild();
 }
 const titleWrites = new Map<string, Promise<void>>();

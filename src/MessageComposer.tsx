@@ -1,4 +1,5 @@
 import { createPortal } from 'react-dom';
+import { cleanLocalFiles } from './fileRetention';
 import { liveQuery } from 'dexie';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown, LoaderCircle, Paperclip, Send, X } from 'lucide-react';
@@ -51,9 +52,12 @@ export function MessageComposer({ context, initialText = '', canSend = true, doc
   useEffect(() => { let alive = true; void db.files.bulkGet(draft.files).then(rows => { if (alive) setFiles(rows.filter(Boolean) as LocalFile[]); }); return () => { alive = false; }; }, [draft.files.join(',')]);
   useLayoutEffect(() => { const el = textarea.current; if (!el) return; el.style.height = 'auto'; el.style.height = `${Math.min(el.scrollHeight, 156)}px`; }, [draft.text, expanded]);
   async function update(next: Draft) {
+    const removed = draftRef.current.files.filter(id => !next.files.includes(id));
     const sequence = ++write.current; draftRef.current = next; setDraft(next); setDirty(true); setNotice('');
     try { await saveDraft(next); if (sequence === write.current) setDirty(false); }
     catch { setError('Could not save your draft. Keep this page open until device storage is available.'); throw new Error('Draft storage unavailable'); }
+    // Cleanup must not turn a successfully saved message into a failed send.
+    if (removed.length) void cleanLocalFiles(removed).catch(() => {});
   }
   function open(focus = true) { setExpanded(true); if (focus) requestAnimationFrame(() => textarea.current?.focus({ preventScroll: true })); }
   async function attach(selected: FileList | null) {

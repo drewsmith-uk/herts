@@ -459,7 +459,7 @@ export class PluginRegistry {
             throw new PluginError('Asset not found.', 404);
         const directory = join(this.dataDirectory, 'plugin-packages', id, hash);
         const manifest = manifestSchema.parse(JSON.parse(await readFile(join(directory, 'plugin.json'), 'utf8')));
-        if (name !== manifest.client && !name.startsWith('assets/'))
+        if (name !== manifest.client && name !== 'THIRD_PARTY_NOTICES.txt' && !name.startsWith('assets/'))
             throw new PluginError('Asset not found.', 404);
         return this.safePath(directory, name);
     }
