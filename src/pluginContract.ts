@@ -9,6 +9,8 @@ export interface RouteProps {
 export interface ConversationActionProps {
     context?: ConversationContext;
     conversation: Conversation;
+    /** The current view's title, which may differ from the linked conversation title. */
+    suggestedTitle?: string;
 }
 export interface MessageLinkProps {
     href?: string;

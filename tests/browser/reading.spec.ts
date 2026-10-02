@@ -21,6 +21,32 @@ test('phone reading capture sends only its raw URL, keeps conversation visible, 
   await page.screenshot({path:'test-results/phone-reading-detail.png',fullPage:true});
 });
 
+test('making a task suggests the current reading title after renaming a shared link', async ({ page, request }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/#/reading/add');
+  await page.getByLabel('Message Hermes', { exact: true }).fill('https://example.com/security-checklist');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase', 'complete');
+  const readingUrl = page.url(), before = await calls(request);
+  const suggestion = page.getByRole('textbox', { name: 'New task from conversation title', exact: true });
+  for (const title of ['Security checklist', 'Security checklist for my app']) {
+    await (await detailsField(page, 'Reading title')).fill(title);
+    await (await detailsField(page, 'Reading title')).blur();
+    await expect(page.locator('.save-state')).toContainText('Changes synced');
+    await page.getByRole('button', { name: 'Make a task', exact: true }).click();
+    await expect(suggestion).toHaveValue(title);
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  }
+  await page.reload();
+  await page.getByRole('button', { name: 'Make a task', exact: true }).click();
+  await expect(suggestion).toHaveValue('Security checklist for my app');
+  await page.getByRole('button', { name: 'Create task', exact: true }).click();
+  await expect((await detailsField(page, 'Task title'))).toHaveValue('Security checklist for my app');
+  await page.goto(readingUrl);
+  await expect(page.getByRole('button', { name: 'Open task', exact: true })).toBeVisible();
+  expect(await calls(request)).toEqual(before);
+});
+
 test('bookmarks multiple links without starting work and reopens an existing read item', async ({page,request}) => {
   const before = await calls(request); await page.goto('/#/conversation/reading-links');
   await page.getByRole('button',{name:'Save to reading list: https://example.com/one',exact:true}).first().click();

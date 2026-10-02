@@ -126,13 +126,14 @@ export function PluginContent({ plugin, children }: {
 export function PluginProviders({ children }: {
     children: ReactNode;
 }) { const plugins = usePlugins(); return <>{plugins.reduceRight<ReactNode>((child, p) => { const Provider = p.definition.Provider; return Provider ? <Scope.Provider key={p.id} value={{ id: p.id, generation: p.generation }}><Boundary id={p.id} fallback={child}><Provider>{child}</Provider></Boundary></Scope.Provider> : child; }, children)}</>; }
-export function ConversationContributions({ context, conversation }: {
+export function ConversationContributions({ context, conversation, suggestedTitle }: {
     context?: ConversationContext;
     conversation?: Conversation;
+    suggestedTitle?: string;
 }) {
     const plugins = usePlugins();
     const c = conversation || { id: context?.link?.storedId || context?.id || '', key: context?.link?.key || context?.id || '', title: context?.link?.title || context?.title || 'Conversation', preview: '', source: context?.link?.source || '', updatedAt: 0, aliases: context?.aliases || [] };
-    return <div className="conversation-plugin-actions">{plugins.map(p => { const Actions = p.definition.ConversationActions; return Actions ? <PluginContent key={p.id} plugin={p}><Actions context={context} conversation={c}/></PluginContent> : null; })}</div>;
+    return <div className="conversation-plugin-actions">{plugins.map(p => { const Actions = p.definition.ConversationActions; return Actions ? <PluginContent key={p.id} plugin={p}><Actions context={context} conversation={c} suggestedTitle={suggestedTitle}/></PluginContent> : null; })}</div>;
 }
 export function MessageLinkContributions({ href, conversationId, children }: MessageLinkProps) {
     const plugins = usePlugins();

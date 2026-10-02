@@ -40,7 +40,7 @@ export function ConversationHeader({ children, title, backHref, backLabel, conte
     {title && <div className="conversation-toolbar">
       {backHref && <a className="conversation-back" href={backHref} aria-label={`Back to ${backLabel || 'list'}`} title={`Back to ${backLabel || 'list'}`}><ChevronLeft size={19}/><span>{backLabel}</span></a>}
       <span className="conversation-compact-title" title={title}>{title}</span>
-      {(context || conversation) && <ConversationContributions context={context} conversation={conversation}/>}
+      {(context || conversation) && <ConversationContributions context={context} conversation={conversation} suggestedTitle={title}/>}
       <button className="icon-button conversation-details-toggle" aria-label={hidden ? 'Show page details' : 'Collapse page details'} aria-expanded={!hidden} aria-controls={detailsId} onClick={() => setHidden(value => !value)}>{hidden ? <ChevronDown size={18}/> : <ChevronUp size={18}/>}</button>
     </div>}
     <div id={detailsId} className="conversation-header-details" hidden={!!title && hidden}>{children}</div>
