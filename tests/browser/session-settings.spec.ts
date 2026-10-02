@@ -70,6 +70,7 @@ test('General Settings defaults apply to new conversations with a per-conversati
   await page.getByLabel('Reasoning effort', { exact: true }).selectOption('ultra');
   await page.getByLabel('Working folder', { exact: true }).fill('/projects/work');
   await page.getByRole('button', { name: 'Save defaults', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   expect(await writes(request)).toEqual(before);
   await page.reload(); await expect(page.locator('.settings-card').filter({ has: page.getByRole('heading', { name: 'New conversation defaults' }) })).toContainText('chosen-model');
   await page.goto('/#/new');

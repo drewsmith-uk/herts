@@ -84,7 +84,8 @@ test('a lost test response is recovered by its ID without submitting another pus
 test('repairs an app with an older active worker, then shows and confirms a real service-worker push',async({page,context,request})=>{
   await context.grantPermissions(['notifications']);await browserPush(page,false,'granted',true);
   await page.goto('/manifest.webmanifest');await page.evaluate(async()=>{await navigator.serviceWorker.register('/__test/old-sw.js',{scope:'/'});await navigator.serviceWorker.ready;});
-  const cdp=await context.newCDPSession(page),registrations=new Map<string,string>();
+  const cdp=await context.newCDPSession(page),registrations=new Map<string,string>(),workerErrors:unknown[]=[];
+  cdp.on('ServiceWorker.workerErrorReported',error=>workerErrors.push(error));
   cdp.on('ServiceWorker.workerRegistrationUpdated',({registrations:rows})=>{for(const row of rows)if(!row.isDeleted)registrations.set(row.scopeURL,row.registrationId);});
   await cdp.send('ServiceWorker.enable');await page.goto('/#/settings');await page.evaluate(()=>navigator.serviceWorker.ready.then(()=>true));
   await expect.poll(()=>registrations.get('http://127.0.0.1:8790/')).toBeTruthy();
@@ -105,6 +106,15 @@ test('repairs an app with an older active worker, then shows and confirms a real
   let reminder:any;
   await expect.poll(async()=>{reminder=(await(await request.get('/__test/push-calls')).json()).find((p:any)=>p.id===reminderId);return reminder?.taskTitle;}).toBe(taskTitle);
   await cdp.send('ServiceWorker.deliverPushMessage',{origin:'http://127.0.0.1:8790',registrationId:registrations.get('http://127.0.0.1:8790/')!,data:JSON.stringify(reminder)});
-  await expect.poll(()=>page.evaluate(async id=>(await(await navigator.serviceWorker.ready).getNotifications({tag:id})).map(n=>({title:n.title,body:n.body,data:n.data})),reminderId)).toEqual([{title:'Herts · Reminder',body:taskTitle,data:{id:reminderId}}]);
+  try {
+    await expect.poll(()=>page.evaluate(async id=>(await(await navigator.serviceWorker.ready).getNotifications({tag:id})).map(n=>({title:n.title,body:n.body,data:n.data})),reminderId)).toEqual([{title:'Herts · Reminder',body:taskTitle,data:{id:reminderId}}]);
+  } catch(error) {
+    const delivery=await page.evaluate(async id=>{
+      const registration=await navigator.serviceWorker.getRegistration(),cache=await caches.open('tasks-notification-receipts');
+      return {active:registration?.active?.scriptURL,workerState:registration?.active?.state,permission:(await navigator.permissions.query({name:'notifications'})).state,receipt:!!await cache.match(`${location.origin}/__notice/${encodeURIComponent(id)}`),notifications:(await registration?.getNotifications())?.map(n=>({tag:n.tag,title:n.title}))};
+    },reminderId);
+    console.error('Synthetic push delivery diagnostics',JSON.stringify({delivery,workerErrors,registrations:[...registrations]}));
+    throw error;
+  }
 
 });

@@ -48,7 +48,9 @@ const runtimes = new Map<string, any>();
 const liveTranscriptSteps = new Map<string, { next: () => void; finish: () => void }>();
 let hermesUnavailable = false;
 let modernPrompts = false;
-const server = createServer(async (req, res) => {
+// Playwright reuses its fixture-probe connection across long UI interactions.
+// Keep it until the client closes it, avoiding a race with Node's idle timeout.
+const server = createServer({ keepAliveTimeout: 0 }, async (req, res) => {
   const url = new URL(req.url!, 'http://localhost'); res.setHeader('Content-Type', 'application/json');
   if (url.pathname === '/calls') return res.end(JSON.stringify(calls));
   if (url.pathname === '/call-details') return res.end(JSON.stringify(callDetails));

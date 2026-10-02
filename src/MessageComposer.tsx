@@ -35,6 +35,7 @@ export function MessageComposer({ context, initialText = '', canSend = true, doc
   const [files, setFiles] = useState<LocalFile[]>([]), [loaded, setLoaded] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState(''), [dirty, setDirty] = useState(false);
   const [recording, setRecording] = useState(false), [expanded, setExpanded] = useState(!docked), [settingsOpen, setSettingsOpen] = useState(false);
   const textarea = useRef<HTMLTextAreaElement>(null), input = useRef<HTMLInputElement>(null), root = useRef<HTMLDivElement>(null);
+  const focusAfterSave = useRef(false);
   const reconciled = useRef(new Set<string>());
   const recovery = useRef<{ id: string; draft: Draft } | undefined>(undefined);
   const draftRef = useRef(draft), working = useRef(false), attaching = useRef(false), voiceBusy = useRef(false), write = useRef(0);
@@ -51,6 +52,13 @@ export function MessageComposer({ context, initialText = '', canSend = true, doc
   }, [context.id, dirty]);
   useEffect(() => { let alive = true; void db.files.bulkGet(draft.files).then(rows => { if (alive) setFiles(rows.filter(Boolean) as LocalFile[]); }); return () => { alive = false; }; }, [draft.files.join(',')]);
   useLayoutEffect(() => { const el = textarea.current; if (!el) return; el.style.height = 'auto'; el.style.height = `${Math.min(el.scrollHeight, 156)}px`; }, [draft.text, expanded]);
+  useLayoutEffect(() => {
+    // Restoring a saved message disables the editor while it is saved. Focus
+    // only after React has committed the enabled editor, including on slow devices.
+    if (focusAfterSave.current && loaded && !busy && expanded) {
+      focusAfterSave.current = false; textarea.current?.focus({ preventScroll: true });
+    }
+  });
   async function update(next: Draft) {
     const removed = draftRef.current.files.filter(id => !next.files.includes(id));
     const sequence = ++write.current; draftRef.current = next; setDraft(next); setDirty(true); setNotice('');
@@ -59,7 +67,7 @@ export function MessageComposer({ context, initialText = '', canSend = true, doc
     // Cleanup must not turn a successfully saved message into a failed send.
     if (removed.length) void cleanLocalFiles(removed).catch(() => {});
   }
-  function open(focus = true) { setExpanded(true); if (focus) requestAnimationFrame(() => textarea.current?.focus({ preventScroll: true })); }
+  function open(focus = true) { focusAfterSave.current = focus; setExpanded(true); }
   async function attach(selected: FileList | null) {
     if (!selected || working.current || attaching.current) return;
     attaching.current = true; setBusy(true); setError(''); open(false);

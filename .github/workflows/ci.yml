@@ -21,6 +21,17 @@ jobs:
       - run: npm run test:installer
       - run: npx playwright install --with-deps chromium
       - run: npm run test:browser
+      - name: Retain failed browser diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: browser-failures
+          path: |
+            test-results/**/trace.zip
+            test-results/**/error-context.md
+            test-results/**/test-failed-*.png
+          retention-days: 7
+          if-no-files-found: ignore
       - name: Scan repository history and built assets (redacted)
         if: ${{ !cancelled() }}
         shell: bash
