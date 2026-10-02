@@ -54,7 +54,10 @@ test('dictation remains reviewable and a saved draft reload never sends', async 
   expect((await (await request.get('http://127.0.0.1:8791/calls')).json()).filter((m: string)=>m==='prompt.submit').length).toBe(initialSends);
   await page.getByRole('button', { name: 'Dictate', exact: true }).click(); await expect(page.getByText('Recording…', { exact: false })).toBeVisible();
   await page.waitForTimeout(1200); await page.getByRole('button', { name: 'Stop recording and transcribe' }).click();
-  await expect(page.getByLabel('Message Hermes')).toHaveValue(/Please draft a packing list/);
+  // The first transcription already matches the text above. Wait for the
+  // second one to finish before replacing the draft and checking reload.
+  await expect(page.getByLabel('Message Hermes')).toHaveValue('Keep this draft.\nPlease draft a packing list.\nPlease draft a packing list.');
+  await expect(page.getByRole('button', { name: 'Dictate', exact: true })).toBeEnabled();
   await expect(page.getByText('Sending voice message in', { exact: false })).not.toBeVisible();
   await page.getByLabel('Message Hermes').fill('My revised packing list.'); await expect(page.getByText('Sending voice message in', { exact: false })).not.toBeVisible();
   const before = (await (await request.get('http://127.0.0.1:8791/calls')).json()).filter((m: string) => m === 'prompt.submit').length;

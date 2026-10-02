@@ -123,13 +123,15 @@ test('recovers a lost conversation-reference response and opens its notification
 });
 
 test('shows saved history and a retry when a new conversation reference is unavailable', async ({ page, request }) => {
-  const before = await calls(request);
-  await page.route('**/api/v1/conversations/standalone-unavailable/context', route => route.fulfill({ status: 503, json: { error: 'Hermes is temporarily unavailable.' } }));
-  await page.goto('/#/conversation/standalone-unavailable');
+  const id = `unavailable-${crypto.randomUUID()}`, text = 'Saved history remains readable while the conversation reference is unavailable.';
+  expect((await request.post('/__test/conversation-message', { headers: { 'x-herts-request': '1' }, data: { id, title: 'Conversation retry', text } })).ok()).toBe(true);
+  const before = await calls(request), endpoint = `**/api/v1/conversations/${id}/context`;
+  await page.route(endpoint, route => route.fulfill({ status: 503, json: { error: 'Hermes is temporarily unavailable.' } }));
+  await page.goto(`/#/conversation/${id}`);
   await expect(page.getByText('Hermes is temporarily unavailable.', { exact: true })).toBeVisible();
-  await expect(page.locator('.message').last()).toContainText('History message 450.');
+  await expect(page.locator('.message').last()).toContainText(text);
   await expect(page.getByLabel('Message Hermes')).toHaveCount(0);
-  await page.unroute('**/api/v1/conversations/standalone-unavailable/context');
+  await page.unroute(endpoint);
   await page.getByRole('button', { name: 'Try again', exact: true }).click();
   await expect(page.getByLabel('Message Hermes')).toBeEditable();
   expect(await calls(request)).toEqual(before);

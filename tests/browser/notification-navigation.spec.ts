@@ -16,6 +16,13 @@ async function ready(page: Page) {
   await page.evaluate(() => navigator.serviceWorker.ready.then(() => true));
   await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
 }
+async function holdReply(request: APIRequestContext, id: string) {
+  expect((await request.post('/__test/notification-reply', { headers, data: { id, hold: true } })).ok()).toBe(true);
+  return {
+    started: async () => (await (await request.get(`/__test/notification-reply/${encodeURIComponent(id)}`)).json()).started as number,
+    release: async () => { expect((await request.post('/__test/notification-reply', { headers, data: { id, hold: false } })).ok()).toBe(true); },
+  };
+}
 // Exercise a real transferred MessagePort from the installed worker. Native
 // notification-click activation/focus ordering is covered by the worker tests.
 async function deliver(page: Page, data: { id?: string; kind?: string }) {
@@ -55,16 +62,14 @@ test('the old screen is replaced before the worker receives readiness, even whil
   await deliver(page, { id: notice.id });
   await expect((await detailsField(page, 'Task title'))).toHaveValue('Prepared reminder');
   await page.evaluate(() => { (window as any).notificationViews = []; });
-  let release!: () => void;
-  const gate = new Promise<void>(resolve => { release = resolve; });
-  await page.route(`**/api/v1/notifications/${encodeURIComponent(notice.id)}`, async route => { await gate; await route.continue(); });
+  const reply = await holdReply(request, notice.id);
   try {
     await deliver(page, { id: notice.id });
     expect(await page.evaluate(() => (window as any).notificationViews)).toEqual([
       { hash: `#/notice/${encodeURIComponent(notice.id)}`, oldTitle: null, opening: true }
     ]);
-    release(); await expect((await detailsField(page, 'Task title'))).toHaveValue('Prepared reminder');
-  } finally { release(); }
+    await reply.release(); await expect((await detailsField(page, 'Task title'))).toHaveValue('Prepared reminder');
+  } finally { await reply.release(); }
 });
 
 test('a warm notification switches to its task and test Settings without a document reload or Hermes work', async ({ page, request }) => {
@@ -88,22 +93,19 @@ test('a slow notification lookup cannot override a newer tap or manual navigatio
   const first = await reminder(request, 'Delayed reminder'), second = await reminder(request, 'Latest reminder');
   await ready(page);
   for (const destination of ['newer', 'manual']) {
-    let release!: () => void, finished!: () => void, started = false;
-    const gate = new Promise<void>(resolve => { release = resolve; }), done = new Promise<void>(resolve => { finished = resolve; });
-    await page.route(`**/api/v1/notifications/${encodeURIComponent(first.id)}`, async route => {
-      const response = await route.fetch(); started = true; await gate; await route.fulfill({ response }); finished();
-    });
+    const reply = await holdReply(request, first.id);
     try {
-      await deliver(page, { id: first.id }); await expect.poll(() => started).toBe(true);
+      await deliver(page, { id: first.id }); await expect.poll(reply.started).toBeGreaterThan(0);
       await expect(page.getByText('Opening notification…', { exact: true })).toBeVisible();
       if (destination === 'newer') {
         await deliver(page, { id: second.id }); await expect(page).toHaveURL(new RegExp(`#/task/${second.taskId}$`));
       } else {
         await page.getByRole('link', { name: 'Settings', exact: true }).click(); await expect(page).toHaveURL(/#\/settings$/);
       }
-      release(); await done; await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      const received = page.waitForResponse(response => response.url().endsWith(`/api/v1/notifications/${encodeURIComponent(first.id)}`));
+      await reply.release(); await (await received).finished(); await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       await expect(page).toHaveURL(destination === 'newer' ? new RegExp(`#/task/${second.taskId}$`) : /#\/settings$/);
-    } finally { release(); await page.unroute(`**/api/v1/notifications/${encodeURIComponent(first.id)}`); }
+    } finally { await reply.release(); }
   }
 });
 
@@ -116,15 +118,13 @@ test('notification intent survives offline reload and cold launches wait for the
     await page.reload(); await expect(page.getByText('Waiting for a connection to open this notification…')).toBeVisible();
   } finally { await context.setOffline(false); }
   await expect((await detailsField(page, 'Task title'))).toHaveValue('Recovered reminder');
-  let release!: () => void;
-  const gate = new Promise<void>(resolve => { release = resolve; });
-  await page.route(`**/api/v1/notifications/${encodeURIComponent(notice.id)}`, async route => { await gate; await route.continue(); });
+  const reply = await holdReply(request, notice.id);
   try {
     await page.goto(`/?notice=${encodeURIComponent(notice.id)}`);
     await expect(page.getByText('Opening notification…', { exact: true })).toBeVisible();
     await expect(page.getByLabel('Message Hermes', { exact: true })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Notifications on this device' })).toHaveCount(0);
-    release(); await expect((await detailsField(page, 'Task title'))).toHaveValue('Recovered reminder');
+    await reply.release(); await expect((await detailsField(page, 'Task title'))).toHaveValue('Recovered reminder');
     expect(new URL(page.url()).search).toBe('');
-  } finally { release(); }
+  } finally { await reply.release(); }
 });

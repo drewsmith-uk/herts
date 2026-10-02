@@ -264,6 +264,26 @@ app.post('/__test/push-status',async req=>{const input=req.body as {status:numbe
 app.get('/__test/push-calls',async()=>pushCalls);
 // Isolated browser-fixture clock control; this route is never in the app server.
 app.post('/__test/wake-snoozed', async req => { const at = (req.body as { at: number }).at; return { woke: store.wakeSnoozed(at), notices: store.db.prepare("SELECT id, task_id FROM notices WHERE kind='reminder'").all() }; });
+// Keep delayed notification replies on the fixture server: browser interception
+// can miss a request while the real service worker takes control of the page.
+const notificationReplies = new Map<string, { started: number; gate: Promise<void>; release: () => void }>();
+app.addHook('onSend', async (req, _reply, payload) => {
+  const match = /^\/api\/v1\/notifications\/([^/?]+)$/.exec(req.url);
+  const held = req.method === 'GET' && match ? notificationReplies.get(decodeURIComponent(match[1])) : undefined;
+  if (held) { held.started++; await held.gate; }
+  return payload;
+});
+app.post('/__test/notification-reply', async req => {
+  const { id, hold } = req.body as { id: string; hold: boolean };
+  notificationReplies.get(id)?.release(); notificationReplies.delete(id);
+  if (hold) {
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    notificationReplies.set(id, { started: 0, gate, release });
+  }
+  return { ok: true };
+});
+app.get('/__test/notification-reply/:id', async req => ({ started: notificationReplies.get((req.params as { id: string }).id)?.started || 0 }));
 articles.fetchHtml = async url => ({ url, html: `<html><head><title>Fixture article</title></head><body><article><h1>Fixture article</h1>${Array.from({length:8},(_,i)=>`<p>Article paragraph ${i}. ${'A detailed and useful piece of writing for offline reading. '.repeat(12)}</p>`).join('')}</article></body></html>` });
 await app.listen({ host: '127.0.0.1', port: 8790 });
-process.on('SIGTERM', () => { void app.close().then(() => { wss.close(); server.close(); process.exit(0); }); });
+process.on('SIGTERM', () => { for (const reply of notificationReplies.values()) reply.release(); void app.close().then(() => { wss.close(); server.close(); process.exit(0); }); });
