@@ -42,6 +42,7 @@ for (const theme of builtinThemes) test(`${theme.name}: title and scrollable con
       await field.focus();
       if (theme.id === 'press' && width === 390 && label === 'Task title') await page.screenshot({ path: 'test-results/title-focus.png' });
       await expectFocusFits(field);
+      await expect(page.getByLabel('Message Hermes', { exact: true })).toBeEditable();
       await page.getByLabel('Message Hermes', { exact: true }).focus();
       await expectFocusFits(page.getByRole('button', { name: /^Conversation settings:/ }));
       if (await page.getByRole('button', { name: 'Collapse message box', exact: true }).isVisible()) await expectFocusFits(page.getByRole('button', { name: 'Collapse message box', exact: true }));
@@ -49,6 +50,9 @@ for (const theme of builtinThemes) test(`${theme.name}: title and scrollable con
     }
     for (const [path, label] of [['/tasks/inbox', 'New task title'], ['/reading/add', 'Reading title']]) {
       await page.goto('/#' + path);
+      // focus() does not wait for the draft to load. A disabled editor ignores
+      // focus and leaves the phone's optional fields inside a closed composer.
+      await expect(page.getByLabel('Message Hermes', { exact: true })).toBeEditable();
       await page.getByLabel('Message Hermes', { exact: true }).focus();
       await expectFocusFits(await detailsField(page, label));
     }
