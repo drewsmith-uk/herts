@@ -9,8 +9,16 @@ for (const width of [390,1280]) test(`submitted messages and tool-only work upda
   await expect(page.getByLabel('Message Hermes')).toBeInViewport();
   const bottom=await page.locator('.conversation-scroll').evaluate(el=>el.scrollTop);await page.mouse.move(width/2,450);await page.mouse.wheel(0,-500);await expect.poll(()=>page.locator('.conversation-scroll').evaluate(el=>el.scrollTop)).toBeLessThan(bottom-100);
   const before=(await(await request.get('http://127.0.0.1:8791/calls')).json()).filter((m:string)=>m==='prompt.submit').length;
-  await page.getByLabel('Message Hermes').fill(text);await page.getByRole('button',{name:'Send',exact:true}).click();
-  await expect(page.locator('.outgoing-message')).toContainText(text,{timeout:1500});await expect(page.locator('.outgoing-message')).toBeInViewport();
+  // Observe the pending message independently of draft/settings sync time or a
+  // fast history response replacing it. Do not start Hermes until it is visible.
+  let release!:()=>void,submitted!:()=>void;
+  const held=new Promise<void>(resolve=>{release=resolve;}),ready=new Promise<void>(resolve=>{submitted=resolve;});
+  await page.route('**/api/v1/actions',async route=>{submitted();await held;await route.continue();});
+  try {
+    await page.getByLabel('Message Hermes').fill(text);await page.getByRole('button',{name:'Send',exact:true}).click();await ready;
+    await expect(page.locator('.outgoing-message')).toContainText(text,{timeout:1500});await expect(page.locator('.outgoing-message')).toBeInViewport();
+    await expect(page.locator('.message.from-user').filter({hasText:text})).toHaveCount(1);
+  } finally { release(); }
   await expect(page.locator('.conversation-status')).toBeInViewport();await expect(page.getByRole('button',{name:'Show latest messages',exact:true})).toHaveCount(0);
   await expect(page.locator('.message.from-user').filter({hasText:text})).toHaveCount(1);
   const toggle=page.locator('.activity-group').getByRole('button',{name:/Hermes activity/});
