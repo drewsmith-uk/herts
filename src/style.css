@@ -202,6 +202,7 @@ main { margin: 0; width: 100%; padding-bottom: 70px }
 .conversation-filters { display: flex; flex-wrap: wrap; column-gap: 24px; }
 .conversation-drafts { margin: var(--section-gap) 0; }
 .conversation-drafts h2, .conversation-list-heading { font-size: var(--text-body); }
+.conversation-drafts h2 { display: flex; align-items: center; margin-bottom: 12px; }
 .conversation-drafts .item-list { grid-template-columns: minmax(0, 1fr); }
 .conversation-drafts .item-title { margin: 0; }
 .draft-open { display: flex; flex-direction: column; justify-content: center; min-height: var(--control-size); }
