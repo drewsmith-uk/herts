@@ -120,7 +120,8 @@ code, pre { font-family: var(--font-mono); }
 /* Space tabs stay above the list tabs, with the add button in the scroll flow. */
 :root { --space-tabs-height: 64px; }
 .sidebar-space-name { padding: 0 13px; margin: 0 0 20px; color: var(--color-sidebar-text); font-size: 1rem; font-weight: 600; overflow-wrap: anywhere; }
-.task-space-bar { position: sticky; top: var(--topbar-height); z-index: 7; height: var(--space-tabs-height); margin: -12px 0 24px; background: var(--color-background); }
+.page-content:has(.task-space-bar) { padding-top: 0; }
+.task-space-bar { position: sticky; top: var(--topbar-height); z-index: 7; height: var(--space-tabs-height); margin: 0 0 24px; background: var(--color-background); }
 .space-tabs { display: flex; align-items: center; gap: 8px; height: 100%; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: thin; scrollbar-color: var(--color-control-border) transparent; scroll-padding-inline: 4px; padding: 4px 2px 8px; border-bottom: var(--border-width, 1px) solid var(--color-border); }
 .space-tab { display: inline-flex; align-items: center; flex: 0 0 auto; min-height: 44px; max-width: 240px; padding: 9px 16px; border-radius: var(--radius-control); color: var(--color-text-secondary); font-size: .9rem; font-weight: 550; }
 .space-tab span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
