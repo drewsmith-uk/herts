@@ -17,7 +17,7 @@ export function useConversationHistory(conversationId: string, version: string |
   const currentPages = useRef(pages); currentPages.current = pages;
   const controller = useRef<AbortController | undefined>(undefined), request = useRef(0), loading = useRef(false), started = useRef(0);
   const following = useRef(restored.current?.following ?? true), readAnchor = useRef<Anchor | undefined>(restored.current?.anchor), pending = useRef<Anchor | 'latest' | undefined>(restored.current?.anchor);
-  const buffered = useRef<History[] | undefined>(undefined), seenVersion = useRef(version), initialized = useRef(false), adjusting = useRef(false);
+  const buffered = useRef<History[] | undefined>(undefined), seenVersion = useRef(version), initialized = useRef(false), adjusting = useRef<number | undefined>(undefined);
   const held = useRef<{ element: Element; top: number } | undefined>(undefined);
   const viewport = () => conversationViewport(root.current);
   function anchor(): Anchor | undefined {
@@ -28,8 +28,7 @@ export function useConversationHistory(conversationId: string, version: string |
   }
   function move(top: number) {
     const view = viewport(); if (!view || Math.abs(view.scrollTop - top) < 1) return;
-    adjusting.current = true; view.scrollTop = top;
-    requestAnimationFrame(() => { adjusting.current = false; });
+    view.scrollTop = top; adjusting.current = view.scrollTop;
   }
   function restore(target?: Anchor) {
     const view = viewport(); if (!view || !target) return;
@@ -60,7 +59,10 @@ export function useConversationHistory(conversationId: string, version: string |
       if (memory.size > 20) memory.delete(memory.keys().next().value!);
     };
     const scroll = () => {
-      if (adjusting.current) return;
+      // Ignore only the position we set. A wheel scroll can arrive in the same
+      // frame and must update the reader's anchor before a resize restores it.
+      const adjusted = adjusting.current; adjusting.current = undefined;
+      if (adjusted !== undefined && Math.abs(view.scrollTop - adjusted) < 1) return;
       following.current = view.scrollHeight - view.scrollTop - view.clientHeight < 64;
       readAnchor.current = anchor(); save();
       if (following.current && buffered.current) apply(buffered.current, cached);
