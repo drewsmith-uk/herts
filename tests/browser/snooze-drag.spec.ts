@@ -5,7 +5,7 @@ const snapshot=async(request:APIRequestContext)=>(await(await request.get('/api/
 const agentCalls=async(request:APIRequestContext)=>(await(await request.get('http://127.0.0.1:8791/calls')).json() as string[]).filter(m=>['session.create','session.resume','prompt.submit','session.interrupt'].includes(m));
 async function seed(request:APIRequestContext,name:string,count=3){
   const spaceId=crypto.randomUUID(),ids:string[]=[];
-  await request.post('/api/v1/spaces/sync',{headers,data:{id:crypto.randomUUID(),spaceId,kind:'create',name,at:Date.now()}});
+  expect((await request.post('/api/v1/spaces/sync',{headers,data:{id:crypto.randomUUID(),spaceId,kind:'create',name:`${name} ${spaceId}`,at:Date.now()}})).ok()).toBe(true);
   for(let i=0;i<count;i++){const taskId=crypto.randomUUID();ids.unshift(taskId);await request.post('/api/v1/sync',{headers,data:{id:crypto.randomUUID(),taskId,spaceId,kind:'create',title:`${name} ${i+1}`,at:Date.now()}});}
   return {spaceId,ids,path:`/#/spaces/${spaceId}/inbox`};
 }

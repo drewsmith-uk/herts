@@ -700,7 +700,7 @@ export async function cacheRead<T = any>(key: string, fetcher: () => Promise<unk
 }
 export function contextForConversation(id: string, aliases: string[] = []): ConversationContext | undefined {
     const ids = [id, ...aliases];
-    return state.snapshot.contexts?.find(c => c.link && (ids.includes(c.link.key) || ids.includes(c.link.storedId) || c.aliases.some(alias => ids.includes(alias))));
+    return state.snapshot.contexts?.find(c => c.id === id || c.link && (ids.includes(c.link.key) || ids.includes(c.link.storedId) || c.aliases.some(alias => ids.includes(alias))));
 }
 export async function openConversation(id: string) {
     const result = await api(`/conversations/${encodeURIComponent(id)}/context`, {}, 'POST', 30000);

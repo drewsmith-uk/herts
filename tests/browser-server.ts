@@ -221,6 +221,14 @@ app.post('/__test/saved-message', async req => {
   const action = { id: crypto.randomUUID(), taskId: contextId, kind: 'send' as const, text, uploadIds, createdAt: Date.now(), updatedAt: Date.now(), state: 'unknown' as const, phase: 'unknown', receipt: 'unknown' as const, sendStage: submitted ? 'submitted' as const : 'preparing' as const };
   store.saveAction(action); return { action };
 });
+app.post('/__test/missing-setup', async req => {
+  const { id, submitted = false } = req.body as { id: string; submitted?: boolean };
+  const context = store.openConversation({ key: id, storedId: id, title: 'Saved reading conversation', source: 'desktop' }, [id]);
+  store.saveBinding(context.id, { runtimeId: `missing-${id}`, storedId: id, epoch: gateway.epoch, generation: crypto.randomUUID(), seq: 0, ready: false, known: false, monitored: false, unavailable: true });
+  const action = { id: crypto.randomUUID(), taskId: context.id, kind: 'send' as const, text: 'The original saved message', uploadIds: [], createdAt: Date.now(), updatedAt: Date.now(), state: 'unknown' as const, receipt: 'unknown' as const, phase: 'setup failed', sendStage: submitted ? 'submitting' as const : 'preparing' as const, errorCode: 404, error: 'The linked Hermes session could not be found. Your saved messages are still available.' };
+  store.saveAction(action); gateway.metadata = undefined;
+  return { contextId: context.id, actionId: action.id };
+});
 app.post('/__test/stale-stop', async req => {
   const { id, completed = true } = req.body as { id: string; completed?: boolean };
   const title = `Expired conversation ${id}`;

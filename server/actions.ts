@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { Conflict, type Action, type Binding } from '../shared/core.js';
+import { canReconnectUnsentConversation, Conflict, type Action, type Binding } from '../shared/core.js';
 import { Store } from './store.js';
 import { Gateway, GatewayError } from './gateway.js';
 import { cleanConversationTitle } from '../shared/conversationTitles.js';
@@ -25,8 +25,10 @@ export class Actions {
     for (const a of store.actions()) {
       const stalePreviewWarning = a.promptWarning === obsoletePreviewWarning;
       if (stalePreviewWarning) delete a.promptWarning;
+      const staleReconnectMessage = a.error === 'Ready to reconnect here. Use a saved message or write a new one, then Send.';
+      if (staleReconnectMessage) { a.error = 'Your message was not sent. You can send it again here.'; a.phase = 'message not sent'; }
       if (a.receipt === 'pending') { if (a.state === 'preparing') a.state = 'unknown'; a.receipt = 'unknown'; a.error = a.sendStage === 'preparing' ? 'Herts restarted during conversation preparation. Your message was not sent; it remains saved.' : 'Herts restarted before this operation was confirmed. Review the saved submission and conversation history.'; store.saveAction(a); }
-      else if (stalePreviewWarning) store.saveAction(a);
+      else if (stalePreviewWarning || staleReconnectMessage) store.saveAction(a);
     }
     gateway.on('event', e => { this.event(e); });
     gateway.on('prompts', sid => this.promptsChanged(sid));
@@ -92,7 +94,7 @@ export class Actions {
     let controlBinding: Binding | undefined;
     try {
       await this.gateway.connect();
-      const task = this.store.context(a.taskId)!;
+      let task = this.store.context(a.taskId)!;
       // Older Herts versions may have created the session before its duplicate
       // placeholder title was rejected. Reuse that session on a deliberate Send.
       const repairTitle = this.store.actions(task.id).some(prior => prior.id !== a.id && prior.kind === 'send' && prior.sendStage === 'preparing' && prior.receipt === 'rejected' && /Title .*already in use/.test(prior.error || ''))
@@ -108,21 +110,39 @@ export class Actions {
       if (a.kind === 'continue' || (a.kind === 'send' && task.link && (!b?.ready || b.epoch !== this.gateway.epoch))) {
         let c;
         try { c = await this.gateway.conversation(task.link!.storedId); } catch (error) {
-          if (!(error instanceof GatewayError) || error.code !== 404 || !b || b.epoch !== this.gateway.epoch || !b.known || b.storedId !== task.link!.storedId) throw error;
-          await this.verifyBinding(b);
-          c = { id: b.storedId, aliases: [task.link!.key, b.storedId] };
+          if (!(error instanceof GatewayError) || error.uncertain || error.code !== 404) throw error;
+          // Refresh aliases before treating a cached lookup as a missing session.
+          this.gateway.metadata = undefined;
+          try { c = await this.gateway.conversation(task.link!.storedId); }
+          catch (freshError) {
+            if (!(freshError instanceof GatewayError) || freshError.uncertain || freshError.code !== 404) throw freshError;
+            if (b && b.epoch === this.gateway.epoch && b.known && b.storedId === task.link!.storedId) {
+              try {
+                await this.verifyBinding(b);
+                c = { id: b.storedId, aliases: [task.link!.key, b.storedId] };
+              } catch (runtimeError) { if (!missingRuntime(runtimeError)) throw runtimeError; }
+            }
+            if (!c) {
+              if (a.kind !== 'send' || !await this.recoverUnsentCreation(a, input, b))
+                throw new GatewayError('The linked Hermes session could not be found. Your saved messages are still available.', false, 404);
+              task = this.store.context(a.taskId)!;
+              b = undefined;
+            }
+          }
         }
-        this.checkSendNotCancelled(a.id);
-        const previous = b; dispatched = true;
-        const r = await this.step(a, 'preparing conversation', 'session.resume', { session_id: c.id, profile: this.gateway.profile, source: 'desktop', lazy: false, defer_history: false, omit_messages: true, eager_build: true });
-        if (!r.session_id || !r.session_key || (r.info?.profile_name !== undefined && r.info.profile_name !== this.gateway.profile) || (!c.aliases.includes(r.session_key) && r.session_key !== c.id)) throw new GatewayError('The resumed conversation identity could not be verified.', true);
-        b = { runtimeId: r.session_id, storedId: r.session_key, epoch: this.gateway.epoch, generation: randomUUID(), seq: previous && previous.runtimeId === r.session_id && previous.epoch === this.gateway.epoch ? previous.seq : 0, ready: false, monitored: true, known: !!(r.messages_omitted && typeof r.running === 'boolean' && ['idle', 'working', 'waiting', 'starting'].includes(r.status)) || !!(r.messages_omitted && Object.hasOwn(r, 'inflight') && r.resumed) || !!(previous?.known && previous.runtimeId === r.session_id && previous.epoch === this.gateway.epoch) };
-        Object.assign(a, this.store.action(a.id)); a.binding = b;
-        if (a.kind === 'continue') { a.receipt = 'accepted'; a.state = r.auto_continue || r.running ? 'running' : 'preparing'; }
-        a.phase = r.auto_continue ? 'recovering interrupted work' : 'preparing conversation';
-        this.store.saveBinding(task.id, b); this.store.saveAction(a);
-        await this.replay(task.id, b, a.kind === 'send');
-        if (a.kind === 'continue') return;
+        if (c) {
+          this.checkSendNotCancelled(a.id);
+          const previous = b; dispatched = true;
+          const r = await this.step(a, 'preparing conversation', 'session.resume', { session_id: c.id, profile: this.gateway.profile, source: 'desktop', lazy: false, defer_history: false, omit_messages: true, eager_build: true });
+          if (!r.session_id || !r.session_key || (r.info?.profile_name !== undefined && r.info.profile_name !== this.gateway.profile) || (!c.aliases.includes(r.session_key) && r.session_key !== c.id)) throw new GatewayError('The resumed conversation identity could not be verified.', true);
+          b = { runtimeId: r.session_id, storedId: r.session_key, epoch: this.gateway.epoch, generation: randomUUID(), seq: previous && previous.runtimeId === r.session_id && previous.epoch === this.gateway.epoch ? previous.seq : 0, ready: false, monitored: true, known: !!(r.messages_omitted && typeof r.running === 'boolean' && ['idle', 'working', 'waiting', 'starting'].includes(r.status)) || !!(r.messages_omitted && Object.hasOwn(r, 'inflight') && r.resumed) || !!(previous?.known && previous.runtimeId === r.session_id && previous.epoch === this.gateway.epoch) };
+          Object.assign(a, this.store.action(a.id)); a.binding = b;
+          if (a.kind === 'continue') { a.receipt = 'accepted'; a.state = r.auto_continue || r.running ? 'running' : 'preparing'; }
+          a.phase = r.auto_continue ? 'recovering interrupted work' : 'preparing conversation';
+          this.store.saveBinding(task.id, b); this.store.saveAction(a);
+          await this.replay(task.id, b, a.kind === 'send');
+          if (a.kind === 'continue') return;
+        }
       }
       if (a.kind === 'send') {
         if (!task.link) {
@@ -131,8 +151,14 @@ export class Actions {
           const r = await this.step(a, 'creating conversation', 'session.create', { profile: this.gateway.profile, source: 'desktop', close_on_disconnect: false, ...this.settings.createParams(a) });
           if (!r.session_id || !r.stored_session_id || r.info?.profile_name !== this.gateway.profile) throw new GatewayError('Conversation creation identity is not confirmed.', true);
           b = { runtimeId: r.session_id, storedId: r.stored_session_id, epoch: this.gateway.epoch, generation: randomUUID(), seq: 0, ready: false, monitored: true, known: true };
-          this.store.linkNew(task.id, { key: r.stored_session_id, storedId: r.stored_session_id, title: task.title, source: 'desktop' });
-          this.store.saveBinding(task.id, b); this.gateway.metadata = undefined;
+          this.store.db.transaction(() => {
+            this.store.linkNew(task.id, { key: r.stored_session_id, storedId: r.stored_session_id, title: task.title, source: 'desktop' });
+            this.store.saveBinding(task.id, b!);
+            Object.assign(a, this.store.action(a.id));
+            a.createdSession = { runtimeId: b!.runtimeId, storedId: b!.storedId, epoch: b!.epoch };
+            this.store.saveAction(a);
+          })();
+          this.gateway.metadata = undefined;
         }
         if (!b || b.epoch !== this.gateway.epoch) throw new GatewayError('Conversation preparation was interrupted. Your message was not sent.');
         if (!task.link || repairTitle) await this.nameConversation(a, b, task.title);
@@ -232,6 +258,93 @@ export class Actions {
   }
   checkSendNotCancelled(id: string) {
     if (this.store.action(id)?.cancelSend) throw new GatewayError('Sending was cancelled by your stop request.');
+  }
+  async reconnectUnsentConversation(contextId: string, storedId: string) {
+    await this.gateway.connect();
+    const epoch = this.gateway.epoch, observed = this.store.binding(contextId);
+    const eligible = () => {
+      const context = this.store.context(contextId), binding = this.store.binding(contextId);
+      if (this.gateway.epoch !== epoch || !observed || binding?.generation !== observed.generation || binding.storedId !== storedId ||
+          context?.id !== contextId || context.link?.storedId !== storedId || context.link.key !== storedId || context.aliases.some(id => id !== storedId) ||
+          !canReconnectUnsentConversation(this.store.actions(contextId)))
+        throw new Conflict('This conversation has changed or a message may have been submitted. Refresh and review it before reconnecting.');
+      return context;
+    };
+    eligible();
+    // Compatibility for older installed clients. Current clients recover as
+    // part of Send and no longer expose this separate operation.
+    const conversations = await this.gateway.conversations(true);
+    if (conversations.some(c => c.id === storedId || c.key === storedId || c.aliases.includes(storedId)) ||
+        !await this.sessionIsMissing(observed!))
+      throw new Conflict('The Hermes conversation is still available. Refresh and try sending again.');
+    const context = this.store.db.transaction(() => {
+      const current = eligible();
+      const next = this.store.saveContext({ ...current, link: null, aliases: [] });
+      this.store.db.prepare('DELETE FROM context_aliases WHERE context_id=?').run(contextId);
+      this.store.db.prepare('DELETE FROM bindings WHERE task_id=?').run(contextId);
+      this.store.updateLegacyLinks(contextId, null);
+      for (const action of this.store.actions(contextId)) {
+        action.state = 'failed'; action.receipt = 'rejected'; action.phase = 'message not sent';
+        action.error = 'Your message was not sent. You can send it again here.';
+        delete action.errorCode;
+        this.store.saveAction(action);
+      }
+      this.store.bumpRevision();
+      return next;
+    })();
+    this.gateway.metadata = undefined;
+    this.store.emit('change', { type: 'contexts' });
+    return context;
+  }
+  private async sessionIsMissing(session: Pick<Binding, 'storedId' | 'runtimeId'>): Promise<boolean> {
+    try {
+      await this.gateway.http(`/api/sessions/${encodeURIComponent(session.storedId)}?profile=${encodeURIComponent(this.gateway.profile)}`);
+      return false;
+    } catch (error) { if (!(error instanceof GatewayError) || error.uncertain || error.code !== 404) throw error; }
+    try {
+      await this.gateway.rpc('session.activate', { session_id: session.runtimeId, omit_messages: true });
+      return false;
+    } catch (error) { if (!missingRuntime(error)) throw error; }
+    return true;
+  }
+  private async recoverUnsentCreation(a: Action, input: ActionInput, observed?: Binding): Promise<boolean> {
+    const epoch = this.gateway.epoch;
+    const eligible = () => {
+      const context = this.store.context(a.taskId), attempts = this.store.actions(a.taskId);
+      const priorAttempts = attempts.filter(prior => prior.id !== a.id);
+      const created = priorAttempts.find(prior => prior.createdSession?.storedId === context?.link?.storedId)?.createdSession || observed;
+      // Older versions did not record creation provenance. Their binding plus
+      // a complete ledger of attempts stopped before submission is sufficient
+      // on an explicit Send, provided both backend identities are now missing.
+      if (this.gateway.epoch !== epoch || !priorAttempts.length || !created || !observed || observed.runtimeId !== created.runtimeId || observed.storedId !== created.storedId || observed.epoch !== created.epoch ||
+          context?.link?.storedId !== created.storedId ||
+          context?.link?.key !== created.storedId || context.aliases.some(id => id !== created.storedId) ||
+          this.store.binding(a.taskId)?.generation !== observed.generation ||
+          attempts.some(prior => prior.kind !== 'send' || prior.sendStage !== 'preparing' || prior.receipt === 'accepted' || prior.turnStarted || prior.terminal || prior.liveText ||
+            (prior.id !== a.id && (!['failed', 'unknown'].includes(prior.state) || !['rejected', 'unknown'].includes(prior.receipt))))) return;
+      return { context, created };
+    };
+    const candidate = eligible();
+    if (!candidate) return false;
+    // A list/ownership 404 alone does not establish that the stored session is
+    // gone. Require the profile-scoped detail endpoint and runtime to agree.
+    if (!await this.sessionIsMissing(candidate.created)) return false;
+    this.checkSendNotCancelled(a.id);
+    const recovered = this.store.db.transaction(() => {
+      const current = eligible();
+      if (!current || current.created.storedId !== candidate.created.storedId) return false;
+      this.store.saveContext({ ...current.context, link: null, aliases: [] });
+      this.store.db.prepare('DELETE FROM context_aliases WHERE context_id=?').run(a.taskId);
+      this.store.db.prepare('DELETE FROM bindings WHERE task_id=?').run(a.taskId);
+      this.store.updateLegacyLinks(a.taskId, null);
+      Object.assign(a, this.store.action(a.id));
+      a.settings = this.settings.freeze(a.taskId, input);
+      this.store.saveAction(a);
+      this.store.bumpRevision();
+      return true;
+    })();
+    if (recovered) { this.gateway.metadata = undefined; this.store.emit('change', { type: 'contexts' }); }
+    return recovered;
   }
   async nameConversation(a: Action, b: Binding, requested: string) {
     const base = cleanConversationTitle(requested === 'New conversation' ? a.text.trim() || requested : requested) || 'New conversation';

@@ -150,14 +150,20 @@ test('hiding on a later page preserves loaded conversations and the reading posi
     const visible = rows.filter(c => url.searchParams.get('includeHidden') === 'true' || !state.snapshot.hiddenConversations.includes(c.key));
     await route.fulfill({ json: { conversations: visible.slice(offset, offset + 50), hasMore: visible.length > offset + 50, total: visible.length } });
   });
-  await page.goto('/#/conversations'); await expect(page.locator('.conversation-row')).toHaveCount(50);
-  await page.getByRole('button', { name: 'Load more conversations' }).click(); await expect(page.locator('.conversation-row')).toHaveCount(70);
-  const item = page.locator('[data-conversation-key="page-60"]'); await item.scrollIntoViewIfNeeded();
-  const before = await page.locator('[data-conversation-key="page-61"]').evaluate(e => e.getBoundingClientRect().top);
-  await mouseSwipe(page, item, -150);
-  await expect(page.locator('.save-state')).toContainText('Changes synced');
-  await expect(page.locator('.loading')).toHaveCount(0); await expect(page.locator('.conversation-row')).toHaveCount(69);
-  await expect(page.locator('[data-conversation-key="page-69"]')).toHaveCount(1);
-  await expect(page.getByRole('button', { name: 'Load more conversations' })).toHaveCount(0);
-  expect(Math.abs(await page.locator('[data-conversation-key="page-61"]').evaluate(e => e.getBoundingClientRect().top) - before)).toBeLessThan(220);
+  try {
+    await page.goto('/#/conversations'); await expect(page.locator('.conversation-row')).toHaveCount(50);
+    await page.getByRole('button', { name: 'Load more conversations' }).click(); await expect(page.locator('.conversation-row')).toHaveCount(70);
+    const item = page.locator('[data-conversation-key="page-60"]'); await item.scrollIntoViewIfNeeded();
+    const before = await page.locator('[data-conversation-key="page-61"]').evaluate(e => e.getBoundingClientRect().top);
+    await mouseSwipe(page, item, -150);
+    await expect(page.locator('.save-state')).toContainText('Changes synced');
+    await expect(page.locator('.loading')).toHaveCount(0); await expect(page.locator('.conversation-row')).toHaveCount(69);
+    await expect(page.locator('[data-conversation-key="page-69"]')).toHaveCount(1);
+    await expect(page.getByRole('button', { name: 'Load more conversations' })).toHaveCount(0);
+    expect(Math.abs(await page.locator('[data-conversation-key="page-61"]').evaluate(e => e.getBoundingClientRect().top) - before)).toBeLessThan(220);
+  } finally {
+    // List refreshes can still be reading state when the assertions finish.
+    // Drain those handlers before Playwright disposes the request fixture.
+    await page.unrouteAll({ behavior: 'wait' });
+  }
 });

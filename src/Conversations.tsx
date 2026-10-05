@@ -154,7 +154,16 @@ export function ConversationView({ id }: {
     id: string;
 }) {
     const state = useApp(), [conversation, setConversation] = useState<Conversation>(), [error, setError] = useState(''), [attempt, setAttempt] = useState(0), [busy, setBusy] = useState(false);
-    const context = contextForConversation(id, conversation ? [conversation.id, ...conversation.aliases] : []);
+    const resolvedContext = useRef<string | undefined>(undefined);
+    const context = contextForConversation(id, conversation ? [conversation.id, ...conversation.aliases] : []) || state.snapshot.contexts.find(c => c.id === resolvedContext.current);
+    if (context) resolvedContext.current = context.id;
+    useEffect(() => {
+        if (!context || id === context.id || [context.link?.key, context.link?.storedId, ...context.aliases].includes(id)) return;
+        // A retry may replace a missing Hermes identity. Keep this Herts
+        // conversation open and give it a reloadable, stable address.
+        history.replaceState(history.state, '', `/#/conversation/${context.id}`);
+        dispatchEvent(new PopStateEvent('popstate'));
+    }, [id, context?.id, context?.link?.storedId, context?.aliases]);
     useEffect(() => { let alive = true; void db.kv.toArray().then(rows => { const c = rows.filter(r => r.key.startsWith('conversations:')).flatMap(r => r.value.conversations || []).find(c => c.key === id || c.id === id || c.aliases.includes(id)); if (alive && c)
         setConversation(c); }); return () => { alive = false; }; }, [id]);
     useEffect(() => { if (context || !state.online)

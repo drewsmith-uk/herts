@@ -16,7 +16,7 @@ export abstract class LegacyFeatures extends EventEmitter {
   abstract bumpRevision():void;
   abstract receipt(id:string,payload:unknown):any;
   abstract saveReceipt(id:string,payload:unknown,data:unknown):void;
-  updateLegacyLinks(contextId:string,link:Link){if(!this.getMeta('plugin-data-migrated'))for(const task of this.snapshot().tasks.filter(t=>t.contextId===contextId)){task.link=link;this.saveTask(task);}}
+  updateLegacyLinks(contextId:string,link:Link|null){if(!this.getMeta('plugin-data-migrated'))for(const task of this.snapshot().tasks.filter(t=>t.contextId===contextId)){task.link=link;this.saveTask(task);}}
   snapshot(): Snapshot {
     const plugin = this.pluginRecord<Snapshot>('tasks','state');
     const base = plugin || { ...this.getMeta<Omit<Snapshot,'tasks'>>('snapshot')!, tasks:(this.db.prepare('SELECT data FROM tasks').all() as any[]).map(r=>JSON.parse(r.data)) };

@@ -4,7 +4,8 @@ const state = async (request: APIRequestContext) => (await request.get('/api/v1/
 const writes = async (request: APIRequestContext): Promise<{ method: string; params: any }[]> => ((await (await request.get('http://127.0.0.1:8791/call-details', { maxRetries: 2 })).json()) as any[]).filter(c => ['session.create', 'session.resume', 'config.set', 'session.cwd.set', 'prompt.submit'].includes(c.method));
 const model = (id: string) => JSON.stringify({ id, provider: 'configured' });
 const settingsButton = (page: Page) => page.getByRole('button', { name: /^Conversation settings:/, includeHidden: true });
-async function open(page: Page) { await page.getByLabel('Message Hermes').focus(); await settingsButton(page).click(); await expect(page.getByRole('dialog')).toBeVisible(); }
+// Click waits for the saved draft to load and enable the editor; focus() does not.
+async function open(page: Page) { await page.getByLabel('Message Hermes').click(); await settingsButton(page).click(); await expect(page.getByRole('dialog')).toBeVisible(); }
 async function setDefaults(request: APIRequestContext, values = {}) { const revision = (await state(request)).snapshot.sessionSettings.defaults.revision; expect((await request.post('/api/v1/session-defaults', { headers: { 'x-herts-request': '1' }, data: { id: crypto.randomUUID(), revision, values } })).ok()).toBe(true); }
 test.afterEach(async ({ request }) => { await setDefaults(request); });
 
