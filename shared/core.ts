@@ -26,8 +26,13 @@ export interface Action {
   savedMessageDeletedAt?: number;
   sendStage?: 'preparing' | 'submitting' | 'submitted'; turnStarted?: boolean; awaitingTurn?: boolean; cancelSend?: boolean;
   settings?: import('./sessionSettings').SendSettings;
+  // Durable proof that this action created a new session, before any prompt.
+  createdSession?: Pick<Binding, 'runtimeId' | 'storedId' | 'epoch'>;
 }
 export const savedMessageNotSent = (action: Action) => action.sendStage === 'preparing' || action.receipt === 'rejected';
+export const canReconnectUnsentConversation = (actions: Action[]) => actions.length > 0 && actions.every(a =>
+  a.kind === 'send' && a.sendStage === 'preparing' && ['failed', 'unknown'].includes(a.state) &&
+  ['rejected', 'unknown'].includes(a.receipt) && !a.turnStarted && !a.terminal && !a.liveText);
 export const hasSavedMessage = (action: Action) => action.kind === 'send' && !action.savedMessageDeletedAt &&
   (['failed', 'unknown'].includes(action.state) || ['rejected', 'unknown'].includes(action.receipt));
 export function redactSavedMessage(action: Action): Action {

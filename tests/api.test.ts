@@ -6,10 +6,34 @@ import { join } from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
 import { createApp } from '../server/app';
 import { originalSpaceId, type Conversation } from '../shared/model';
+import { GatewayError } from '../server/gateway';
 const closes: (()=>Promise<void>)[] = [];
 afterEach(async () => { for (const close of closes.splice(0)) await close(); });
 async function fixture(dev = true) { const dir = await mkdtemp(join(tmpdir(), 'tasks-test-')); const result = await createApp({ dataDir: dir, origin: 'https://tasks.example:8443', identity: 'owner@example.com', dev, hermesBase: '', hermesToken: '' }); await result.plugins.activate('tasks');await result.plugins.activate('reading');closes.push(async () => { await result.app.close(); await rm(dir, { recursive: true, force: true }); }); return result; }
 describe('private API and upload recovery', () => {
+  it('reconnects an unsent legacy context only through an authenticated, current, same-origin request', async () => {
+    const { app, store, gateway } = await fixture(false), contextId = randomUUID();
+    store.saveContext({ id: contextId, title: 'Saved reading', link: { key: 'missing', storedId: 'missing', title: 'Saved reading', source: 'desktop' }, aliases: ['missing'] });
+    store.saveBinding(contextId, { storedId: 'missing', runtimeId: 'missing-runtime', generation: 'original', epoch: gateway.epoch, ready: false, known: false, monitored: false, seq: 0 });
+    const action = { id: randomUUID(), taskId: contextId, kind: 'send' as const, text: 'Saved message', uploadIds: [], createdAt: 1, updatedAt: 1, state: 'unknown' as const, receipt: 'unknown' as const, phase: 'setup failed', sendStage: 'preparing' as const };
+    store.saveAction(action);
+    vi.spyOn(gateway, 'connect').mockResolvedValue();
+    vi.spyOn(gateway, 'conversations').mockResolvedValue([]);
+    const http = vi.spyOn(gateway, 'http').mockRejectedValue(new GatewayError('Missing', false, 404));
+    const rpc = vi.spyOn(gateway, 'rpc').mockRejectedValue(new GatewayError('Missing', false, 4001));
+    const headers = { host: 'tasks.example:8443', 'tailscale-user-login': 'owner@example.com', origin: 'https://tasks.example:8443', 'x-herts-request': '1' };
+    const url = `/api/v1/contexts/${contextId}/reconnect`;
+    expect((await app.inject({ method: 'POST', url, payload: { storedId: 'missing' } })).statusCode).toBe(403);
+    expect((await app.inject({ method: 'POST', url, headers: { ...headers, origin: 'https://attacker.example' }, payload: { storedId: 'missing' } })).statusCode).toBe(403);
+    expect((await app.inject({ method: 'POST', url, headers, payload: { storedId: 'stale' } })).statusCode).toBe(409);
+    expect(http).not.toHaveBeenCalled(); expect(rpc).not.toHaveBeenCalled();
+    const response = await app.inject({ method: 'POST', url, headers, payload: { storedId: 'missing' } });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().context).toMatchObject({ id: contextId, title: 'Saved reading', link: null });
+    expect(store.action(action.id)).toMatchObject({ text: action.text, receipt: 'rejected', sendStage: 'preparing' });
+    expect(rpc.mock.calls.map(c => c[0])).toEqual(['session.activate']);
+    expect((await app.inject({ method: 'POST', url, headers, payload: { storedId: 'missing' } })).statusCode).toBe(409);
+  });
   it('saves and syncs settings without Hermes work and rejects stale or malformed changes', async () => {
     const { app, gateway, store } = await fixture(); const contextId = randomUUID(), headers = { 'x-herts-request': '1' };
     store.saveContext({ id: contextId, title: 'Settings API', link: null, aliases: [] });

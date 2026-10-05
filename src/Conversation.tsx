@@ -56,7 +56,7 @@ export function ConversationPanel({ context: task, initialText = '', showActions
     <div className="conversation-scroll" tabIndex={0} aria-label="Conversation messages">
     {showActions&&<ConversationContributions context={task}/>}
     {showHeading && <div className="conversation-heading"><span><MessageSquare size={17}/> Conversation</span></div>}
-    <HistoryView conversationId={task.link?.storedId || ''} version={historyChange} liveText={main?.liveText} working={active} phase={main?.phase} outgoing={outgoing} outgoingAction={outgoingAction} sendVersion={sendVersion}/>
+    <HistoryView key={task.link?.storedId || task.id} conversationId={task.link?.storedId || ''} version={historyChange} liveText={main?.liveText} working={active} phase={main?.phase} outgoing={outgoing} outgoingAction={outgoingAction} sendVersion={sendVersion}/>
     {(active || attention || main?.phase === 'stopped') && <ConversationActivity statusHost={statusHost} label={statusLabel} active={active} attention={attention} stopping={main?.state === 'stopping'} disabled={busy || !state.online || !state.gateway.online || !binding} onStop={() => void control('stop')} onLatest={() => setSendVersion(v => v + 1)}>
       {attention && <>
         {main?.error && !modelConfirmation && <p className="inline-error" role="alert">{main.error}</p>}
@@ -73,7 +73,7 @@ export function ConversationPanel({ context: task, initialText = '', showActions
       </>}
     </ConversationActivity>}
     <div ref={setSavedHost}/>
-    </div><div className="conversation-control-slot" ref={setStatusHost}/>{readOnly ? <div className="composer-placeholder" role="status">{state.online ? 'Opening message controls…' : 'Connect once to enable messaging for this conversation.'}</div> : <MessageComposer key={task.id} savedMessagesHost={savedHost} docked={!!task.link} context={task} saveLabel={saveDraftAction ? 'Save draft' : undefined} onSaved={saveDraftAction} initialText={initialText} canSend={state.online && state.gateway.online && !active} onSending={() => setSendVersion(v => v + 1)} onSent={() => { setHistoryVersion(v => v + 1); }}/>}
+    </div><div className="conversation-control-slot" ref={setStatusHost}/>{readOnly ? <div className="composer-placeholder" role="status">{state.online ? 'Opening message controls…' : 'Connect once to enable messaging for this conversation.'}</div> : <MessageComposer key={task.id} savedMessagesHost={savedHost} docked={!!task.link} context={task} saveLabel={saveDraftAction ? 'Save draft' : undefined} onSaved={saveDraftAction} initialText={initialText} canSend={state.online && state.gateway.online && !active && !busy} onSending={() => setSendVersion(v => v + 1)} onSent={() => { setHistoryVersion(v => v + 1); }}/>}
   </section>;
 }
 function ModelSwitchConfirmation({ action }: { action: Action }) {

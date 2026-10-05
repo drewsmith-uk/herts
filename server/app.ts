@@ -80,6 +80,11 @@ export async function createApp(config: Config) {
 
   app.get('/manifest.webmanifest',async(_req,reply)=>{const manifest=JSON.parse(await readFile(resolve('public/manifest.webmanifest'),'utf8'));manifest.description='Private Hermes conversations with optional plugins';manifest.shortcuts=plugins.catalogue().entries.filter(e=>plugins.enabled(e.manifest.id)).flatMap(e=>(e.manifest.shortcuts||[]));return reply.type('application/manifest+json').header('Cache-Control','no-cache').send(manifest);});
   app.get('/api/v1/contexts/:id',async(req,reply)=>{const context=store.context((req.params as any).id);return context?{context}:reply.code(404).send({error:'Conversation reference not found.'});});
+  app.post('/api/v1/contexts/:id/reconnect', async req => {
+    const id = uuid.parse((req.params as any).id);
+    const { storedId } = z.object({ storedId: z.string().min(1).max(300) }).strict().parse(req.body);
+    return { context: await actions.reconnectUnsentConversation(id, storedId) };
+  });
   app.get('/api/v1/plugins',async()=>({catalogue:plugins.catalogue(),data:plugins.data()}));
   app.post('/api/v1/plugins/rescan',async()=>plugins.serial(async()=>{await plugins.scan();return{catalogue:plugins.catalogue(),data:plugins.data()};}));
   app.post('/api/v1/plugins/order',async req=>plugins.serial(async()=>{const p=z.object({order:z.array(z.string()),revision:z.number().int()}).parse(req.body);if(p.revision!==plugins.catalogue().revision)throw Object.assign(new Error('Settings changed on another device. Refresh and try again.'),{statusCode:409});plugins.reorder(p.order);return{catalogue:plugins.catalogue()};}));

@@ -10,6 +10,8 @@ class FakeGateway extends EventEmitter {
   failResume = false; resumeBusy = false; seq = 1; queued = false; submitStatus = 'streaming'; replayEvents: any[] = []; truncated = false;
   emitEvent(type: string, payload: any = {}) { const e = {type,session_id:'runtime',seq:++this.seq,payload}; this.emit('event',e); return e; }
   async connect() {}
+  async conversations(_force = false): Promise<any[]> { return []; }
+  async http(_path: string): Promise<any> { throw new Error('Unexpected HTTP request'); }
   async conversation(id: string) { return { id, aliases: [id], key: id }; }
   async rpc(method: string, params: any): Promise<any> {
     this.calls.push({ method, params });
@@ -44,7 +46,156 @@ async function runningFixture() {
   f.engine.close();
   return { ...f, input };
 }
+async function failedCreationFixture() {
+  const f = fixture(), rpc = f.gateway.rpc.bind(f.gateway);
+  let created = false;
+  f.gateway.rpc = async (method, params) => {
+    if (method === 'session.create' && !created) {
+      created = true; f.gateway.calls.push({ method, params });
+      return { session_id: 'vanished-runtime', stored_session_id: 'vanished', info: { profile_name: f.gateway.profile } };
+    }
+    if (params.session_id === 'vanished-runtime') {
+      f.gateway.calls.push({ method, params });
+      if (method === 'session.title') throw new GatewayError('Setup reply lost', true);
+      throw new GatewayError('Session not found', false, 4001);
+    }
+    return rpc(method, params);
+  };
+  const first = { id: randomUUID(), taskId: f.taskId, kind: 'send' as const, text: 'Preserve the original message' };
+  f.engine.start(first);
+  await expect.poll(() => f.store.action(first.id)?.receipt === 'unknown' && !f.engine.dispatching.size && !f.engine.polling.size).toBe(true);
+  f.engine.close();
+  f.gateway.conversation = async () => { throw new GatewayError('Hermes request failed (404).', false, 404); };
+  f.gateway.http = async () => { throw new GatewayError('Hermes request failed (404).', false, 404); };
+  return { ...f, first };
+}
 describe('deliberate execution and receipts', () => {
+  it('explicitly reconnects a legacy failed setup in place without sending or deleting saved content', async () => {
+    const { store, gateway, engine, taskId, first } = await failedCreationFixture();
+    const original = store.action(first.id)!; delete original.createdSession; store.saveAction(original);
+    const calls = gateway.calls.filter(c => ['session.create', 'session.resume', 'prompt.submit'].includes(c.method));
+    await engine.reconnectUnsentConversation(taskId, 'vanished');
+    expect(store.context(taskId)).toMatchObject({ id: taskId, title: 'Write notes', link: null, aliases: [] });
+    expect(store.binding(taskId)).toBeUndefined();
+    expect(store.action(first.id)).toMatchObject({ text: first.text, uploadIds: [], receipt: 'rejected', sendStage: 'preparing' });
+    expect(store.action(first.id)?.createdSession).toBeUndefined();
+    expect(gateway.calls.filter(c => ['session.create', 'session.resume', 'prompt.submit'].includes(c.method))).toEqual(calls);
+    await expect(engine.reconnectUnsentConversation(taskId, 'vanished')).rejects.toThrow('changed');
+    const next = { ...first, id: randomUUID() }; engine.start(next);
+    await expect.poll(() => store.action(next.id)?.receipt).toBe('accepted');
+    expect(store.context(taskId)?.link?.storedId).toBe('stored');
+    expect(gateway.calls.filter(c => c.method === 'prompt.submit').map(c => c.params.text)).toEqual([first.text]);
+  });
+  it.each(['submitted', 'uncertain submission', 'active send', 'accepted', 'live runtime', 'stored session', 'lineage found', 'lookup failed', 'binding changed'])('blocks explicit reconnect when there is %s', async reason => {
+    const { store, gateway, engine, taskId, first } = await failedCreationFixture();
+    const original = store.action(first.id)!; delete original.createdSession;
+    if (reason === 'submitted') original.sendStage = 'submitted';
+    if (reason === 'uncertain submission') original.sendStage = 'submitting';
+    if (reason === 'active send') { original.state = 'preparing'; original.receipt = 'pending'; }
+    if (reason === 'accepted') original.receipt = 'accepted';
+    store.saveAction(original);
+    if (reason === 'live runtime') gateway.rpc = async () => ({ session_id: 'vanished-runtime' });
+    if (reason === 'stored session') gateway.http = async () => ({ id: 'vanished' });
+    if (reason === 'lineage found') gateway.conversations = async () => [{ id: 'new-tip', key: 'vanished', aliases: ['vanished', 'new-tip'] }];
+    if (reason === 'lookup failed') gateway.http = async () => { throw new GatewayError('Timed out', true); };
+    if (reason === 'binding changed') gateway.http = async () => {
+      store.saveBinding(taskId, { ...store.binding(taskId)!, generation: 'newer' });
+      throw new GatewayError('Missing', false, 404);
+    };
+    await expect(engine.reconnectUnsentConversation(taskId, 'vanished')).rejects.toThrow();
+    expect(store.context(taskId)?.link?.storedId).toBe('vanished');
+    expect(store.action(first.id)?.text).toBe(first.text);
+    expect(gateway.calls.filter(c => c.method === 'session.create')).toHaveLength(1);
+    expect(gateway.calls.filter(c => c.method === 'prompt.submit')).toHaveLength(0);
+  });
+  it.each([true, false])('recovers a vanished initial setup only on a new Send (creation record: %s)', async recorded => {
+    const { store, gateway, engine, taskId, first } = await failedCreationFixture();
+    const original = store.action(first.id)!;
+    expect(original.createdSession).toEqual({ runtimeId: 'vanished-runtime', storedId: 'vanished', epoch: 'epoch-a' });
+    if (!recorded) { delete original.createdSession; store.saveAction(original); }
+    engine.start(first); await engine.reconnect();
+    expect(gateway.calls.filter(c => c.method === 'session.create')).toHaveLength(1);
+    expect(gateway.calls.filter(c => c.method === 'prompt.submit')).toHaveLength(0);
+    // A restart must retain the evidence needed for the next deliberate Send.
+    const resumed = new Actions(store, gateway as unknown as Gateway, '/tmp');
+    cleanup.push(() => resumed.close());
+    const next = { ...first, id: randomUUID(), text: 'Send this revised message' };
+    resumed.start(next); resumed.start(next);
+    await expect.poll(() => store.action(next.id)?.receipt).toBe('accepted');
+    expect(store.context(taskId)).toMatchObject({ id: taskId, link: { storedId: 'stored' }, aliases: ['stored'] });
+    expect(store.db.prepare('SELECT * FROM context_aliases WHERE alias=?').get('vanished')).toBeUndefined();
+    expect(store.task(taskId)?.link?.storedId).toBe('stored');
+    expect(store.action(first.id)).toEqual(original);
+    expect(gateway.calls.filter(c => c.method === 'session.create')).toHaveLength(2);
+    expect(gateway.calls.filter(c => c.method === 'prompt.submit').map(c => c.params.text)).toEqual([next.text]);
+  });
+  it.each(['missing binding', 'no prior attempts', 'submitted', 'uncertain submission', 'accepted', 'continue', 'turn evidence'])('does not replace a missing conversation with %s', async reason => {
+    const { store, gateway, engine, taskId, first } = await failedCreationFixture();
+    const action = store.action(first.id)!;
+    delete action.createdSession; // These guards must also protect legacy sessions.
+    if (reason === 'submitted') action.sendStage = 'submitted';
+    if (reason === 'uncertain submission') action.sendStage = 'submitting';
+    if (reason === 'accepted') action.receipt = 'accepted';
+    if (reason === 'continue') action.kind = 'continue';
+    if (reason === 'turn evidence') action.turnStarted = true;
+    store.saveAction(action);
+    if (reason === 'missing binding') store.db.prepare('DELETE FROM bindings WHERE task_id=?').run(taskId);
+    if (reason === 'no prior attempts') store.db.prepare('DELETE FROM actions WHERE task_id=?').run(taskId);
+    const next = { ...first, id: randomUUID(), text: 'A different request' }; engine.start(next);
+    await expect.poll(() => store.action(next.id)?.receipt).toBe('rejected');
+    expect(store.context(taskId)?.link?.storedId).toBe('vanished');
+    expect(store.action(next.id)?.error).toContain('saved messages are still available');
+    expect(gateway.calls.filter(c => c.method === 'session.create')).toHaveLength(1);
+    expect(gateway.calls.filter(c => c.method === 'prompt.submit')).toHaveLength(0);
+  });
+  it.each(['stored session exists', 'runtime exists', 'HTTP timeout', 'HTTP forbidden', 'uncertain missing runtime'])('keeps the original link when %s', async reason => {
+    const { store, gateway, engine, taskId, first } = await failedCreationFixture();
+    if (reason === 'stored session exists') gateway.http = async () => ({ id: 'vanished', profile: 'default' });
+    if (reason === 'HTTP timeout') gateway.http = async () => { throw new GatewayError('Timed out', true); };
+    if (reason === 'HTTP forbidden') gateway.http = async () => { throw new GatewayError('Forbidden', false, 403); };
+    if (reason === 'runtime exists' || reason === 'uncertain missing runtime') {
+      const rpc = gateway.rpc.bind(gateway);
+      gateway.rpc = async (method, params) => {
+        if (method === 'session.activate' && params.session_id === 'vanished-runtime') {
+          if (reason === 'uncertain missing runtime') throw new GatewayError('Uncertain runtime lookup', true, 4001);
+          return { session_id: 'vanished-runtime', session_key: 'vanished', running: false };
+        }
+        return rpc(method, params);
+      };
+    }
+    const next = { ...first, id: randomUUID() }; engine.start(next);
+    await expect.poll(() => ['rejected', 'unknown'].includes(store.action(next.id)?.receipt || '')).toBe(true);
+    expect(store.context(taskId)?.link?.storedId).toBe('vanished');
+    expect(gateway.calls.filter(c => c.method === 'session.create')).toHaveLength(1);
+    expect(gateway.calls.filter(c => c.method === 'prompt.submit')).toHaveLength(0);
+  });
+  it.each(['binding changed', 'cancelled', 'backend restarted'])('does not recover when %s during missing-session checks', async reason => {
+    const { store, gateway, engine, taskId, first } = await failedCreationFixture();
+    gateway.http = async () => {
+      if (reason === 'binding changed') store.saveBinding(taskId, { ...store.binding(taskId)!, generation: 'newer-binding' });
+      if (reason === 'cancelled') store.saveAction({ ...engine.main(taskId)!, cancelSend: true });
+      if (reason === 'backend restarted') gateway.epoch = 'epoch-b';
+      throw new GatewayError('Missing', false, 404);
+    };
+    const next = { ...first, id: randomUUID() }; engine.start(next);
+    await expect.poll(() => store.action(next.id)?.receipt).toBe('rejected');
+    expect(store.context(taskId)?.link?.storedId).toBe('vanished');
+    if (reason === 'binding changed') expect(store.binding(taskId)?.generation).toBe('newer-binding');
+    expect(gateway.calls.filter(c => c.method === 'session.create')).toHaveLength(1);
+  });
+  it('resumes the original session when a fresh lookup resolves the stale 404', async () => {
+    const { store, gateway, engine, first } = await failedCreationFixture();
+    let lookups = 0;
+    gateway.conversation = async () => {
+      if (!lookups++) throw new GatewayError('Missing', false, 404);
+      return { id: 'stored', key: 'vanished', aliases: ['vanished', 'stored'] };
+    };
+    const next = { ...first, id: randomUUID() }; engine.start(next);
+    await expect.poll(() => store.action(next.id)?.receipt).toBe('accepted');
+    expect(gateway.calls.filter(c => c.method === 'session.create')).toHaveLength(1);
+    expect(gateway.calls.filter(c => c.method === 'session.resume')).toHaveLength(1);
+    expect(gateway.calls.filter(c => c.method === 'prompt.submit')).toHaveLength(1);
+  });
   it('retires a missing runtime using its earlier completion evidence and resumes only on a new Send', async () => {
     const {store,gateway,engine,taskId,input} = await runningFixture();
     store.saveAction({...store.action(input.id)!,terminal:'complete'});
