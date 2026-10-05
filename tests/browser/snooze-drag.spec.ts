@@ -5,7 +5,7 @@ const snapshot=async(request:APIRequestContext)=>(await(await request.get('/api/
 const agentCalls=async(request:APIRequestContext)=>(await(await request.get('http://127.0.0.1:8791/calls')).json() as string[]).filter(m=>['session.create','session.resume','prompt.submit','session.interrupt'].includes(m));
 async function seed(request:APIRequestContext,name:string,count=3){
   const spaceId=crypto.randomUUID(),ids:string[]=[];
-  await request.post('/api/v1/spaces/sync',{headers,data:{id:crypto.randomUUID(),spaceId,kind:'create',name,at:Date.now()}});
+  expect((await request.post('/api/v1/spaces/sync',{headers,data:{id:crypto.randomUUID(),spaceId,kind:'create',name:`${name} ${spaceId}`,at:Date.now()}})).ok()).toBe(true);
   for(let i=0;i<count;i++){const taskId=crypto.randomUUID();ids.unshift(taskId);await request.post('/api/v1/sync',{headers,data:{id:crypto.randomUUID(),taskId,spaceId,kind:'create',title:`${name} ${i+1}`,at:Date.now()}});}
   return {spaceId,ids,path:`/#/spaces/${spaceId}/inbox`};
 }
@@ -61,7 +61,11 @@ test('mouse dragging requires holding, keeps taps usable, and drops into list ta
   await mouseDrag(page,row(page,ids[1]),page.locator('.sidebar [data-drop-list="done"]'));await expect(row(page,ids[1])).toHaveCount(0);
   await page.locator('.mobile-lists [data-drop-list="done"]').click();await mouseDrag(page,row(page,ids[1]),page.locator('.mobile-lists [data-drop-list="inbox"]'));await expect(row(page,ids[1])).toHaveCount(0);await page.goto(path);await expect(page.locator('.task-item').first()).toHaveAttribute('data-task-id',ids[1]);
   await mouseDrag(page,row(page,ids[2]),page.locator('.mobile-lists [data-drop-list="snoozed"]'));await expect(page.getByRole('dialog')).toBeVisible();await page.getByRole('button',{name:'Cancel',exact:true}).click();await expect(row(page,ids[2])).toBeVisible();
-  await row(page,ids[2]).focus();await page.keyboard.press('Space');await expect(page.locator('.task-drag-overlay')).toBeVisible();await page.keyboard.press('Escape');await expect(page.locator('.task-drag-overlay')).toHaveCount(0);
+  // The keyboard sensor attaches its cancel listener on a timer after pickup.
+  // Let that queued browser task finish before pressing Escape.
+  await row(page,ids[2]).focus();await page.keyboard.press('Space');await expect(page.locator('.task-drag-overlay')).toBeVisible();
+  await page.evaluate(() => new Promise<void>(resolve => setTimeout(resolve, 0)));
+  await page.keyboard.press('Escape');await expect(page.locator('.task-drag-overlay')).toHaveCount(0);
   await row(page,ids[2]).getByRole('link').click();await expect((await detailsField(page, 'Task title'))).toHaveValue('Hold mouse 1');
   const s=await snapshot(request);expect(s.tasks.find((t:any)=>t.id===ids[0]).status).toBe('next');expect(s.tasks.find((t:any)=>t.id===ids[1])).toMatchObject({status:'inbox',completedAt:null});
 });
