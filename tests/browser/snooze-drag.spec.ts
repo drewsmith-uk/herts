@@ -61,7 +61,13 @@ test('mouse dragging requires holding, keeps taps usable, and drops into list ta
   await mouseDrag(page,row(page,ids[1]),page.locator('.sidebar [data-drop-list="done"]'));await expect(row(page,ids[1])).toHaveCount(0);
   await page.locator('.mobile-lists [data-drop-list="done"]').click();await mouseDrag(page,row(page,ids[1]),page.locator('.mobile-lists [data-drop-list="inbox"]'));await expect(row(page,ids[1])).toHaveCount(0);await page.goto(path);await expect(page.locator('.task-item').first()).toHaveAttribute('data-task-id',ids[1]);
   await mouseDrag(page,row(page,ids[2]),page.locator('.mobile-lists [data-drop-list="snoozed"]'));await expect(page.getByRole('dialog')).toBeVisible();await page.getByRole('button',{name:'Cancel',exact:true}).click();await expect(row(page,ids[2])).toBeVisible();
-  await row(page,ids[2]).focus();await page.keyboard.press('Space');await expect(page.locator('.task-drag-overlay')).toBeVisible();await page.keyboard.press('Escape');await expect(page.locator('.task-drag-overlay')).toHaveCount(0);
+  await expect(page.getByRole('dialog')).toHaveCount(0);await expect(page.locator('.task-drag-overlay')).toHaveCount(0);
+  await row(page,ids[2]).focus();await expect(row(page,ids[2])).toBeFocused();
+  await page.keyboard.press('Space');await expect(page.locator('.task-drag-overlay')).toBeVisible();
+  // dnd-kit renders the overlay before its deferred keydown listener is attached.
+  // Drain that timer before sending the single Escape that must cancel the drag.
+  await page.evaluate(()=>new Promise<void>(resolve=>setTimeout(resolve,0)));
+  await page.keyboard.press('Escape');await expect(page.locator('.task-drag-overlay')).toHaveCount(0);
   await row(page,ids[2]).getByRole('link').click();await expect((await detailsField(page, 'Task title'))).toHaveValue('Hold mouse 1');
   const s=await snapshot(request);expect(s.tasks.find((t:any)=>t.id===ids[0]).status).toBe('next');expect(s.tasks.find((t:any)=>t.id===ids[1])).toMatchObject({status:'inbox',completedAt:null});
 });
