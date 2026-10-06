@@ -159,7 +159,9 @@ export async function api(path: string, body?: unknown, method?: string, timeout
 async function pendingVisibility(): Promise<PendingVisibility[]> {
     return (await db.kv.where('key').startsWith('visibility-op:').toArray()).map(row => row.value as PendingVisibility).sort((a, b) => a.order - b.order);
 }
+let rebuildVersion = 0;
 export async function rebuild() {
+    const version = ++rebuildVersion;
     const visibilityPending = await pendingVisibility();
     const localContexts = (await db.kv.where('key').startsWith('context:').toArray()).map(r => r.value as ConversationContext);
     const pluginPending = await db.pluginPending.orderBy('order').toArray(), submissions = await db.submissions.toArray();
@@ -185,6 +187,9 @@ export async function rebuild() {
     }
     const outgoing = submissions.filter(s => s.input.kind === 'send').map(s => ({ id: s.id, taskId: s.input.contextId || s.input.taskId, text: s.input.text || '', uploadIds: s.input.uploadIds || [], at: s.at, baseline: s.baseline }));
     const localSubmissions = submissions.filter(s => !s.confirmed && !state.actions.some(a => a.id === s.id)).map(s => ({ id: s.id, taskId: s.input.contextId || s.input.taskId }));
+    // A slower read must not replace a newer snapshot and briefly remove a
+    // draft created while its device-storage reads were in flight.
+    if (version !== rebuildVersion) return;
     publish({ snapshot, pluginData, pluginPending, visibilityPending, settingsPending, outgoing, localSubmissions });
 }
 export async function acceptPlugins(catalogue: PluginCatalogue, data: Record<string, PluginData> = state.pluginRemote) {
