@@ -60,7 +60,12 @@ test('mouse dragging requires holding, keeps taps usable, and drops into list ta
   await mouseDrag(page,row(page,ids[0]),page.locator('.mobile-lists [data-drop-list="next"]'));await expect(row(page,ids[0])).toHaveCount(0);
   await mouseDrag(page,row(page,ids[1]),page.locator('.sidebar [data-drop-list="done"]'));await expect(row(page,ids[1])).toHaveCount(0);
   await page.locator('.mobile-lists [data-drop-list="done"]').click();await mouseDrag(page,row(page,ids[1]),page.locator('.mobile-lists [data-drop-list="inbox"]'));await expect(row(page,ids[1])).toHaveCount(0);await page.goto(path);await expect(page.locator('.task-item').first()).toHaveAttribute('data-task-id',ids[1]);
-  await mouseDrag(page,row(page,ids[2]),page.locator('.mobile-lists [data-drop-list="snoozed"]'));await expect(page.getByRole('dialog')).toBeVisible();await page.getByRole('button',{name:'Cancel',exact:true}).click();await expect(row(page,ids[2])).toBeVisible();
+  await mouseDrag(page,row(page,ids[2]),page.locator('.mobile-lists [data-drop-list="snoozed"]'));await expect(page.getByRole('dialog')).toBeVisible();
+  // dnd-kit 6.3.1 keeps its capture click blocker for 50 ms after drag end.
+  // Drain that browser timer before the single Cancel click; visibility alone
+  // does not mean clicks can reach the dialog yet.
+  await page.evaluate(()=>new Promise<void>(resolve=>setTimeout(resolve,100)));
+  await page.getByRole('button',{name:'Cancel',exact:true}).click();await expect(row(page,ids[2])).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);await expect(page.locator('.task-drag-overlay')).toHaveCount(0);
   await row(page,ids[2]).focus();await expect(row(page,ids[2])).toBeFocused();
   await page.keyboard.press('Space');await expect(page.locator('.task-drag-overlay')).toBeVisible();
