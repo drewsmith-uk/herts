@@ -129,6 +129,38 @@ describe('deliberate execution and receipts', () => {
     expect(gateway.calls.filter(c => c.method === 'session.create')).toHaveLength(2);
     expect(gateway.calls.filter(c => c.method === 'prompt.submit').map(c => c.params.text)).toEqual([next.text]);
   });
+  it.each([undefined, 0])('rejects defaults changed during recovery (client revision: %s)', async defaultsRevision => {
+    const { store, gateway, engine, taskId, first } = await failedCreationFixture();
+    const context = store.context(taskId), binding = store.binding(taskId), original = store.action(first.id);
+    gateway.http = async () => {
+      engine.settings.save(undefined, { id: randomUUID(), revision: 0, values: { fast: true } });
+      throw new GatewayError('Missing', false, 404);
+    };
+    const next = { ...first, id: randomUUID(), defaultsRevision }; engine.start(next);
+    await expect.poll(() => store.action(next.id)?.receipt).toBe('rejected');
+    expect(store.action(next.id)).toMatchObject({ text: next.text, sendStage: 'preparing', error: expect.stringContaining('New conversation defaults changed. Review them before sending.') });
+    expect(store.context(taskId)).toEqual(context);
+    expect(store.binding(taskId)).toEqual(binding);
+    expect(store.task(taskId)?.link).toEqual(context?.link);
+    expect(store.action(first.id)).toEqual(original);
+    expect(store.sessionSettings().conversations[taskId]).toBeUndefined();
+    expect(gateway.calls.filter(c => c.method === 'session.create')).toHaveLength(1);
+    expect(gateway.calls.filter(c => c.method === 'prompt.submit')).toHaveLength(0);
+    // Adding a server-side fallback must not change the client's durable receipt.
+    expect(engine.start(next).id).toBe(next.id);
+  });
+  it.each(['before Send', 'while connecting'])('retains the Send defaults revision when defaults change %s', async when => {
+    const { store, gateway, engine, taskId, first } = await failedCreationFixture();
+    const changeDefaults = () => engine.settings.save(undefined, { id: randomUUID(), revision: 0, values: { fast: true } });
+    if (when === 'before Send') changeDefaults();
+    else gateway.connect = async () => { changeDefaults(); };
+    const next = { ...first, id: randomUUID(), ...(when === 'before Send' ? { defaultsRevision: 0 } : {}) }; engine.start(next);
+    await expect.poll(() => store.action(next.id)?.receipt).toBe('rejected');
+    expect(store.action(next.id)?.error).toContain('New conversation defaults changed. Review them before sending.');
+    expect(store.context(taskId)?.link?.storedId).toBe('vanished');
+    expect(gateway.calls.filter(c => c.method === 'session.create')).toHaveLength(1);
+    expect(gateway.calls.filter(c => c.method === 'prompt.submit')).toHaveLength(0);
+  });
   it.each(['missing binding', 'no prior attempts', 'submitted', 'uncertain submission', 'accepted', 'continue', 'turn evidence'])('does not replace a missing conversation with %s', async reason => {
     const { store, gateway, engine, taskId, first } = await failedCreationFixture();
     const action = store.action(first.id)!;
