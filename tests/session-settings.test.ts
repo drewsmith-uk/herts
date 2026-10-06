@@ -153,6 +153,39 @@ describe('settings staged until Send', () => {
     actions.settings.save(undefined, { id: randomUUID(), revision: 1, values: { effort: 'minimal' } });
     const again = send(); await expect.poll(() => store.action(again)?.receipt).toBe('accepted'); expect(gateway.current.effort).toBe('ultra');
   });
+  it.each([undefined, 1])('recovers with unchanged defaults and conversation overrides (client revision: %s)', async defaultsRevision => {
+    const { store, gateway, actions, id } = fixture();
+    actions.settings.save(undefined, { id: randomUUID(), revision: 0, values: { model: { id: 'chosen-model', provider: 'configured' }, effort: 'low', fast: true, cwd: '/projects/new' } });
+    // A failed setup may have pending overrides but no usable session baseline.
+    actions.settings.save(id, { id: randomUUID(), revision: 0, values: { effort: 'ultra' } });
+    const originalId = randomUUID();
+    store.saveAction({ id: originalId, taskId: id, kind: 'send', text: 'Original saved message', uploadIds: [], createdAt: 1, updatedAt: 1, state: 'failed', phase: 'message not sent', receipt: 'rejected', sendStage: 'preparing' });
+    store.saveBinding(id, { runtimeId: 'runtime', storedId: 'stored', epoch: gateway.epoch, generation: randomUUID(), seq: 0, ready: false, monitored: false, known: false });
+    const rpc = gateway.rpc.bind(gateway), http = gateway.http.bind(gateway); let missing = true;
+    gateway.conversation = async () => { throw new GatewayError('Missing', false, 404); };
+    gateway.http = async path => { if (path.startsWith('/api/sessions/')) throw new GatewayError('Missing', false, 404); return http(path); };
+    gateway.rpc = async (method, params) => {
+      if (method === 'session.activate' && missing) throw new GatewayError('Missing', false, 4001);
+      if (method === 'session.create') missing = false;
+      return rpc(method, params);
+    };
+    const input = { id: randomUUID(), contextId: id, kind: 'send' as const, text: 'Recover with my choices', defaultsRevision };
+    actions.start(input);
+    await expect.poll(() => store.action(input.id)?.receipt).toBe('accepted');
+    expect(gateway.calls.find(c => c.method === 'session.create')?.params).toMatchObject({ model: 'chosen-model', provider: 'configured', reasoning_effort: 'ultra', fast: true, cwd: '/projects/new' });
+    expect(writes(gateway).filter(c => c.method === 'prompt.submit')).toHaveLength(1);
+    expect(store.action(originalId)?.text).toBe('Original saved message');
+    expect(actions.start(input).id).toBe(input.id);
+  });
+  it('ignores stale new-conversation defaults when sending to an existing session', async () => {
+    const { store, gateway, actions, id } = fixture();
+    actions.settings.save(undefined, { id: randomUUID(), revision: 0, values: { effort: 'low' } });
+    const input = { id: randomUUID(), contextId: id, kind: 'send' as const, text: 'Use this existing session', defaultsRevision: 0 };
+    actions.start(input);
+    await expect.poll(() => store.action(input.id)?.receipt).toBe('accepted');
+    expect(gateway.current.effort).toBe('high');
+    expect(writes(gateway).map(c => c.method)).toEqual(['session.resume', 'prompt.submit']);
+  });
   it('confirms choices on a lazy new session instead of trusting profile-based headers', async () => {
     const { store, gateway, stage, send } = fixture(false); gateway.lazy = true;
     stage({ model: { provider: 'configured', id: 'chosen-model' }, effort: 'low', fast: true, cwd: '/projects/new' });

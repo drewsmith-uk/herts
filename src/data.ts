@@ -636,7 +636,7 @@ export async function submit(input: any): Promise<Action> {
         const now = state.remote.sessionSettings || emptySettings(), isNew = !state.snapshot.contexts.find(c => c.id === contextId)?.link;
         if (state.settingsPending?.some(p => p.contextId === contextId || (isNew && !p.contextId))) throw new Error('Sync or review the saved conversation settings before sending.');
         if (!sameSetting(preview.conversations[contextId]?.values || {}, now.conversations[contextId]?.values || {}) || (isNew && !sameSetting(preview.defaults.values, now.defaults.values))) throw new Error('Conversation settings changed. Review them before sending.');
-        input = { ...input, settingsRevision: now.conversations[contextId]?.revision || 0, ...(isNew ? { defaultsRevision: now.defaults.revision } : {}) };
+        input = { ...input, settingsRevision: now.conversations[contextId]?.revision || 0, defaultsRevision: now.defaults.revision };
     }
     if (!state.online || !state.gateway.online)
         throw new Error('Hermes is unavailable. Your message is saved; send it when connected.');

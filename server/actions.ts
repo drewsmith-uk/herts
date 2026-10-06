@@ -77,7 +77,11 @@ export class Actions {
       if (input.kind === 'stop' && main?.sendStage === 'preparing') { main.cancelSend = true; this.store.saveAction(main); }
       this.store.saveReceipt(input.id, input, { id: input.id }); this.store.saveAction(action);
     })();
-    void this.dispatch(action, input).catch(error => {
+    // Existing links can become new sessions during recovery. Preserve the
+    // Send-time defaults revision, including for older clients that omit it,
+    // without changing the original input stored in the idempotency receipt.
+    const dispatchInput = { ...input, defaultsRevision: input.defaultsRevision ?? this.store.sessionSettings().defaults.revision };
+    void this.dispatch(action, dispatchInput).catch(error => {
       const current = this.store.action(action.id)!;
       current.state = 'unknown'; current.receipt = 'unknown'; current.error = 'Operation could not be confirmed. Review the conversation.'; this.store.saveAction(current);
       console.error('action handler failed', error instanceof Error ? error.name : 'unknown');
