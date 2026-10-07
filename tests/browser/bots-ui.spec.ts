@@ -186,15 +186,15 @@ test('unknown saves stay locked across navigation until status and current value
  await page.getByRole('button',{name:'Save routine',exact:true}).click();await expect(page.getByRole('button',{name:'Save routine',exact:true})).toBeDisabled();await page.getByRole('button',{name:'Close',exact:true}).click();await page.getByRole('button',{name:new RegExp(title)}).click();await expect(page.getByRole('button',{name:'Save routine',exact:true})).toBeDisabled();await page.getByRole('button',{name:'Check save status'}).click();await page.getByRole('button',{name:'Review current values'}).click();await expect(page.getByText('No matching routine is currently listed in Hermes.')).toBeVisible();expect(submissions).toBe(1);
 });
 
+test.describe('swipe interactions',()=>{
+test.use({serviceWorkers:'block'});
 test('swipes use the shared gesture and preliminary hide reads lock the action',async({page})=>{
- await page.goto('/#/plugins/bots');const row=page.locator('.conversation-item').filter({has:page.getByRole('link',{name:'Researcher',exact:true})});await expect(row).toBeVisible();await expect(row.getByRole('button',{name:/Actions for/})).toHaveCount(0);
+ await page.goto('/#/plugins/bots');const row=page.locator('.conversation-item').filter({has:page.getByRole('link',{name:'Researcher',exact:true})});await expect(row).toBeVisible();await expect(row.getByRole('button',{name:'Hide Researcher',exact:true})).toBeEnabled();await expect(row.getByRole('button',{name:/Actions for/})).toHaveCount(0);
  let release!:()=>void;const gate=new Promise<void>(resolve=>release=resolve);let reads=0;await page.route('**/api/v1/plugins/bots/queries/describe',async route=>{reads++;await gate;await route.continue();});
- const box=(await row.boundingBox())!;try{await page.mouse.move(box.x+box.width*.8,box.y+box.height/2);await page.mouse.down();await page.mouse.move(box.x+box.width*.3,box.y+box.height/2,{steps:10});await page.mouse.up();await expect(row).toHaveAttribute('aria-busy','true');await expect(row.getByRole('button',{name:'Hide Researcher',exact:true})).toBeDisabled();expect(reads).toBe(1);}finally{release();}
+ const box=(await row.boundingBox())!;try{await page.mouse.move(box.x+box.width*.8,box.y+box.height/2);await page.mouse.down();await page.mouse.move(box.x+box.width*.3,box.y+box.height/2,{steps:10});await page.mouse.up();await expect(row).toHaveAttribute('aria-busy','true');await expect(row.getByRole('button',{name:'Hide Researcher',exact:true})).toBeDisabled();await expect.poll(()=>reads).toBe(1);}finally{release();}
  await expect(page.getByRole('link',{name:'Researcher',exact:true})).toHaveCount(0);await page.getByRole('button',{name:'Undo hide'}).click();await expect(page.getByRole('link',{name:'Researcher',exact:true})).toBeVisible();
 });
 
-test.describe('right-swipe editing',()=>{
-test.use({serviceWorkers:'block'});
 for(const width of [320,1280])test(`right swipe opens the correct bot editor once and preserves its draft at ${width}px`,async({page})=>{
  await page.setViewportSize({width,height:844});await page.goto('/#/plugins/bots');
  const row=page.locator('.conversation-item').filter({has:page.getByRole('link',{name:'Researcher',exact:true})});await expect(row.getByRole('button',{name:'Hide Researcher',exact:true})).toBeEnabled();
