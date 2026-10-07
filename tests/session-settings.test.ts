@@ -105,7 +105,8 @@ describe('settings staged until Send', () => {
     expect(gateway.current).toMatchObject({ model: { id: 'chosen-model', provider: 'configured' }, effort: 'high', cwd: '/projects/new' });
     expect(writes(gateway).find(c => c.method === 'config.set' && c.params.key === 'model')?.params.value).toBe('chosen-model --provider configured --session');
     const history = writes(gateway); expect(history.at(-1)?.method).toBe('prompt.submit'); expect(history.some(c => c.method === 'session.cwd.set')).toBe(true);
-    expect(actions.settings.record(id).values).toEqual({}); await actions.reconcile(id);
+    expect(actions.settings.record(id).values).toEqual({});
+    await expect.poll(() => store.action(first)?.state).toBe('finished'); await actions.reconcile(id);
     const count = writes(gateway).filter(c => c.method === 'config.set').length;
     const next = send(); await expect.poll(() => store.action(next)?.receipt).toBe('accepted');
     expect(writes(gateway).filter(c => c.method === 'config.set')).toHaveLength(count);

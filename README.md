@@ -137,6 +137,9 @@ Add a custom JSON file to `themes/` (or `HERTS_THEMES_DIR`) and refresh the app 
 
 Open **Settings → Plugins** to enable/disable features, rescan the package directory, apply package updates, reorder tabs or reset a plugin’s data. Disabling or removing a package retains its data and pauses its jobs; accepted Hermes work and conversation drafts remain available in core Conversations. Re-adding the same plugin ID restores access after you enable it again. Reset is separate and requires typing the plugin name before deleting its data; old offline edits cannot recreate reset records.
 
+**Bots** adds the Hermes profile roster, permanent Bot Chats, profile editing and routine management on your existing backend. It ships disabled; after building the update and restarting the Herts app service, enable it in Settings → Plugins. Settings → App updates refreshes the browser app only. See [Bots](docs/bots.md) for creation, recovery and compatibility details.
+
+
 Copy prepared third-party packages into `plugins/PLUGIN-ID/`, then rescan. Only enable code you trust: plugins run with the app’s access, without a security sandbox. Tasks and Reading have no privileged API. See [plugin management](docs/plugins.md) and [building a plugin](docs/plugin-api.md), including the independent Notes example and `npm run plugin:new -- my-plugin` scaffold.
 
 ## Backups and upgrades
@@ -153,13 +156,17 @@ systemctl --user start herts.service
 
 The destination must be new and outside the data directory. The backup includes SQLite, complete uploads, plugin-owned files, retained plugin package versions, a plugin inventory, and environment/token files stored alongside it. Back up your source plugin directory separately if it contains local development work. Also back up externally located token files and Hermes itself separately. Device-only unsynced edits/drafts/recordings are not in a server backup: sync/recover those before clearing browser storage. Incomplete uploads remain recoverable on their original devices.
 
-Build and test an update in a separate checkout first (`npm ci`, `npm run check`, `npm run test:installer`; see browser tests below). Preserve your data directory, environment, origin and service names. Stop only the app before replacing its source, dependencies and `dist` with the tested version; retain previous hashed `dist/assets` files for clients with older open pages. Start the app and run the read-only connection check. Do not rerun the installer to upgrade an existing differently named service.
+Build and test an update in a separate checkout first (`npm ci`, then `npm run check:release`; see browser tests below). Preserve your data directory, environment, origin and service names. Stop only the app before replacing its source, dependencies and `dist` with the tested version; retain previous hashed `dist/assets` files for clients with older open pages. Start the app and run the read-only connection check. Do not rerun the installer to upgrade an existing differently named service.
 
 The plugin transition migrates the database and browser queues while retaining the historical storage identities. Keep the previous source revision/build and private backup until the update is verified. A pre-plugin build must be paired with its pre-migration database backup; do not run it against the migrated database. To roll back, stop the app, restore the prior source/build/dependencies, and restore a matching data backup if the update migrated the database. Restore files with private permissions and restart only the app. Restoring a database backup discards newer server changes; recover device drafts before proceeding. Never retry an uncertain Hermes send just because you restored the app.
 
 Herts retains the historical IndexedDB name `hermes-tasks`, SQLite filename `tasks.sqlite`, browser storage/cache keys, API routes, PWA ID `/`, service worker URL `/sw.js` and legacy request header for installed clients. The visible app name can change without reinstalling, clearing data, changing its URL, or replacing notification keys.
 
 ## Development and checks
+
+`npm run check:release` typechecks, builds a candidate in `.runtime/release-dist`, and runs unit/API, installer and browser checks. Each browser spec gets a fresh fixture so unrelated files cannot inherit linked conversations, background downloads or pending work. Every spec still runs. It leaves the served `dist` alone. Deploy that tested browser output while retaining earlier hashed assets, restart the Herts app service when server code changed, and apply any plugin package update. `npm run test:ui` runs the focused plugin/UI acceptance suite against an existing build (set `HERTS_TEST_DIST_DIR` to use a staged build).
+
+UI completion criteria are recorded in [AGENTS.md](AGENTS.md). The Quality CI workflow runs release checks on pull requests; configure its `verify` job as a required check to enforce it before merging.
 
 ```sh
 npm ci

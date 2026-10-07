@@ -5,7 +5,8 @@ import type { ConversationContext, ReadingState } from './reading.js';
 export const statuses = ['inbox', 'next', 'waiting', 'parked', 'snoozed', 'done'] as const;
 export type Status = typeof statuses[number];
 export const labels: Record<Status, string> = { inbox: 'Inbox', next: 'Next', waiting: 'Waiting', parked: 'Parked', snoozed: 'Snoozed', done: 'Done' };
-export interface Link { key: string; storedId: string; source: string; title: string }
+import type { Link } from './conversations.js';
+export type { Link } from './conversations.js';
 export interface Task { id: string; contextId?: string; spaceId?: string; title: string; status: Status; previousStatus: Status; completedAt: number | null; snoozedUntil?: number | null; snoozeId?: string | null; createdAt: number; updatedAt: number; link: Link | null }
 export interface List { ids: string[]; version: number }
 export interface Space { id: string; name: string; createdAt: number; updatedAt: number }

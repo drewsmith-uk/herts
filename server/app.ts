@@ -1,3 +1,5 @@
+import { Bots } from './bots.js';
+import { parseConversationRef } from '../shared/conversations.js';
 import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { z } from 'zod';
@@ -28,7 +30,7 @@ const actionSchema = z.object({ id: uuid, taskId: uuid.optional(), contextId: uu
   if (v.kind === 'send' && !v.text?.trim() && !v.uploadIds?.length) ctx.addIssue({ code: 'custom', message: 'Write a message or attach a file.' });
   if (v.kind === 'clarify' && !v.text?.trim() && !Object.keys(v.answers || {}).length) ctx.addIssue({ code: 'custom', message: 'An answer is required.' });
 });
-export interface Config { themesDir?: string; pluginsDir?: string; dataDir: string; origin: string; identity: string; dev?: boolean; hermesBase: string; hermesToken: string; excluded?: string[]; hermesProfile?: string }
+export interface Config { staticDir?: string; themesDir?: string; pluginsDir?: string; dataDir: string; origin: string; identity: string; dev?: boolean; hermesBase: string; hermesToken: string; excluded?: string[]; hermesProfile?: string }
 export async function createApp(config: Config) {
   await mkdir(config.dataDir, { recursive: true, mode: 0o700 });
   const uploadDir = join(config.dataDir, 'uploads'); await mkdir(uploadDir, { recursive: true, mode: 0o700 });
@@ -43,9 +45,12 @@ export async function createApp(config: Config) {
   // Metadata is removed first; the durable queue retries remaining bytes later.
   await cleanDiscardedUploads().catch(() => {});
   const gateway = new Gateway(config.hermesBase, config.hermesToken, config.excluded, () => store.contexts().flatMap(c => c.aliases), profile);
+  gateway.botChats = (owner, id) => store.contexts().some(c => c.botChat && c.profile === owner && c.aliases.includes(id));
   const plugins = new PluginRegistry(store,gateway,config.pluginsDir || resolve('plugins'),config.dataDir);
   migrateLegacyPlugins(store,plugins.storage);
+  store.bindProfiles(profile);
   const actions = new Actions(store,gateway,uploadDir);
+  plugins.hermes = new Bots(store, gateway, actions);
   await plugins.initialise(store.legacyInstallation);
   const notifications = new Notifications(store,config.origin.startsWith('https:') ? config.origin : undefined,plugins);
   const app = Fastify({ logger: false, bodyLimit: 36 * 1024 * 1024, trustProxy: false });
@@ -99,11 +104,18 @@ export async function createApp(config: Config) {
     const id=z.string().parse((req.params as any).id),op=z.object({id:uuid,generation:z.number().int().nonnegative(),command:z.string().min(1).max(100),input:z.unknown()}).strict().parse(req.body);
     const result=await plugins.command(id,op);return{result,data:plugins.storage.data(id),snapshot:clientSnapshot(store,req)};
   });
+  app.post('/api/v1/plugins/:id/actions', async (req, reply) => {
+    const op = z.object({ id: uuid, generation: z.number().int().nonnegative(), command: z.string().min(1).max(100), input: z.unknown() }).strict().parse(req.body);
+    return reply.code(202).send(plugins.action((req.params as any).id, op));
+  });
+  app.get('/api/v1/plugins/:id/actions', async req => { const q=z.object({profile:z.string().max(64).optional(),offset:z.coerce.number().int().min(0).max(100000).default(0)}).parse(req.query);return plugins.remoteActions.list((req.params as any).id,q.profile,q.offset); });
+  app.post('/api/v1/plugins/:id/actions/:action/review', async req => {z.object({reviewed:z.literal(true)}).parse(req.body);return plugins.remoteActions.review((req.params as any).id,(req.params as any).action);});
+  app.get('/api/v1/plugins/:id/actions/:action', async (req, reply) => plugins.remoteActions.get((req.params as any).id, (req.params as any).action) || reply.code(404).send({ error: 'Action not found.' }));
   app.post('/api/v1/plugins/:id/queries/:query',async req=>plugins.query((req.params as any).id,(req.params as any).query,req.body));
   app.get('/_plugins/:id/:hash/*',async(req,reply)=>{const p=req.params as any;const file=await plugins.asset(p.id,p.hash,p['*']);return reply.type(file.endsWith('.css')?'text/css':/\.m?js$/.test(file)?'text/javascript':file.endsWith('.svg')?'image/svg+xml':file.endsWith('.png')?'image/png':file.endsWith('.jpg')?'image/jpeg':'application/octet-stream').header('Cache-Control','private,max-age=31536000,immutable').send(createReadStream(file));});
   app.post('/api/v1/contexts',async req=>{
     const input=z.object({id:uuid,title:z.string().trim().min(1).max(2000)}).strict().parse(req.body);
-    const context=store.context(input.id)||store.saveContext({...input,link:null,aliases:[]});store.bumpRevision();
+    const context=store.context(input.id)||store.saveContext({...input,profile,link:null,aliases:[]});store.bumpRevision();
     store.emit('change',{type:'contexts'});return{context,snapshot:clientSnapshot(store,req)};
   });
   registerLegacyPluginRoutes(app,store,gateway,plugins);
@@ -112,6 +124,7 @@ export async function createApp(config: Config) {
     const id = uuid.parse((req.params as any).id);
     const { title, baseTitle } = z.object({ title: z.string().trim().min(1).max(100), baseTitle: z.string().max(2000) }).strict().parse(req.body);
     const context = store.context(id);
+    if (context?.botChat) throw new Conflict('Edit the bot title in Bots; its permanent chat title is reserved.');
     if (!context) throw new Conflict('This conversation is not available. Refresh before renaming.');
     if ((context.link?.title || context.title) !== baseTitle && (context.link?.title || context.title) !== title) throw new Conflict('The conversation title changed. Refresh before renaming.');
     if (actions.dispatching.size && store.actions(id).some(a => a.state === 'preparing' && a.receipt === 'pending')) throw new Conflict('Wait for the message to finish sending before renaming the conversation.');
@@ -122,7 +135,7 @@ export async function createApp(config: Config) {
         store.openConversation({ ...link, storedId: conversation.id, title: conversation.title }, conversation.aliases);
         throw new Conflict('The conversation title changed in Hermes. Refresh before renaming.');
       }
-      await gateway.renameConversation(conversation.id, title);
+      await gateway.withProfile(context.profile || profile, () => gateway.renameConversation(conversation.id, title));
       link = { ...link, storedId: conversation.id, title };
     }
     const updated = store.saveContext({ ...store.context(id)!, title, link });
@@ -131,7 +144,17 @@ export async function createApp(config: Config) {
   });
   app.get('/api/v1/conversations', async req => {
     const { q = '', offset = 0, includeLinked, includeHidden, filters } = z.object({ filters:z.string().max(4000).optional(), q: z.string().max(500).optional(), offset: z.coerce.number().int().nonnegative().optional(), includeLinked: z.enum(['true', 'false']).default('false'), includeHidden: z.enum(['true', 'false']).default('false') }).parse(req.query);
-    const conversations = await gateway.search(q); const snapshot = store.coreSnapshot();
+    const conversations = [...await gateway.search(q)];
+    for (const context of store.contexts().filter(c => c.botChat && c.link)) {
+      try {
+        const c = await gateway.conversation(context.link!.storedId);
+        if (!q || `${c.title} ${c.preview} ${context.title}`.toLowerCase().includes(q.toLowerCase())) {
+          const known = { ...c, title: context.title, botChat: true }, index = conversations.findIndex(row => row.key === c.key);
+          if (index < 0) conversations.push(known); else conversations[index] = known;
+        }
+      } catch { /* An unavailable profile must not hide other conversations. */ }
+    }
+    conversations.sort((a, b) => b.updatedAt - a.updatedAt); const snapshot = store.coreSnapshot();
     const enabledFilters=filters===undefined?legacyConversationFilters(includeLinked):filters.split(',').filter(Boolean);
     const rows=conversations.map(c=>legacyConversationRow({...plugins.decorateConversation(c),hidden:conversationHidden(c,snapshot.hiddenConversations||[])})).filter(c=>!c.pluginFilters.some((key:string)=>enabledFilters.includes(key))&&(includeHidden==='true'||!c.hidden));
     return { conversations: rows.slice(offset, offset + 50), hasMore: rows.length > offset + 50, total: rows.length, searchedContentLimit: q ? 100 : undefined };
@@ -148,14 +171,14 @@ export async function createApp(config: Config) {
     // Save only the selected conversation's identity. Browsing never resumes a
     // session, submits a prompt, or creates a task or reading item.
     const c = await gateway.conversation(id);
-    const context = store.openConversation({ key: c.key, storedId: c.id, title: c.title, source: c.source }, c.aliases);
+    const context = store.openConversation({ profile: c.profile, botChat: c.botChat, key: c.key, storedId: c.id, title: c.title, source: c.source }, c.aliases);
     return { context, snapshot: clientSnapshot(store,req) };
   });
   app.post('/api/v1/media', async req => {
     const p = z.object({ conversationId: z.string().min(1).max(300), order: historyOrder, offset: z.number().int().nonnegative(), index: z.number().int().min(0).max(199), path: z.string().min(1).max(4096) }).strict().parse(req.body);
     const history = await gateway.history(p.conversationId, p.offset, p.order), message = history.messages[p.index];
     if (!message || !mediaRefs(message).some(ref => ref.path === p.path)) throw new Conflict('This file is not referenced in the selected conversation message.');
-    const result = await gateway.http(`/api/fs/read-data-url?profile=${encodeURIComponent(profile)}&session_id=${encodeURIComponent(history.sessionId)}&path=${encodeURIComponent(p.path)}`);
+    const result = await gateway.http(`/api/fs/read-data-url?profile=${encodeURIComponent(history.profile || profile)}&session_id=${encodeURIComponent(history.sessionId)}&path=${encodeURIComponent(p.path)}`);
     if (typeof result.dataUrl !== 'string' || !/^data:[^,]+;base64,/.test(result.dataUrl)) throw new GatewayError('The file response is unavailable.');
     return { dataUrl: result.dataUrl };
   });
@@ -219,7 +242,9 @@ export async function createApp(config: Config) {
   });
   app.get('/api/v1/uploads/:id', async (req, reply) => { const id = uuid.parse((req.params as any).id); const u = store.upload(id); if (!u?.complete) return reply.code(404).send({ error: 'File is unavailable.' }); return reply.type('application/octet-stream').header('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(u.name)}`).send(createReadStream(join(uploadDir, id))); });
   app.post('/api/v1/audio/transcribe', async req => {
-    const p = z.object({ id: uuid, uploadId: uuid }).strict().parse(req.body); const prior = transcriptions.read(p); if (prior) return prior;
+    const { contextId, ...p } = z.object({ id: uuid, uploadId: uuid, contextId: uuid.optional() }).strict().parse(req.body);
+    const voiceProfile = (contextId && store.context(contextId)?.profile) || profile;
+    const prior = transcriptions.read(p); if (prior) return prior;
     const u = store.upload(p.uploadId); if (!u?.complete || !/^(audio\/|video\/webm)/.test(u.type)) throw new Conflict('A complete audio recording is required.');
     guardUpload(u);
     if(u.owner){const [id,generation]=u.owner.split(':');store.db.prepare('INSERT OR IGNORE INTO plugin_resources VALUES (?,?,?,?)').run(id,Number(generation),'transcription',p.id);}
@@ -228,7 +253,7 @@ export async function createApp(config: Config) {
     uploadLocks.add(p.uploadId);
     try {
       const bytes = await readFile(join(uploadDir, p.uploadId));
-      const r = await gateway.http(`/api/audio/transcribe?profile=${encodeURIComponent(profile)}`, { data_url: `data:${u.type};base64,${bytes.toString('base64')}`, mime_type: u.type });
+      const r = await gateway.http(`/api/audio/transcribe?profile=${encodeURIComponent(voiceProfile || profile)}`, { data_url: `data:${u.type};base64,${bytes.toString('base64')}`, mime_type: u.type });
       guardUpload(u); return transcriptions.finish(p, String(r.transcript || ''));
     } finally { uploadLocks.delete(p.uploadId); await cleanDiscardedUploads().catch(() => {}); }
   });
@@ -243,7 +268,7 @@ export async function createApp(config: Config) {
     const text = messageText(message);
     if (!text) throw new Conflict('This response has no readable text.');
     if (text !== p.text) throw new Conflict('This response changed. Refresh before reading aloud.');
-    return gateway.http(`/api/audio/speak?profile=${encodeURIComponent(profile)}`, { text });
+    return gateway.http(`/api/audio/speak?profile=${encodeURIComponent(h.profile || profile)}`, { text });
   });
   app.post('/api/v1/notifications/subscribe', async req => ({ id: notifications.subscribe(req.body) }));
   app.post('/api/v1/notifications/status', async req => { const { endpoint } = z.object({ endpoint: z.string().max(4096) }).parse(req.body); return notifications.status(endpoint); });
@@ -261,11 +286,11 @@ export async function createApp(config: Config) {
   });
   const emit = () => { for (const stream of streams) if (!stream.destroyed && stream.writableLength < 1024 * 1024) stream.write('event: refresh\ndata: {}\n\n'); };
   store.on('change', emit);
-  const dist = resolve('dist');
+  const dist = resolve(config.staticDir || 'dist');
   if (existsSync(dist)) { await app.register(fastifyStatic, { root: dist, maxAge: 0 }); app.setNotFoundHandler((req, reply) => req.url.startsWith('/api/') ? reply.code(404).send({ error: 'Not found.' }) : reply.sendFile('index.html')); }
   app.addHook('preClose', async () => { for (const s of streams) s.end(); });
   const cleanupTimer = setInterval(() => { void (async () => { transcriptions.sweep(); await cleanDiscardedUploads(); })().catch(() => {}); }, 60000); cleanupTimer.unref();
-  app.addHook('onClose', async () => { clearInterval(cleanupTimer); await plugins.close(); actions.close(); notifications.close(); gateway.close(); await cleanDiscardedUploads().catch(() => {}); store.close(); });
+  app.addHook('onClose', async () => { clearInterval(cleanupTimer); plugins.remoteActions.close(); await plugins.close(); actions.close(); notifications.close(); gateway.close(); await cleanDiscardedUploads().catch(() => {}); store.close(); });
   if (config.hermesBase && config.hermesToken) void gateway.connect().catch(() => {});
   return { app, store, gateway, actions, plugins, articles:plugins.web };
 }

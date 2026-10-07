@@ -20,7 +20,13 @@ jobs:
       - run: npm run check
       - run: npm run test:installer
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:browser
+      - name: Browser checks with isolated fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in tests/browser/*.spec.ts; do
+            npx playwright test "$spec" --output "test-results/$(basename "$spec" .spec.ts)"
+          done
       - name: Retain failed browser diagnostics
         if: ${{ failure() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

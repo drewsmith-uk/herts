@@ -23,7 +23,8 @@ test('phone swipes respect scrolling and cancellation, hide with undo, and creat
     await page.goto('/#/conversations'); await page.getByLabel('Search conversations').fill('Swipe conversation');
     const item = page.locator('[data-conversation-key="swipe-first"]');
     await expect(item).toBeVisible();
-    await expect(page.locator('.conversation-list button')).toHaveCount(0);
+    await expect(page.locator('.conversation-list button:not(.swipe-keyboard-action)')).toHaveCount(0);
+    await expect(item.locator('.swipe-keyboard-action')).toHaveCSS('clip-path', 'inset(50%)');
     const cdp = await context.newCDPSession(page);
     async function swipe(target: Locator, dx: number, dy = 0, cancel = false) {
       await target.scrollIntoViewIfNeeded(); const box = (await target.locator('.conversation-row').boundingBox())!;
@@ -166,4 +167,13 @@ test('hiding on a later page preserves loaded conversations and the reading posi
     // Drain those handlers before Playwright disposes the request fixture.
     await page.unrouteAll({ behavior: 'wait' });
   }
+});
+
+test('loading plugin filters preserves the requested conversation page depth',async({page})=>{
+ const rows=Array.from({length:70},(_,i)=>({id:`filter-page-${i}`,key:`filter-page-${i}`,aliases:[`filter-page-${i}`],title:`Filter page ${i}`,preview:'Synthetic history',source:'desktop',updatedAt:Date.now()-i}));
+ let release!:()=>void;const gate=new Promise<void>(resolve=>release=resolve);
+ await page.route('**/_plugins/tasks/**/client.js',async route=>{await gate;await route.continue();});
+ await page.route('**/api/v1/conversations?*',route=>{const offset=Number(new URL(route.request().url()).searchParams.get('offset'));return route.fulfill({json:{conversations:rows.slice(offset,offset+50),hasMore:offset===0,total:70}});});
+ try{await page.goto('/#/conversations');await expect(page.locator('.conversation-row')).toHaveCount(50);await page.getByRole('button',{name:'Load more conversations'}).click();await expect(page.locator('.conversation-row')).toHaveCount(70);release();await expect(page.locator('.sidebar').getByRole('link',{name:'Reading',exact:true})).toBeVisible();await expect(page.locator('.conversation-row')).toHaveCount(70);await expect(page.getByRole('button',{name:'Load more conversations'})).toHaveCount(0);}
+ finally{release();await page.unrouteAll({behavior:'wait'});}
 });

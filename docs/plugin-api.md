@@ -78,7 +78,7 @@ Use `api.interval` and `api.onChange` for managed jobs; stop custom resources in
 
 `tx.notify` writes a deduplicated notification alongside your data change: `{id, title, body, route, contextId?}`. Use a stable notice ID for each event. Disabled plugin notifications are paused. Notifications and private files are removed by reset. `api.resumed` distinguishes a deliberate re-enable from an ordinary startup; Tasks uses it to combine overdue reminders.
 
-Core context APIs allow read-only conversation resolution, creation of local context records, and canonical linking. `tx.reference(itemId, contextId)` preserves a route/reference back to a core conversation even if the plugin is later unavailable. Resolving, linking or viewing a conversation does not submit work. Server plugins do not receive a special Hermes action endpoint; deliberate messaging uses the shared client conversation panel.
+Core context APIs allow read-only conversation resolution, creation of local context records, and canonical linking. `tx.reference(itemId, contextId)` preserves a route/reference back to a core conversation even if the plugin is later unavailable. Resolving, linking or viewing a conversation does not submit work. Deliberate messaging uses the shared client conversation panel. The optional typed `api.hermes` service provides profile and routine operations for plugins; it never exposes backend credentials or arbitrary RPC access.
 
 `conversation(context)` can provide a destination/title for core notifications. `conversationList(conversation)` can contribute namespaced filter tags and data. Use `await web.readArticle(url, signal)` for public-page fetching and readable-text extraction. Parsing and sanitisation run in workers with memory/concurrency limits, a five-second processing deadline and retry backoff. The legacy `await web.fetchHtml` / synchronous `web.extractArticle` pair remains supported for installed plugins: the awaited fetch prepares the result in a worker, and extraction accepts only that unmodified HTML/URL pair. Arbitrary synchronous HTML parsing is no longer supported.
 
@@ -136,6 +136,28 @@ Use `MessageComposer` for text, attachments and dictation. Transcription appends
 
 `useEntryDraft({ key, pluginId, route, ... })` supplies a stable draft/context ID, metadata fields, scoped attachment owner, persistence and completion callbacks for capture adapters. Optional `initialText`/`initialFields` prefill shared content; `legacy` can adopt old plugin drafts and recordings before clearing their old location. A context is retained only after meaningful content, metadata or a recording exists. Pass an explicit `id` to resume a saved capture. Call `complete()` after successfully saving or sending to release the capture slot. Existing core drafts remain available to the saved item's conversation. `entryDraftStatus(pluginId, key)` reports whether that capture slot still contains a draft or recording; check it before deleting its destination.
 
-`ConversationPanel` owns a scrollable history viewport; wrap it in a flex column that can shrink (`min-height: 0`) when embedding it outside the built-in detail screens. `ConversationHeader` keeps the title, back link and contributed actions visible; metadata expands explicitly. Do not add independent window scrolling in conversation contributions.
+`ConversationPanel` accepts an optional `refreshVersion` when a plugin observes new backend messages; changing it refreshes history without restarting the composer. It owns a scrollable history viewport; wrap it in a flex column that can shrink (`min-height: 0`) when embedding it outside the built-in detail screens. `ConversationHeader` keeps the title, back link and contributed actions visible; metadata expands explicitly. Do not add independent window scrolling in conversation contributions.
 
 Lists reached through multiple route aliases can declare a stable `data-list-position` value on a containing element. The shell uses it to restore the same reading position when returning from details.
+
+## Online remote actions
+
+Use `ServerPlugin.actions` for deliberate operations that change Hermes state. The handler receives `(input, effects)`; validate input and call typed `api.hermes` methods with `effects`. `effects.check()` checks activation/reset validity, and `effects.effect(name, asyncWork)` records a remote step before dispatch and saves its confirmed result. Do not put remote mutations in `commands.prepare` or `queries`: the offline command queue can retry preparation.
+
+The client calls `performPluginAction(pluginId, command, input, operationId)` with a stable UUID and reads `pluginActionStatus(pluginId, operationId)` after an unconfirmed response. Omitting the operation ID from the status call lists recent actions. These helpers are optional additions to API v1: feature-detect them before showing controls. Actions return promptly with `pending`, then become `finished`, `failed` or `unknown`. They are not offline-queued. A duplicate ID with the same request returns its existing status; different content is rejected. Unknown operations are never automatically retried. Receipts are core-owned and survive reset; disabling/resetting blocks subsequent steps without undoing already accepted remote work.
+
+Conversation links and contexts may carry `profile` and `botChat`. Treat conversation IDs and aliases as opaque: non-default profile IDs are namespaced by the host. Preserve these fields when linking a conversation, and use the returned canonical context with `ConversationPanel`. Existing plugins continue using the same IDs for the configured default profile. `api.hermes` supports bot roster/detail/avatar/model reads, profile creation/configuration, permanent-chat opening, and profile-scoped routine management/results. See `sdk/server.ts` and `shared/bots.ts` for types.
+
+## UI acceptance
+
+Plugins use the same UI standard as core screens. `SearchField`, `DialogHeading`, `MessageMarkdown`, `useListState` and the existing shared components are available from the client SDK. Check a new export before using it when supporting older browser hosts.
+
+Follow the UI completion criteria in [AGENTS.md](../AGENTS.md). Add each new screen to the shared theme/viewport suite, exercise delayed requests and offline drafts, and inspect screenshots with long content before considering it complete. Run `npm run test:ui` for focused checks and `npm run check:release` for the full release gate. Release checks stage the browser build instead of replacing the live `dist` directory.
+
+### Shared form and transcript controls
+
+Use `FormDialog` for editors with a scrolling body and persistent, separately laid-out footer. Its error region receives focus after a failed submission. `ModelPicker` is shared with conversation settings. `SwipeRow` supplies the same gesture cancellation and keyboard action as Conversations. `MessageAuthor`, `MessageMarkdown` and `useMessageSpeech` provide consistent transcript presentation, link contributions and playback cancellation.
+
+`pluginLocal(id).watchDrafts(next, error)` observes saved drafts after journal recovery; it returns an unsubscribe function. Do not recover pending draft writes inside a Dexie live-query observation. Keep the remote operation receipt until local cleanup has completed. A successful remote mutation must never be reissued because draft deletion or refresh failed.
+
+`pluginActionStatus(id, undefined, { profile, offset })` supports scoped history pagination. Unreviewed pending/unknown actions remain present on every page. `reviewPluginAction(id, operationId)` marks an unknown outcome reviewed; it does not change its outcome or execute it again.

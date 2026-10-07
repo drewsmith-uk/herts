@@ -1,3 +1,4 @@
+import { BotBackend } from './bots-fixture';
 import webpush from 'web-push';
 import { createServer } from 'node:http';
 import { mkdtemp, readFile, writeFile, cp, mkdir, rm } from 'node:fs/promises';
@@ -5,6 +6,7 @@ import { WebSocketServer } from 'ws';
 import { createApp } from '../server/app';
 const browserRoot = process.env.HERTS_BROWSER_ROOT || process.env.TASKS_BROWSER_ROOT;
 if (browserRoot) process.chdir(browserRoot);
+const botBackend = new BotBackend();
 const calls: string[] = [];
 const callDetails: { method: string; params: any }[] = [];
 const profileSettings = { model: 'profile-model', provider: 'configured', reasoning_effort: 'medium', fast: false, cwd: '/projects' };
@@ -56,6 +58,11 @@ const server = createServer({ keepAliveTimeout: 0 }, async (req, res) => {
   if (url.pathname === '/call-details') return res.end(JSON.stringify(callDetails));
   if (req.headers['x-hermes-session-token'] !== 'fixture-token') { res.statusCode = 403; return res.end('{}'); }
   if (hermesUnavailable) { res.statusCode = 503; return res.end('{}'); }
+  if (botBackend.ownsHttp(url)) {
+    const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk));
+    try { return res.end(JSON.stringify(await botBackend.http(url.pathname + url.search, chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : undefined, req.method))); }
+    catch { res.statusCode = 404; return res.end('{}'); }
+  }
   if (url.pathname === '/api/sessions') return res.end(JSON.stringify({ sessions: [...rows.values()], total: rows.size }));
   if (url.pathname === '/api/sessions/search') {
     const query = (url.searchParams.get('q') || '').toLowerCase();
@@ -109,6 +116,16 @@ wss.on('connection', ws => {
       const entry = [...runtimes.entries()].find(([, r]) => r.openRequests?.some((q: any) => q.id === p.id));
       if (entry) { const [sid, r] = entry; r.openRequests = r.openRequests.filter((q: any) => q.id !== p.id); r.approvals = []; r.clarification = undefined; setTimeout(() => finish(sid), 100); }
       ws.send(JSON.stringify({ id, result: { status: entry ? 'ok' : 'expired' } })); return;
+    }
+    if (botBackend.owns(method, p)) {
+      void botBackend.rpc(method, p).then(result => {
+        if (ws.readyState !== 1) return;
+        ws.send(JSON.stringify({ jsonrpc: '2.0', id, result }));
+        if (method === 'prompt.submit') setTimeout(() => {
+          if (ws.readyState === 1) ws.send(JSON.stringify({ jsonrpc: '2.0', method: 'event', params: { type: 'message.complete', session_id: p.session_id, seq: Date.now(), payload: { status: 'complete' } } }));
+        }, 80);
+      }).catch(error => { if (ws.readyState === 1) ws.send(JSON.stringify({ jsonrpc: '2.0', id, error: { code: 4002, message: error.message } })); });
+      return;
     }
     const r = runtimes.get(p.session_id);
     if (!r && ['session.activate','session.events.since','approval.pending','session.control.read','session.interrupt'].includes(method)) {
@@ -202,8 +219,8 @@ webpush.sendNotification=async(_subscription,payload)=>{
 const fixtureRoot=await mkdtemp('/tmp/herts-browser-');
 const themesDir=fixtureRoot+'/themes';await mkdir(themesDir);
 const pluginsDir=fixtureRoot+'/plugins';await mkdir(pluginsDir);
-for(const id of ['tasks','reading'])await cp('plugins/'+id,pluginsDir+'/'+id,{recursive:true});
-const { app, articles, store, plugins, gateway } = await createApp({ dataDir: fixtureRoot+'/data', pluginsDir, themesDir, origin: 'http://127.0.0.1:8790', identity: 'fixture', dev: true, hermesBase: 'http://127.0.0.1:8791', hermesToken: 'fixture-token' });
+for(const id of ['tasks','reading','bots'])await cp('plugins/'+id,pluginsDir+'/'+id,{recursive:true});
+const { app, articles, store, plugins, gateway } = await createApp({ staticDir: process.env.HERTS_TEST_DIST_DIR, dataDir: fixtureRoot+'/data', pluginsDir, themesDir, origin: 'http://127.0.0.1:8790', identity: 'fixture', dev: true, hermesBase: 'http://127.0.0.1:8791', hermesToken: 'fixture-token' });
 app.post('/__test/prompt-protocol', async req => {
   modernPrompts = (req.body as { modern: boolean }).modern;
   for (const ws of wss.clients) ws.terminate();
@@ -254,11 +271,11 @@ app.post('/__test/conversation-message', async req => {
   if (!hermesUnavailable) gateway.metadata = undefined;
   return { ok: true };
 });
-await plugins.activate('tasks');await plugins.activate('reading');plugins.reorder(['tasks','conversations','reading']);
+await plugins.activate('tasks');await plugins.activate('reading');plugins.reorder(['tasks','conversations','reading','bots']);
 // Simulate a client on a previous release without intercepting browser traffic
 // while real service workers install and take control. Their cached index stays new.
 app.get('/', async (req, reply) => {
-  let html = await readFile('dist/index.html', 'utf8');
+  let html = await readFile((process.env.HERTS_TEST_DIST_DIR || 'dist') + '/index.html', 'utf8');
   if (req.headers.cookie?.split(';').some(c => c.trim() === 'fixture-old-page=1')) {
     html = html.replace(/(<meta name="herts-build" content=")[^"]+/, '$1tasks-shell-fixture-previous');
     reply.header('Set-Cookie', 'fixture-old-page=; Max-Age=0; Path=/');

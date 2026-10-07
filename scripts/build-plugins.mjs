@@ -4,7 +4,7 @@ import { thirdPartyNotices } from './licenses.mjs';
 import { checkBoundaries } from './check-plugin-boundaries.mjs';
 import * as React from 'react';
 const sdkExports=await readFile('sdk/client-exports.json','utf8');
-const roots=process.argv.slice(2).length?process.argv.slice(2):['plugins/tasks','plugins/reading'];
+const roots=process.argv.slice(2).length?process.argv.slice(2):['plugins/tasks','plugins/reading','plugins/bots'];
 for(const root of roots){
   const inputs=[];
   await checkBoundaries(root);

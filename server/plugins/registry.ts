@@ -1,3 +1,5 @@
+import { RemoteActions } from './remoteActions.js';
+import type { HermesServices } from '../../shared/bots.js';
 import { readdir, readFile, mkdir, cp, rm, writeFile, realpath, stat, rename } from 'node:fs/promises';
 import { resolve, join, relative, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -56,6 +58,8 @@ interface Runtime {
     services?: ServerServices;
 }
 export class PluginRegistry {
+    hermes?: HermesServices;
+    readonly remoteActions: RemoteActions;
     readonly storage: PluginStorage;
     readonly web = new ArticleWeb();
     private entries = new Map<string, Saved>();
@@ -67,6 +71,7 @@ export class PluginRegistry {
     private fileOperations = new Map<string, Promise<unknown>>();
     constructor(readonly store: Store, readonly gateway: Gateway, readonly directory: string, readonly dataDirectory: string) {
         this.storage = new PluginStorage(store);
+        this.remoteActions = new RemoteActions(store);
         const saved = store.getMeta<PluginCatalogue>('plugins');
         if (saved) {
             this.entries = new Map(saved.entries.map(e => [e.manifest.id, e]));
@@ -238,11 +243,11 @@ export class PluginRegistry {
             const generation = this.storage.metadata(id).generation;
             const filePath = (key: string) => join(this.dataDirectory, 'plugin-files', id, String(generation), createHash('sha256').update(key).digest('hex'));
             const services: ServerServices = {
-                id, generation, signal: controller.signal, resumed: !!entry.paused, web: this.web.forPlugin(controller.signal),
+                hermes: this.hermes, id, generation, signal: controller.signal, resumed: !!entry.paused, web: this.web.forPlugin(controller.signal),
                 get: key => this.storage.get(id, key), entries: prefix => this.storage.entries(id, prefix),
                 transaction: fn => this.storage.transaction(id, generation, guard, fn),
                 contexts: () => this.store.contexts(), context: id => this.store.context(id),
-                resolveConversation: async (key) => { guard(); const c = await this.gateway.conversation(key); guard(); return { link: { key: c.key, storedId: c.id, title: c.title, source: c.source }, aliases: c.aliases }; },
+                resolveConversation: async (key) => { guard(); const c = await this.gateway.conversation(key); guard(); return { link: { profile: c.profile, botChat: c.botChat, key: c.key, storedId: c.id, title: c.title, source: c.source }, aliases: c.aliases }; },
                 onChange: fn => { const safe = () => { if (!controller.signal.aborted)
                     try {
                         fn();
@@ -408,6 +413,18 @@ export class PluginRegistry {
             this.storage.saveReceipt(id, generation, operation.id, operation, value);
             return value;
         });
+    }
+    action(id: string, operation: PluginOperation) {
+        const runtime = this.runtimes.get(id);
+        const check = () => {
+            if (this.storage.metadata(id).generation !== operation.generation) throw new PluginError('This plugin was reset.', 410);
+            if (!runtime || this.runtimes.get(id) !== runtime || runtime.controller.signal.aborted || !this.enabled(id)) throw new PluginError('This plugin is paused.', 423);
+        };
+        const previous = this.remoteActions.get(id, operation.id);
+        if (!previous) check();
+        const action = runtime?.definition.actions?.[operation.command];
+        if (!action && !previous) throw new PluginError('Unknown plugin action.', 404);
+        return this.remoteActions.start(id, operation, check, effects => action!(operation.input, effects));
     }
     async query(id: string, command: string, input: unknown) {
         const runtime = this.runtimes.get(id);

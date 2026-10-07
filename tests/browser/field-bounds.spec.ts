@@ -7,13 +7,15 @@ async function expectFocusFits(control: Locator) {
   await control.focus();
   await expect(control).toBeFocused();
   const result = await control.evaluate(node => {
-    const style = getComputedStyle(node), rect = node.getBoundingClientRect();
+    // Shared search fields draw their focus ring around the whole control.
+    const ringOwner=node.closest('.search-field') || node;
+    const style = getComputedStyle(ringOwner), rect = ringOwner.getBoundingClientRect();
     const outset = Math.max(0, parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset));
     const ring = { left: rect.left - outset, right: rect.right + outset, top: rect.top - outset, bottom: rect.bottom + outset };
     const clipped: string[] = [];
     // A fixed conversation shell gives body no height; viewport bounds cover the roots.
     if (ring.left < -1 || ring.right > innerWidth + 1 || ring.top < -1 || ring.bottom > innerHeight + 1) clipped.push('viewport');
-    for (let parent = node.parentElement; parent && parent !== document.body && parent !== document.documentElement; parent = parent.parentElement) {
+    for (let parent = ringOwner.parentElement; parent && parent !== document.body && parent !== document.documentElement; parent = parent.parentElement) {
       const css = getComputedStyle(parent), bounds = parent.getBoundingClientRect();
       const left = bounds.left + parent.clientLeft, top = bounds.top + parent.clientTop;
       if (/(auto|scroll|hidden|clip)/.test(css.overflowX) && (ring.left < left - 1 || ring.right > left + parent.clientWidth + 1)) clipped.push(`${parent.tagName}.${parent.className} (horizontal)`);

@@ -19,7 +19,8 @@ test('phone capture, edit mode, priority, completion and offline reload', async 
 });
 test('preview and convert an existing conversation without starting work', async ({ page, request }) => {
   const before: string[] = await (await request.get('http://127.0.0.1:8791/calls')).json();
-  await page.goto('/#/conversations'); await page.getByRole('link', { name: /Preview conversion example/ }).click();
+  await page.goto('/#/conversations'); await page.getByRole('textbox', { name: 'Search conversations' }).fill('Preview conversion example');
+  await page.getByRole('link', { name: /Preview conversion example/ }).click();
   await expect(page.getByText('We could visit the coast.', { exact: false })).toBeVisible();
   await page.getByRole('button', { name: 'Make a task' }).click(); await page.getByRole('button', { name: 'Create task', exact: true }).click();
   await expect((await detailsField(page, 'Task title'))).toHaveValue('Preview conversion example');
