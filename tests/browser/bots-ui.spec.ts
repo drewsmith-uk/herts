@@ -201,7 +201,17 @@ for(const width of [320,1280])test(`right swipe opens the correct bot editor onc
  let release!:()=>void;const gate=new Promise<void>(resolve=>release=resolve);let reads=0,writes=0;
  await page.route('**/api/v1/plugins/bots/queries/describe',async route=>{reads++;await gate;await route.continue();});
  await page.route('**/api/v1/plugins/bots/actions',route=>{writes++;return route.continue();});
- async function drag(dx:number,cancel=false){await row.evaluate(node=>node.scrollIntoView({block:'center',behavior:'instant'}));const box=(await row.boundingBox())!;await page.mouse.move(box.x+20,box.y+box.height/2);await page.mouse.down();await page.mouse.move(box.x+20+dx,box.y+box.height/2,{steps:10});if(cancel)await row.dispatchEvent('pointercancel',{pointerId:1});await page.mouse.up();}
+ async function drag(dx:number,cancel=false){
+  const content=row.locator('.conversation-item-content');
+  // A new gesture starts after the cancelled row has returned. Start in the
+  // padding so consecutive mouse gestures cannot drag selected avatar text.
+  await expect.poll(()=>content.evaluate(node=>new DOMMatrix(getComputedStyle(node).transform).m41)).toBe(0);
+  await row.evaluate(node=>node.scrollIntoView({block:'center',behavior:'instant'}));
+  const box=(await row.boundingBox())!,x=box.x+8,y=box.y+box.height/2;
+  await page.mouse.move(x,y);await page.mouse.down();await page.mouse.move(x+dx,y,{steps:10});
+  if(await row.getAttribute('aria-busy')!=='true')await expect.poll(()=>content.evaluate(node=>new DOMMatrix(getComputedStyle(node).transform).m41)).toBe(dx);
+  if(cancel)await row.dispatchEvent('pointercancel',{pointerId:1});await page.mouse.up();
+ }
  try{
   await drag(35);await drag(130,true);expect(reads).toBe(0);await expect(page.getByRole('dialog')).toHaveCount(0);
   await drag(130);await expect(row).toHaveAttribute('aria-busy','true');await expect.poll(()=>reads).toBe(1);await drag(130);expect(reads).toBe(1);
