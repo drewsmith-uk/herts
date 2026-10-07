@@ -123,9 +123,40 @@ for (const theme of builtinThemes) {
       await page.screenshot({path:`test-results/ui-${theme.id}-routine-form-${width}.png`});await page.keyboard.press('Escape');
     }
     await page.setViewportSize({width:390,height:844});await page.goto('/#/plugins/bots');await page.getByRole('button',{name:'New bot',exact:true}).click();
-    await page.evaluate(()=>{document.documentElement.style.setProperty('--viewport-height','330px');document.documentElement.style.setProperty('--viewport-top','90px');});
-    const keyboardDialog=await page.getByRole('dialog').boundingBox();expect(keyboardDialog!.y).toBeGreaterThanOrEqual(90);expect(keyboardDialog!.y+keyboardDialog!.height).toBeLessThanOrEqual(420);
-    await page.keyboard.press('Escape');await page.evaluate(()=>{document.documentElement.style.removeProperty('--viewport-height');document.documentElement.style.removeProperty('--viewport-top');});
+    // Drive the same viewport events as a keyboard. Direct CSS overrides race
+    // with useVisualViewport's pending focus/resize animation frame.
+    await page.evaluate(() => {
+      const viewport = window.visualViewport!;
+      Object.defineProperty(viewport, 'height', { configurable: true, value: 330 });
+      Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 90 });
+      viewport.dispatchEvent(new Event('resize'));
+      viewport.dispatchEvent(new Event('scroll'));
+    });
+    try {
+      await page.getByLabel('Bot name', { exact: true }).focus();
+      await expect(page.locator('body')).toHaveClass(/keyboard-open/);
+      await expect.poll(async () => {
+        const box = (await page.getByRole('dialog').boundingBox())!;
+        return box.y >= 90 && box.y + box.height <= 420;
+      }).toBe(true);
+      // A subsequent focus update must retain the simulated keyboard bounds.
+      await page.getByRole('textbox', { name: 'Description', exact: true }).focus();
+      await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+      const keyboardDialog = (await page.getByRole('dialog').boundingBox())!;
+      expect(keyboardDialog.y).toBeGreaterThanOrEqual(90);
+      expect(keyboardDialog.y + keyboardDialog.height).toBeLessThanOrEqual(420);
+      await page.screenshot({ path: `test-results/ui-${theme.id}-bot-keyboard-dialog.png` });
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+    } finally {
+      await page.evaluate(() => {
+        const viewport = window.visualViewport!;
+        Reflect.deleteProperty(viewport, 'height');
+        Reflect.deleteProperty(viewport, 'offsetTop');
+        viewport.dispatchEvent(new Event('resize'));
+        viewport.dispatchEvent(new Event('scroll'));
+      });
+    }
     await page.setViewportSize({ width: 320, height: 900 });
     for (const path of ['/tasks/inbox', '/reading']) {
       await page.goto(`/#${path}`);
