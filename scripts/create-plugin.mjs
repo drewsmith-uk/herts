@@ -11,7 +11,7 @@ await mkdir(`${root}/src`);
 const manifest=JSON.parse(await readFile('examples/notes/plugin.json','utf8'));
 await writeFile(`${root}/plugin.json`,JSON.stringify({...manifest,id,name,description:`${name}: built with the public Herts plugin API.`},null,2)+'\n');
 for(const file of ['client.tsx','server.ts']){
-  const source=(await readFile(`examples/notes/src/${file}`,'utf8')).replaceAll("'notes'",JSON.stringify(id)).replaceAll('/plugins/notes',`/plugins/${id}`).replaceAll("title: 'Notes'",`title: ${JSON.stringify(name)}`);
+  const source=(await readFile(`examples/notes/src/${file}`,'utf8')).replaceAll("'notes'",JSON.stringify(id)).replaceAll('/plugins/notes',`/plugins/${id}`).replaceAll("'Notes'",JSON.stringify(name));
   await writeFile(`${root}/src/${file}`,source);
 }
-console.log(`Created plugins/${id}. Run npm run build:plugin -- plugins/${id}, then Rescan in Settings → Plugins. New plugins start disabled.`);
+console.log(`Created plugins/${id}. Run npm run build:plugin -- plugins/${id}, then Rescan in Settings → Plugins. New plugins start disabled. Before release, follow AGENTS.md UI completion criteria, add browser coverage, and run npm run check:release.`);

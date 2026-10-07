@@ -53,6 +53,9 @@ main:has(.conversation-panel) .topbar { flex: 0 0 67px; }
   body.keyboard-open .app-shell:has(.conversation-panel) main { padding-bottom: env(safe-area-inset-bottom); }
   body.keyboard-open .app-shell:has(.conversation-panel) .mobile-nav { display: none; }
   body.keyboard-open .app-shell:has(.conversation-panel) .topbar { display: none; }
+}
+/* Short desktop windows need the same compact reply bar as phones. */
+@media(max-width:700px), (max-height:600px) {
   .composer-docked { position: relative; }
   .composer-docked .composer-collapse { display: inline-flex; flex-shrink: 0; }
   .composer-docked.is-collapsed .composer-expanded, .composer-docked.is-collapsed .attachment-list, .composer-docked.is-collapsed .composer-submit { display: none; }
@@ -66,6 +69,12 @@ main:has(.conversation-panel) .topbar { flex: 0 0 67px; }
   .composer-docked.is-expanded .composer-note { margin-block: 4px; }
   .conversation-panel .composer-expanded { max-height: 25dvh; overflow-y: auto; margin-inline: -6px; padding: 6px; scroll-padding: 6px; }
   .composer-tools { gap: 5px; }
+}
+
+@media(max-height:600px) {
+  .conversation-scroll { min-height:64px; }
+  .conversation-panel .composer-wrap { max-height:calc(100% - 72px); overflow-y:auto; overflow-x:hidden; margin-inline:-6px; padding:6px; }
+  .conversation-panel .composer-docked.is-expanded textarea { min-height:64px; max-height:64px; }
 }
 
 .conversation-details-toggle { order: 4; }

@@ -1,0 +1,111 @@
+import { test, expect, type APIRequestContext } from '@playwright/test';
+const headers = { 'x-herts-request': '1' };
+async function manage(request: APIRequestContext, action: string) {
+  const { catalogue } = await (await request.get('/api/v1/plugins')).json();
+  const response = await request.post('/api/v1/plugins/bots/manage', { headers, data: { action, revision: catalogue.revision, ...(action === 'reset' ? { confirmation: 'Bots' } : {}) } });
+  expect(response.ok(), await response.text()).toBe(true);
+}
+test.afterEach(async ({ request }) => { await manage(request, 'disable'); });
+for (const width of [390, 1280]) test(`Bots preserve profile chats, drafts and routine ownership at ${width}px`, async ({ page, context, request }) => {
+  await page.setViewportSize({ width, height: 900 }); await manage(request, 'enable');
+  await page.goto('/#/plugins/bots');
+  await expect(page.getByRole('link', { name: /Researcher/ })).toBeVisible();
+  await page.getByRole('link', { name: /Researcher/ }).click();
+  await expect(page.getByText('Hello from research.', { exact: true })).toBeVisible();
+  await page.getByLabel('Message Researcher').fill(`Draft for researcher ${width}`);
+  await page.getByRole('link', { name: 'Back to Bots' }).click();
+  await page.getByRole('link', { name: /^Hermes/ }).click();
+  await expect(page.getByText('Hello from default.', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Message Hermes')).toHaveValue('');
+  await page.getByRole('link', { name: 'Back to Bots' }).click();
+  await page.getByRole('link', { name: /Researcher/ }).click();
+  await expect(page.getByLabel('Message Researcher')).toHaveValue(`Draft for researcher ${width}`);
+  await page.getByRole('button', { name: 'Show page details' }).click();
+  await page.getByRole('link', { name: 'Routines', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'research briefing' })).toBeVisible();
+  await page.getByRole('link', { name: 'Results', exact: true }).first().click();
+  await expect(page.getByText('A useful briefing.')).toBeVisible(); await page.getByRole('link', {name:'Routines',exact:true}).click();
+  await page.getByRole('button', { name: 'New routine', exact: true }).click();
+  await page.getByLabel('Name', { exact: true }).fill(`Research digest ${width}`);
+  await page.getByLabel('Instructions').fill('Summarise my research.');
+  await page.getByLabel('Frequency').selectOption('daily');
+  await page.getByRole('button', { name: 'Save routine' }).click();
+  await expect(page.getByRole('heading', { name: `Research digest ${width}` })).toBeVisible();
+  await page.getByRole('link', { name: 'Bot Chat', exact: true }).click();
+  await expect(page.getByLabel('Message Researcher')).toHaveValue(`Draft for researcher ${width}`);
+  await context.setOffline(true); await page.reload();
+  await expect(page.getByLabel('Message Researcher')).toHaveValue(`Draft for researcher ${width}`);
+  await page.getByLabel('Message Researcher').click();
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+  await context.setOffline(false);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+test('create introduces once; disabling/reset preserves bot conversations', async ({ page, request }) => {
+  await manage(request, 'enable'); await page.goto('/#/plugins/bots');
+  await page.getByRole('button', { name: 'New bot' }).click();
+  await page.getByText('Model and profile settings', {exact:true}).click();
+  await page.getByLabel('Profile identifier', { exact: true }).fill('browser_writer');
+  await page.getByLabel('Bot name', { exact: true }).fill('Browser Writer');
+  await page.getByRole('textbox', { name: 'Description', exact: true }).fill('A synthetic writer');
+  await page.getByRole('button', { name: 'Create bot', exact: true }).click();
+  await expect(page).toHaveURL(/plugins\/bots\/browser_writer/);
+  await expect(page.getByText('Hey, tell me about yourself!', { exact: true }).first()).toBeVisible();
+  await page.getByLabel('Message Browser Writer').fill('Draft survives plugin reset');
+  await manage(request, 'reset');
+  await expect(page.getByLabel('Message Browser Writer')).toHaveValue('Draft survives plugin reset');
+  await manage(request, 'disable');
+  await page.goto('/#/conversations'); await page.getByRole('checkbox', { name: 'Show all', exact: true }).check();
+  await page.getByRole('link', { name: /Browser Writer/ }).click();
+  await expect(page.getByLabel('Message Browser Writer')).toHaveValue('Draft survives plugin reset');
+  const calls = await (await request.get('http://127.0.0.1:8791/call-details')).json();
+  expect(calls.filter((c: any) => c.method === 'prompt.submit' && c.params.session_id === 'bot-runtime:browser_writer')).toHaveLength(1);
+});
+test('bot forms retain drafts, shared hiding is reversible, and a lost routine reply is not resubmitted', async ({ page, request }) => {
+  await manage(request, 'enable'); await page.goto('/#/plugins/bots');
+  await page.getByRole('link', { name: /Researcher/ }).click();
+  await expect(page.getByText('Hello from research.', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Show page details' }).click();
+  await page.getByRole('button', { name: 'Edit bot', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Description', exact: true }).fill('Browser-edited researcher');
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit bot', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Description', exact: true })).toHaveValue('Browser-edited researcher');
+  const { catalogue } = await (await request.get('/api/v1/plugins')).json();
+  const detail = await (await request.post('/api/v1/plugins/bots/queries/describe', { headers, data: { name: 'research' } })).json();
+  const operation = await (await request.post('/api/v1/plugins/bots/actions', { headers, data: {
+    id: crypto.randomUUID(), generation: catalogue.entries.find((e: any) => e.manifest.id === 'bots').generation,
+    command: 'configure', input: { name: 'research', title: detail.title, description: 'Edited on another device', revision: detail.revision },
+  } })).json();
+  await expect.poll(async () => (await (await request.get(`/api/v1/plugins/bots/actions/${operation.id}`)).json()).state).toBe('finished');
+  await page.getByRole('button', { name: 'Save bot', exact: true }).click();
+  await expect(page.getByText('This bot changed in Hermes. Reload saved values in the editor before saving.', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Reload saved values', exact: true }).click();
+  await page.getByRole('button', { name: 'Replace draft', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Description', exact: true })).toHaveValue('Edited on another device');
+  await page.getByRole('textbox', { name: 'Description', exact: true }).fill('Browser-edited researcher');
+  await page.getByRole('button', { name: 'Save bot', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.getByRole('link', { name: 'Back to Bots' }).click();
+  const row = page.locator('.conversation-item').filter({ has: page.getByRole('link', { name: /Researcher/ }) });
+  const hide=row.getByRole('button',{name:'Hide Researcher',exact:true});await hide.focus();await hide.press('Enter');
+  await expect(page.getByRole('link', { name: /Researcher/ })).toHaveCount(0);
+  await page.getByRole('checkbox', { name: 'Show hidden bots', exact: true }).check();
+  const unhide=row.getByRole('button',{name:'Unhide Researcher',exact:true});await expect(unhide).toBeEnabled();await unhide.focus();await unhide.press('Enter');
+  await expect(row.getByRole('button',{name:'Hide Researcher',exact:true})).toBeEnabled();
+  await page.getByRole('link', { name: /Researcher/ }).click();
+  await page.getByRole('button', { name: 'Show page details' }).click();
+  await page.getByRole('link', { name: 'Routines', exact: true }).click();
+  const routine = page.locator('.item-row').filter({ has: page.getByRole('heading', { name: 'research briefing', exact: true }) });
+  await routine.locator('summary').click();
+  await routine.getByRole('button', { name: 'Pause', exact: true }).click();
+  await expect(routine.getByRole('button', { name: 'Resume & run now', exact: true })).toBeEnabled();
+  let submissions = 0;
+  await page.route('**/api/v1/plugins/bots/actions', async route => {
+    if (route.request().method() === 'POST' && route.request().postDataJSON()?.input?.action === 'run') {
+      submissions++; await route.fetch(); await route.abort('failed');
+    } else await route.continue();
+  });
+  await routine.getByRole('button', { name: 'Resume & run now', exact: true }).click();
+  await expect(routine.getByRole('button', { name: 'Pause', exact: true })).toBeEnabled();
+  expect(submissions).toBe(1);
+});

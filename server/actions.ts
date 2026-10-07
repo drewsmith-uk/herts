@@ -1,3 +1,4 @@
+import { parseConversationRef } from '../shared/conversations.js';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -93,6 +94,10 @@ export class Actions {
     return this.gateway.rpc(method, params, method === 'session.resume' ? 180_000 : 60_000);
   }
   async dispatch(a: Action, input: ActionInput) {
+    const profile = this.store.context(a.taskId)?.profile || this.gateway.profile;
+    return this.gateway.withProfile ? this.gateway.withProfile(profile, () => this.dispatchScoped(a, input)) : this.dispatchScoped(a, input);
+  }
+  private async dispatchScoped(a: Action, input: ActionInput) {
     this.dispatching.add(a.id);
     let dispatched = false;
     let controlBinding: Binding | undefined;
@@ -139,7 +144,7 @@ export class Actions {
           const previous = b; dispatched = true;
           const r = await this.step(a, 'preparing conversation', 'session.resume', { session_id: c.id, profile: this.gateway.profile, source: 'desktop', lazy: false, defer_history: false, omit_messages: true, eager_build: true });
           if (!r.session_id || !r.session_key || (r.info?.profile_name !== undefined && r.info.profile_name !== this.gateway.profile) || (!c.aliases.includes(r.session_key) && r.session_key !== c.id)) throw new GatewayError('The resumed conversation identity could not be verified.', true);
-          b = { runtimeId: r.session_id, storedId: r.session_key, epoch: this.gateway.epoch, generation: randomUUID(), seq: previous && previous.runtimeId === r.session_id && previous.epoch === this.gateway.epoch ? previous.seq : 0, ready: false, monitored: true, known: !!(r.messages_omitted && typeof r.running === 'boolean' && ['idle', 'working', 'waiting', 'starting'].includes(r.status)) || !!(r.messages_omitted && Object.hasOwn(r, 'inflight') && r.resumed) || !!(previous?.known && previous.runtimeId === r.session_id && previous.epoch === this.gateway.epoch) };
+          b = { profile: this.gateway.profile, runtimeId: r.session_id, storedId: r.session_key, epoch: this.gateway.epoch, generation: randomUUID(), seq: previous && previous.runtimeId === r.session_id && previous.epoch === this.gateway.epoch ? previous.seq : 0, ready: false, monitored: true, known: !!(r.messages_omitted && typeof r.running === 'boolean' && ['idle', 'working', 'waiting', 'starting'].includes(r.status)) || !!(r.messages_omitted && Object.hasOwn(r, 'inflight') && r.resumed) || !!(previous?.known && previous.runtimeId === r.session_id && previous.epoch === this.gateway.epoch) };
           Object.assign(a, this.store.action(a.id)); a.binding = b;
           if (a.kind === 'continue') { a.receipt = 'accepted'; a.state = r.auto_continue || r.running ? 'running' : 'preparing'; }
           a.phase = r.auto_continue ? 'recovering interrupted work' : 'preparing conversation';
@@ -154,9 +159,9 @@ export class Actions {
           dispatched = true;
           const r = await this.step(a, 'creating conversation', 'session.create', { profile: this.gateway.profile, source: 'desktop', close_on_disconnect: false, ...this.settings.createParams(a) });
           if (!r.session_id || !r.stored_session_id || r.info?.profile_name !== this.gateway.profile) throw new GatewayError('Conversation creation identity is not confirmed.', true);
-          b = { runtimeId: r.session_id, storedId: r.stored_session_id, epoch: this.gateway.epoch, generation: randomUUID(), seq: 0, ready: false, monitored: true, known: true };
+          b = { profile: this.gateway.profile, runtimeId: r.session_id, storedId: r.stored_session_id, epoch: this.gateway.epoch, generation: randomUUID(), seq: 0, ready: false, monitored: true, known: true };
           this.store.db.transaction(() => {
-            this.store.linkNew(task.id, { key: r.stored_session_id, storedId: r.stored_session_id, title: task.title, source: 'desktop' });
+            this.store.linkNew(task.id, { profile: this.gateway.profile, key: r.stored_session_id, storedId: r.stored_session_id, title: task.title, source: 'desktop' });
             this.store.saveBinding(task.id, b!);
             Object.assign(a, this.store.action(a.id));
             a.createdSession = { runtimeId: b!.runtimeId, storedId: b!.storedId, epoch: b!.epoch };
@@ -263,7 +268,10 @@ export class Actions {
   checkSendNotCancelled(id: string) {
     if (this.store.action(id)?.cancelSend) throw new GatewayError('Sending was cancelled by your stop request.');
   }
-  async reconnectUnsentConversation(contextId: string, storedId: string) {
+  async reconnectUnsentConversation(contextId: string, storedId: string): Promise<import('../shared/conversations.js').ConversationContext> {
+    const ownerContext = this.store.context(contextId);
+    if (ownerContext?.botChat) throw new Conflict('Open this bot from Bots to resolve its permanent chat.');
+    if (ownerContext?.profile && this.gateway.withProfile && ownerContext.profile !== this.gateway.profile) return this.gateway.withProfile(ownerContext.profile, () => this.reconnectUnsentConversation(contextId, storedId));
     await this.gateway.connect();
     const epoch = this.gateway.epoch, observed = this.store.binding(contextId);
     const eligible = () => {
@@ -302,7 +310,7 @@ export class Actions {
   }
   private async sessionIsMissing(session: Pick<Binding, 'storedId' | 'runtimeId'>): Promise<boolean> {
     try {
-      await this.gateway.http(`/api/sessions/${encodeURIComponent(session.storedId)}?profile=${encodeURIComponent(this.gateway.profile)}`);
+      await this.gateway.http(`/api/sessions/${encodeURIComponent(parseConversationRef(session.storedId).id)}?profile=${encodeURIComponent(this.gateway.profile)}`);
       return false;
     } catch (error) { if (!(error instanceof GatewayError) || error.uncertain || error.code !== 404) throw error; }
     try {
@@ -312,6 +320,7 @@ export class Actions {
     return true;
   }
   private async recoverUnsentCreation(a: Action, input: ActionInput, observed?: Binding): Promise<boolean> {
+    if (this.store.context(a.taskId)?.botChat) return false;
     const epoch = this.gateway.epoch;
     const eligible = () => {
       const context = this.store.context(a.taskId), attempts = this.store.actions(a.taskId);
@@ -371,7 +380,8 @@ export class Actions {
     }
     throw new GatewayError('Choose a different conversation title before sending.');
   }
-  async verifyBinding(b: Binding) {
+  async verifyBinding(b: Binding): Promise<any> {
+    if (b.profile && this.gateway.withProfile && b.profile !== this.gateway.profile) return this.gateway.withProfile(b.profile, () => this.verifyBinding(b));
     if (b.epoch !== this.gateway.epoch) throw new GatewayError('Hermes restarted. Sending your next message will prepare this conversation again.');
     const live = await this.gateway.rpc('session.activate', { session_id: b.runtimeId, omit_messages: true });
     if (live.session_id !== b.runtimeId || (live.info?.profile_name !== undefined && live.info.profile_name !== this.gateway.profile) || !live.session_key) throw new GatewayError('Execution identity could not be verified.');
@@ -423,6 +433,10 @@ export class Actions {
     return true;
   }
   async reconcile(taskId: string) {
+    const profile = this.store.context(taskId)?.profile || this.gateway.profile;
+    return this.gateway.withProfile ? this.gateway.withProfile(profile, () => this.reconcileScoped(taskId)) : this.reconcileScoped(taskId);
+  }
+  private async reconcileScoped(taskId: string) {
     if (this.polling.has(taskId)) return; this.polling.add(taskId);
     let observed: Binding | undefined;
     try {

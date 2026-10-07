@@ -39,7 +39,7 @@ export function Voice({ owner, onTranscript, startRequest, disabled = false, onM
       if (!await db.recordings.update(id, { transcription: request })) throw new Error('This recording was deleted.');
       await uploadFile(request.uploadId);
       let result: { transcript: string };
-      try { result = await api('/audio/transcribe', request); }
+      try { result = await api('/audio/transcribe', { ...request, ...(owner.startsWith('chat:') ? { contextId: owner.slice(5) } : {}) }); }
       catch (error) {
         if (error instanceof ApiError && [409, 410].includes(error.status)) {
           // A new request requires another deliberate tap; never resend here.

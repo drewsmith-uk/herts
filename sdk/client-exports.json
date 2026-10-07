@@ -50,5 +50,17 @@
   "MessageComposer",
   "useEntryDraft",
   "entryDraftStatus",
-  "firstLine"
+  "firstLine",
+  "performPluginAction",
+  "pluginActionStatus",
+  "SearchField",
+  "DialogHeading",
+  "useListState",
+  "MessageMarkdown",
+  "FormDialog",
+  "SwipeRow",
+  "ModelPicker",
+  "MessageAuthor",
+  "useMessageSpeech",
+  "reviewPluginAction"
 ]

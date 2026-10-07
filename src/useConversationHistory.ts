@@ -42,7 +42,9 @@ export function useConversationHistory(conversationId: string, version: string |
   }
   useLayoutEffect(() => {
     const target = pending.current; pending.current = undefined;
-    if (target === 'latest') scrollLatest(); else if (target) restore(target); else if (following.current) scrollLatest();
+    // A fetched page can queue a tail jump before the reader scrolls upward.
+    // Honour their newer choice when React commits that page.
+    if (target && target !== 'latest') restore(target); else if (following.current) scrollLatest();
     readAnchor.current = anchor();
   }, [pages, liveText, feedback]);
   useLayoutEffect(() => {

@@ -29,6 +29,7 @@ uploads/
 plugins/*
 !plugins/tasks/
 !plugins/reading/
+!plugins/bots/
 plugins/*/client.js
 plugins/*/server.mjs
 examples/*/client.js

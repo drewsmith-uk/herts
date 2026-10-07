@@ -19,6 +19,7 @@ export function ConversationTitle({ context }: { context: ConversationContext })
     catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   }
+  if (context.botChat) return <div className="conversation-title-editor"><h1>{context.title}</h1><p>Permanent Bot Chat. Edit the bot’s title in Bots.</p></div>;
   return <div className="conversation-title-editor"><textarea className="detail-title" rows={2} aria-label="Conversation title" maxLength={100}
     value={draft?.text ?? title} disabled={busy || (!!context.link && !online)}
     onChange={event => setDraft(previous => ({ text: event.target.value, baseTitle: previous?.baseTitle ?? title }))}

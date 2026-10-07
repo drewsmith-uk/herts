@@ -1,5 +1,5 @@
 export interface ConversationVisibilityOp { id: string; key: string; aliases: string[]; hidden: boolean; at: number }
-export interface Conversation { id: string; key: string; title: string; preview: string; source: string; updatedAt: number; aliases: string[]; linkedTaskId?: string; hidden?: boolean; extensions?:Record<string,any> }
+export interface Conversation { profile?: string; botChat?: boolean; id: string; key: string; title: string; preview: string; source: string; updatedAt: number; aliases: string[]; linkedTaskId?: string; hidden?: boolean; extensions?:Record<string,any> }
 export function conversationHidden(conversation: Conversation, hiddenKeys: string[]): boolean {
   return [conversation.key, conversation.id, ...conversation.aliases].some(key => hiddenKeys.includes(key));
 }
@@ -11,10 +11,10 @@ export function applyConversationVisibility(hiddenKeys: string[], op: Conversati
 }
 export interface ChatMessage { id?: number | string; role: string; content?: string | unknown[]; text?: string; timestamp?: number; tool_calls?: unknown[]; display_kind?: string; [key: string]: unknown }
 export type HistoryOrder = 'oldest' | 'latest';
-export interface History { order?: HistoryOrder; sessionId: string; messages: ChatMessage[]; offset: number; hasMore: boolean; fetchedAt: number }
+export interface History { profile?: string; order?: HistoryOrder; sessionId: string; messages: ChatMessage[]; offset: number; hasMore: boolean; fetchedAt: number }
 export type ActionState = 'preparing' | 'running' | 'awaiting_input' | 'stopping' | 'finished' | 'failed' | 'unknown' | 'ready';
 export interface Approval { request_id: string; command?: string; description?: string; choices?: string[]; [key: string]: unknown }
-export interface Binding { runtimeId: string; storedId: string; epoch: string; generation: string; seq: number; ready: boolean; monitored: boolean; known: boolean; unavailable?: boolean }
+export interface Binding { profile?: string; runtimeId: string; storedId: string; epoch: string; generation: string; seq: number; ready: boolean; monitored: boolean; known: boolean; unavailable?: boolean }
 // taskId is the legacy wire/storage field for the canonical context ID. New
 // requests use contextId; the server resolves legacy task IDs before dispatch.
 export interface Action {

@@ -1,4 +1,5 @@
 import { createContext, useContext, useId, useLayoutEffect, useRef, type ComponentProps, type ReactNode } from 'react';
+import { Search, X } from 'lucide-react';
 
 const classes = (...values: (string | false | undefined)[]) => values.filter(Boolean).join(' ');
 
@@ -22,6 +23,25 @@ export function ButtonLink({ variant = 'default', className, ...props }: Compone
 }
 export function IconButton({ className, ...props }: ComponentProps<typeof Button> & { 'aria-label': string }) {
   return <Button {...props} className={classes('icon-button', className)}/>;
+}
+
+export function SearchField({ label, value, onChange, placeholder = label, disabled = false }: { label: string; value: string; onChange(value: string): void; placeholder?: string; disabled?: boolean }) {
+  return <div className="search-field"><Search size={19} aria-hidden="true"/><input type="search" aria-label={label} placeholder={placeholder} value={value} disabled={disabled} onChange={event => onChange(event.target.value)}/>{value && <IconButton aria-label={`Clear ${label.toLowerCase()}`} disabled={disabled} onClick={() => onChange('')}><X size={16}/></IconButton>}</div>;
+}
+
+export function DialogHeading({ id, children, close, busy = false }: { id: string; children: ReactNode; close(): void; busy?: boolean }) {
+  return <div className="dialog-heading"><h2 id={id}>{children}</h2><IconButton aria-label="Close dialog" disabled={busy} onClick={close}><X size={20}/></IconButton></div>;
+}
+
+export function FormDialog({ id, title, close, busy, onSubmit, children, footer, error }: { id:string; title:ReactNode;close():void;busy?:boolean;onSubmit:ComponentProps<'form'>['onSubmit'];children:ReactNode;footer:ReactNode;error?:string }) {
+  const alert = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => { if(error) alert.current?.focus(); }, [error]);
+  return <DialogFrame className="form-dialog" size="wide" close={close} busy={busy} aria-labelledby={id}>
+    <form onSubmit={onSubmit}><DialogHeading id={id} close={close} busy={busy}>{title}</DialogHeading>
+      <div className="form-dialog-body">{children}</div>
+      <div className="form-dialog-footer">{error && <div ref={alert} tabIndex={-1} role="alert" className="inline-error">{error}</div>}{footer}</div>
+    </form>
+  </DialogFrame>;
 }
 
 export function SectionNav({ variant = 'filters', className, ...props }: ComponentProps<'nav'> & { variant?: 'filters' | 'sections'; 'aria-label': string }) {

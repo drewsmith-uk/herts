@@ -15,3 +15,17 @@ export { PageHeader, Button, ButtonLink, IconButton, SectionNav, SectionLink, It
 
 export { MessageComposer, type MessageComposerProps } from '../src/MessageComposer';
 export { useEntryDraft, entryDraftStatus, firstLine, type CaptureAdapter } from '../src/entryDraft';
+
+export { performPluginAction, pluginActionStatus } from '../src/pluginApi';
+export { SearchField, DialogHeading } from '../src/ui';
+export { useListState } from '../src/listState';
+export { MessageMarkdown } from '../src/MessageMarkdown';
+
+export { FormDialog } from '../src/ui';
+export { SwipeRow } from '../src/SwipeRow';
+export { ModelPicker } from '../src/ModelPicker';
+
+export { MessageAuthor } from '../src/MessageAuthor';
+export { useMessageSpeech } from '../src/useMessageSpeech';
+
+export { reviewPluginAction } from '../src/pluginApi';

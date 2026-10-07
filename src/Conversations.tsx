@@ -41,8 +41,9 @@ export function Conversations() {
     const filterPlugins = plugins.filter(p => p.definition.filter), swipes = plugins.filter(p => p.definition.swipe);
     const activeFilterPlugins = showAll ? [] : filterPlugins;
     const filterKey = activeFilterPlugins.map(p => `${p.id}:${p.definition.filter!.id}`).join(','), listVersion = JSON.stringify([state.snapshot.hiddenConversations, state.plugins.revision, ...plugins.map(p => state.pluginData[p.id]?.revision), state.pluginPending.map(p => p.id)]);
-    const previousFilter = useRef([query, showAll, filterKey].join(':'));
-    useEffect(() => { const key = [query, showAll, filterKey].join(':'); if (previousFilter.current !== key) { setOffset(0); setRows([]); previousFilter.current = key; } }, [query, showAll, filterKey]);
+    // Plugin readiness changes filtering, not the number of pages requested.
+    const previousFilter = useRef(JSON.stringify([query, showAll]));
+    useEffect(() => { const key = JSON.stringify([query, showAll]); if (previousFilter.current !== key) { setOffset(0); setRows([]); previousFilter.current = key; } }, [query, showAll]);
     useEffect(() => {
         let alive = true;
         const controller = new AbortController();

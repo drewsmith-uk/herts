@@ -30,6 +30,15 @@ export function pluginLocal(id: string, generation = getState().plugins.entries.
         async toArray() { if (kind === 'draft') for (const key of pendingDraftKeys(`${prefix}${kind}:`)) await recoverDraft(key); const rows = await db.pluginLocal.where('key').startsWith(`${prefix}${kind}:`).toArray(); return rows.map(r => kind === 'kv' ? { key: r.key.slice(`${prefix}${kind}:`.length), value: r.value } : r.value); },
     });
     return { kv: table('kv'), drafts: table('draft'), articles: table('article'),
+        watchDrafts(next:(rows:any[])=>void,error:(error:unknown)=>void){
+            // Observe the Dexie read directly. Recovery writes must finish outside
+            // the live query's read-only observation scope.
+            let closed=false,subscription:{unsubscribe():void}|undefined;
+            void (async()=>{for(const key of pendingDraftKeys(`${prefix}draft:`))await recoverDraft(key);
+                if(!closed)subscription=liveQuery(()=>db.pluginLocal.where('key').startsWith(`${prefix}draft:`).toArray()).subscribe({next:rows=>next(rows.map(row=>row.value)),error});
+            })().catch(error);
+            return ()=>{closed=true;subscription?.unsubscribe();};
+        },
         async hasRecording(owner: string) { guard(); return (await db.recordings.where('owner').equals(`plugin:${id}:${generation}:${owner}`).count()) > 0; },
     };
 }
@@ -37,3 +46,15 @@ export function pluginRecords<T = Record<string, unknown>>(id: string): T { retu
 export function usePluginRecords<T = Record<string, unknown>>(id: string): T { return (useApp().pluginData[id]?.records || {}) as T; }
 export async function pluginQuery(id: string, query: string, input: unknown) { return api(`/plugins/${id}/queries/${query}`, input); }
 export { mutatePlugin, resolvePluginOperation, sync, rebuild };
+
+/** Online-only: callers retain the operation ID and inspect status after lost replies. */
+export async function performPluginAction(id: string, command: string, input: unknown, operationId: string) {
+    const generation = getState().plugins.entries.find(e => e.manifest.id === id)?.generation;
+    if (generation === undefined) throw new Error('Plugin is unavailable.');
+    return api(`/plugins/${id}/actions`, { id: operationId, generation, command, input });
+}
+export async function pluginActionStatus(id: string, operationId?: string, options?:{profile?:string;offset?:number}) {
+    return api(`/plugins/${id}/actions${operationId ? '/' + encodeURIComponent(operationId) : options ? '?' + new URLSearchParams(Object.entries(options).filter(([,v])=>v!==undefined).map(([k,v])=>[k,String(v)])) : ''}`);
+}
+
+export async function reviewPluginAction(id:string,operationId:string){return api(`/plugins/${id}/actions/${encodeURIComponent(operationId)}/review`,{reviewed:true});}

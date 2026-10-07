@@ -17,7 +17,7 @@ export class Store extends LegacyFeatures {
     super();
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     this.db = new Database(path);
-    if(Number(this.db.pragma('user_version',{simple:true}))>6){this.db.close();throw new Error('This database needs a newer Herts version.');}
+    if(Number(this.db.pragma('user_version',{simple:true}))>7){this.db.close();throw new Error('This database needs a newer Herts version.');}
     this.legacyInstallation = Number(this.db.pragma('user_version', { simple: true })) > 0;
     this.db.pragma('journal_mode = WAL'); this.db.pragma('synchronous = FULL'); this.db.pragma('foreign_keys = ON');
     this.db.exec(`
@@ -70,6 +70,14 @@ export class Store extends LegacyFeatures {
       this.db.pragma('user_version = 5');
     })();
   }
+  bindProfiles(profile: string) {
+    this.db.transaction(() => {
+      for (const context of this.contexts()) if (!context.profile) this.saveContext({ ...context, profile, link: context.link ? { ...context.link, profile } : null });
+      for (const [id, binding] of this.bindings()) if (!binding.profile) this.saveBinding(id, { ...binding, profile: this.context(id)?.profile || profile });
+      this.setMeta('profiles-bound', true);
+      this.db.pragma('user_version = 7');
+    })();
+  }
   getMeta<T = any>(key: string): T | undefined { const r = this.db.prepare('SELECT value FROM meta WHERE key=?').get(key) as any; return r ? JSON.parse(r.value) : undefined; }
   scrubDeletedMessages() {
     for (const action of this.actions()) if (action.savedMessageDeletedAt && (action.text || action.uploadIds.length || action.answers)) this.saveAction(action);
@@ -105,6 +113,7 @@ export class Store extends LegacyFeatures {
     const r = this.db.prepare('SELECT data FROM contexts WHERE id=?').get(key) as any; return r && JSON.parse(r.data);
   }
   saveContext(context: ConversationContext) {
+    context = { ...context, ...(this.getMeta('profiles-bound') ? { profile: context.profile || context.link?.profile || this.getMeta<any>('hermesTarget')?.profile || 'default' } : {}), ...(context.link?.profile ? { profile: context.link.profile } : {}), ...(context.link?.botChat ? { botChat: true } : {}) };
     this.db.prepare('INSERT OR REPLACE INTO contexts VALUES (?,?)').run(context.id, JSON.stringify(context));
     for (const alias of context.aliases) this.db.prepare('INSERT INTO context_aliases VALUES (?,?) ON CONFLICT(alias) DO UPDATE SET context_id=excluded.context_id').run(alias, context.id);
     return context;

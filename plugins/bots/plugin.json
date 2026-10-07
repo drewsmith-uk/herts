@@ -1,0 +1,10 @@
+{
+  "id": "bots",
+  "name": "Bots",
+  "description": "Your Hermes bots, permanent chats and routines.",
+  "version": "1.0.4",
+  "apiVersion": 1,
+  "schemaVersion": 1,
+  "client": "client.js",
+  "server": "server.mjs"
+}

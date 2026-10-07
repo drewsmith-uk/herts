@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { conversationRef, parseConversationRef } from '../shared/conversations.js';
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import WebSocket from 'ws';
@@ -35,8 +37,18 @@ export class Gateway extends EventEmitter {
   });
   private answering = new Set<string>();
   connecting?: Promise<void>; reconnectTimer?: NodeJS.Timeout; heartbeat?: NodeJS.Timeout;
-  metadata?: { at: number; rows: Conversation[] }; fetchingMetadata?: Promise<Conversation[]>;
-  constructor(public base: string, private token: string, private excluded: string[] = [], private owned: () => string[] = () => [], public readonly profile = 'default') { super(); }
+  private scope = new AsyncLocalStorage<string>();
+  private metadataByProfile = new Map<string, { at: number; rows: Conversation[] }>();
+  private fetchingByProfile = new Map<string, Promise<Conversation[]>>();
+  get profile() { return this.scope.getStore() || this.defaultProfile; }
+  withProfile<T>(profile: string, fn: () => T): T { return this.scope.run(profile, fn); }
+  ref(id: string, profile = this.profile) { return conversationRef(profile, id, this.defaultProfile); }
+  get metadata() { return this.metadataByProfile.get(this.profile); }
+  set metadata(value: { at: number; rows: Conversation[] } | undefined) { if (value) this.metadataByProfile.set(this.profile, value); else this.metadataByProfile.clear(); }
+  get fetchingMetadata() { return this.fetchingByProfile.get(this.profile); }
+  set fetchingMetadata(value: Promise<Conversation[]> | undefined) { if (value) this.fetchingByProfile.set(this.profile, value); else this.fetchingByProfile.delete(this.profile); }
+  botChats: (profile: string, id: string) => boolean = () => false;
+  constructor(public base: string, private token: string, private excluded: string[] = [], private owned: () => string[] = () => [], public readonly defaultProfile = 'default') { super(); }
   async http(path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST'): Promise<any> {
     if (!this.base || !this.token) throw new GatewayError('Hermes connection is not configured.');
     let response: Response;
@@ -44,13 +56,13 @@ export class Gateway extends EventEmitter {
     catch { throw new GatewayError('Hermes is unreachable. Your work is saved in Herts.', body !== undefined); }
     if (!response.ok) {
       const detail = method === 'PATCH' ? await response.json().catch(() => ({})) : {};
-      throw new GatewayError(typeof detail.detail === 'string' ? detail.detail : `Hermes request failed (${response.status}).`, false, response.status);
+      throw new GatewayError(typeof detail.detail === 'string' ? detail.detail : `Hermes request failed (${response.status}).`, method !== 'GET' && response.status >= 500, response.status);
     }
     try { return await response.json(); }
     catch { throw new GatewayError('Hermes returned an invalid response.', body !== undefined); }
   }
   async renameConversation(id: string, title: string) {
-    const result = await this.http(`/api/sessions/${encodeURIComponent(id)}`, { profile: this.profile, title }, 'PATCH');
+    const result = await this.http(`/api/sessions/${encodeURIComponent(parseConversationRef(id).id)}`, { profile: this.profile, title }, 'PATCH');
     if (result.title !== title) throw new GatewayError('The new conversation title could not be confirmed. Refresh to check it.', true);
     this.metadata = undefined;
     return title;
@@ -95,7 +107,7 @@ export class Gateway extends EventEmitter {
           const pending = this.pending.get(String(frame.id)); if (!pending) return;
           clearTimeout(pending.timer); this.pending.delete(String(frame.id));
           if (frame.error) {
-            const mutating = ['session.create', 'session.title', 'session.resume', 'prompt.submit', 'file.attach', 'approval.respond', 'clarify.respond', 'request.answer', 'session.interrupt', 'config.set', 'session.cwd.set'].includes(pending.method);
+            const mutating = ['session.create', 'session.title', 'session.resume', 'prompt.submit', 'file.attach', 'approval.respond', 'clarify.respond', 'request.answer', 'session.interrupt', 'config.set', 'session.cwd.set', 'profiles.create', 'profiles.configure', 'cron.manage'].includes(pending.method);
             const validation = (frame.error.code >= 4000 && frame.error.code < 4100) || [-32601, -32602].includes(frame.error.code);
             pending.reject(new GatewayError(String(frame.error.message || 'Hermes refused the request.').replaceAll(this.token, '[redacted]'), mutating && !validation, frame.error.code));
           } else {
@@ -126,7 +138,15 @@ export class Gateway extends EventEmitter {
   }
   async rpc(method: string, params: any, timeout = 60_000): Promise<any> {
     await this.connect();
-    return this.request(method, params, timeout);
+    const profile = params.profile || parseConversationRef(params.session_id || '').profile || this.profile;
+    const wire = { ...params };
+    if (wire.session_id) wire.session_id = parseConversationRef(wire.session_id).id;
+    const result = await this.request(method, wire, timeout);
+    if (['session.create', 'session.resume', 'session.activate'].includes(method)) {
+      if (result.session_key) result.session_key = this.ref(result.session_key, profile);
+      if (result.stored_session_id) result.stored_session_id = this.ref(result.stored_session_id, profile);
+    }
+    return result;
   }
   private async negotiatePrompts() {
     try {
@@ -197,7 +217,7 @@ export class Gateway extends EventEmitter {
         if (result.sessions.some((row: any) => row.profile !== undefined && row.profile !== this.profile)) throw new GatewayError('Conversation list profile could not be verified.');
         for (const row of result.sessions) if (isPersonal(row, this.excluded)) {
           const root = row._lineage_root_id || row.id;
-          rows.set(root, { id: row.id, key: root, aliases: [...new Set([root, row.id, ...(row._lineage_ids || [])])], title: row.title || row.preview?.slice(0, 80) || 'Untitled conversation', preview: row.preview || '', source: row.source, updatedAt: (row.last_active || row.started_at || 0) * 1000 });
+          rows.set(root, { profile: this.profile, id: this.ref(row.id), key: this.ref(root), aliases: [...new Set<string>([root, row.id, ...(row._lineage_ids || [])])].map(id => this.ref(id)), title: row.title || row.preview?.slice(0, 80) || 'Untitled conversation', preview: row.preview || '', source: row.source, updatedAt: (row.last_active || row.started_at || 0) * 1000 });
         }
         offset += 100;
         if (offset >= Number(result.total) || result.sessions.length === 0) break;
@@ -209,24 +229,30 @@ export class Gateway extends EventEmitter {
     try { return await this.fetchingMetadata; } finally { this.fetchingMetadata = undefined; }
   }
   async conversation(id: string): Promise<Conversation> {
+    const parsed = parseConversationRef(id);
+    if (parsed.profile && parsed.profile !== this.profile) return this.withProfile(parsed.profile, () => this.conversation(id));
     const rows = await this.conversations(); const c = rows.find(r => r.key === id || r.aliases.includes(id));
-    if (c) return c;
+    if (c) return this.botChats(this.profile, id) ? { ...c, botChat: true } : c;
     if (!this.owned().includes(id)) throw new GatewayError('This personal conversation is unavailable.', false, 404);
-    const row = await this.http(`/api/sessions/${encodeURIComponent(id)}?profile=${encodeURIComponent(this.profile)}`);
-    if (row.profile !== this.profile || !isPersonal(row, this.excluded, true) || row.id !== id) throw new GatewayError('Conversation ownership could not be verified.', false, 404);
-    return { id, key: id, aliases: [id], title: row.title || 'Conversation', preview: '', source: row.source, updatedAt: (row.last_active || row.started_at || 0) * 1000 };
+    const row = await this.http(`/api/sessions/${encodeURIComponent(parsed.id)}?profile=${encodeURIComponent(this.profile)}`);
+    const excluded = [row.id, row._lineage_root_id, ...(row._lineage_ids || [])].some(value => this.excluded.includes(value));
+    const canonical = row.title === 'Bot Chat' && this.botChats(this.profile, id) && personalSources.includes(String(row.source || '').toLowerCase()) && !row.room_plumbing;
+    if (row.profile !== this.profile || excluded || !(isPersonal(row, this.excluded, true) || canonical) || row.id !== parsed.id) throw new GatewayError('Conversation ownership could not be verified.', false, 404);
+    return { profile: this.profile, botChat: this.botChats(this.profile, id), id: this.ref(row._lineage_tip_id || row.id), key: this.ref(row._lineage_root_id || row.id), aliases: [...new Set<string>([row.id, row._lineage_root_id, ...(row._lineage_ids || [])].filter(Boolean))].map(id => this.ref(id)), title: row.title || 'Conversation', preview: '', source: row.source, updatedAt: (row.last_active || row.started_at || 0) * 1000 };
   }
   async search(query: string) {
     const rows = await this.conversations(); if (!query) return rows;
     const found = await this.http(`/api/sessions/search?profile=${encodeURIComponent(this.profile)}&limit=100&q=${encodeURIComponent(query)}&sources=${personalSources.join(',')}`);
     const hits = new Set((found.results || found.matches || []).flatMap((r: any) => [r.session_id, r.lineage_root]));
-    return rows.filter(r => `${r.title} ${r.preview}`.toLowerCase().includes(query.toLowerCase()) || r.aliases.some(id => hits.has(id)));
+    return rows.filter(r => `${r.title} ${r.preview}`.toLowerCase().includes(query.toLowerCase()) || r.aliases.some(id => hits.has(parseConversationRef(id).id)));
   }
   async history(id: string, offset: number, order: HistoryOrder = 'oldest'): Promise<History> {
+    const parsed = parseConversationRef(id);
+    if (parsed.profile && parsed.profile !== this.profile) return this.withProfile(parsed.profile, () => this.history(id, offset, order));
     const c = await this.conversation(id);
-    const data = await this.http(`/api/sessions/${encodeURIComponent(c.id)}/messages?profile=${encodeURIComponent(this.profile)}&include_compacted=true&order=${order}&limit=200&offset=${offset}`);
+    const data = await this.http(`/api/sessions/${encodeURIComponent(parseConversationRef(c.id).id)}/messages?profile=${encodeURIComponent(this.profile)}&include_compacted=true&order=${order}&limit=200&offset=${offset}`);
     if (!Array.isArray(data.messages) || data.profile !== this.profile) throw new GatewayError('Conversation identity could not be verified.');
-    return { order, sessionId: data.session_id, messages: data.messages.filter((m: any) => m.display_kind !== 'hidden' && !['system', 'developer'].includes(m.role)), offset, hasMore: data.pagination?.returned === 200, fetchedAt: Date.now() };
+    return { profile: this.profile, order, sessionId: data.session_id, messages: data.messages.filter((m: any) => m.display_kind !== 'hidden' && !['system', 'developer'].includes(m.role)), offset, hasMore: data.pagination?.returned === 200, fetchedAt: Date.now() };
   }
   close() { this.closing = true; clearTimeout(this.reconnectTimer); clearInterval(this.heartbeat); this.socket?.close(); }
 }

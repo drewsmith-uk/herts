@@ -1,3 +1,5 @@
+import type { HermesServices, ActionEffects } from '../shared/bots.js';
+export type { HermesServices, ActionEffects } from '../shared/bots.js';
 import type { Conversation } from '../shared/core.js';
 import type { ConversationContext, Link } from '../shared/conversations.js';
 export type { ConversationContext, Link } from '../shared/conversations.js';
@@ -40,6 +42,7 @@ export interface ReadablePage {
     warning: string;
 }
 export interface ServerServices {
+    hermes?: HermesServices;
     web: {
         /** Fetch a public page and extract/sanitise it in a bounded worker. */
         readArticle: (url: string, signal: AbortSignal) => Promise<ReadablePage>;
@@ -76,6 +79,7 @@ export interface Command {
     apply(input: any, tx: Transaction, prepared?: any): unknown;
 }
 export interface ServerPlugin {
+    actions?: Record<string, (input: any, effects: ActionEffects) => Promise<unknown>>;
     migrate?(from: number, tx: Transaction): void;
     commands?: Record<string, Command>;
     queries?: Record<string, (input: any) => unknown | Promise<unknown>>;

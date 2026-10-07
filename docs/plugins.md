@@ -1,6 +1,6 @@
 # Plugins
 
-Conversations is the core of Herts and is always enabled. Tasks and Reading are optional plugins shipped with the app. They use the same public API and lifecycle as third-party plugins.
+Conversations is the core of Herts and is always enabled. Tasks, Reading and Bots are optional plugins shipped with the app. They use the same public API and lifecycle as third-party plugins.
 
 A **new data directory starts with Conversations only**. Open **Settings → Plugins** and tick Tasks or Reading to enable them. An upgrade of an existing installation enables both and preserves the old Tasks, Conversations, Reading order, spaces, task order, conversation links, reading items, downloads and reminders.
 
@@ -18,7 +18,7 @@ Plugin changes require a server connection. Existing enabled screens and saved d
 
 ## Add a prepared package
 
-The default directory is `plugins/` in the Herts checkout. Each direct child folder contains `plugin.json`, a prepared browser module, an optional prepared server module, and any assets. The two included plugins are built by `npm run build`.
+The default directory is `plugins/` in the Herts checkout. Each direct child folder contains `plugin.json`, a prepared browser module, an optional prepared server module, and any assets. The included plugins are built by `npm run build`.
 
 The build also generates `THIRD_PARTY_NOTICES.txt` from the dependencies included in each package. Keep it alongside the prepared modules when sharing or installing packages. Rebuild notices whenever dependencies change; package authors remain responsible for licences of any manually supplied assets or fonts.
 
@@ -55,3 +55,7 @@ Android has one Herts share target. When several enabled destinations accept the
 Plugins embed the core conversation panel. That panel provides history, timestamps, activity, drafts, attachments, voice, approvals, stop controls and contributions from other enabled plugins. For example, a Reading conversation still offers Make a task when Tasks is enabled. Bookmarking does not make a conversation count as task-linked. Disabling a plugin never resumes or stops Hermes.
 
 See [the authoring guide](plugin-api.md) to build your own plugin, and [the Notes example](../examples/notes/src/client.tsx) for a small independent package.
+
+## Bots and external work
+
+[Bots](bots.md) exposes profiles, permanent chats and routines on the existing Hermes backend. It is initially disabled on both new and upgraded installations. Its remote actions require connectivity and use durable receipts, separately from queued offline metadata edits. Disabling or resetting it never deletes Hermes profiles or stops Hermes routines. Cached bot records and form drafts are plugin-owned; conversation contexts, drafts, accepted sends and remote-action receipts survive reset.

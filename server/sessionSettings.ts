@@ -1,3 +1,4 @@
+import { parseConversationRef } from '../shared/conversations.js';
 import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 import { Conflict, type Action, type Binding } from '../shared/core.js';
@@ -32,11 +33,15 @@ export function sessionValues(info: any, stored = false): SessionValues {
 
 export class SessionSettings {
   observed = new Map<string, { values: SessionValues; wire?: string; epoch: string; runtime: string; at: number }>();
-  private catalogue?: { at: number; models: ModelOption[]; profile: SessionValues };
-  private loading?: Promise<{ models: ModelOption[]; profile: SessionValues }>;
+  private catalogues = new Map<string, { at: number; models: ModelOption[]; profile: SessionValues }>();
+  private loads = new Map<string, Promise<{ models: ModelOption[]; profile: SessionValues }>>();
+  private get catalogue() { return this.catalogues.get(this.gateway.profile); }
+  private set catalogue(v: { at: number; models: ModelOption[]; profile: SessionValues } | undefined) { if (v) this.catalogues.set(this.gateway.profile, v); }
+  private get loading() { return this.loads.get(this.gateway.profile); }
+  private set loading(v: Promise<{ models: ModelOption[]; profile: SessionValues }> | undefined) { if (v) this.loads.set(this.gateway.profile, v); else this.loads.delete(this.gateway.profile); }
   constructor(readonly store: Store, readonly gateway: Gateway) {}
   observe(id: string, info: any, binding: Binding) {
-    if (!info || info.lazy || info.profile_name !== this.gateway.profile || !info.model || !info.provider) return;
+    if (!info || info.lazy || info.profile_name !== (this.store.context(id)?.profile || this.gateway.profile) || !info.model || !info.provider) return;
     this.observed.set(id, { values: sessionValues(info), wire: typeof info.reasoning_effort_wire === 'string' ? info.reasoning_effort_wire : undefined, epoch: binding.epoch, runtime: binding.runtimeId, at: Date.now() });
   }
   record(id: string) { return this.store.sessionSettings().conversations[id] || blank(); }
@@ -82,11 +87,13 @@ export class SessionSettings {
   async stored(id: string): Promise<SessionValues> {
     const context = this.store.context(id); if (!context?.link) return {};
     const conversation = await this.gateway.conversation(context.link.storedId);
-    const row = await this.gateway.http(`/api/sessions/${encodeURIComponent(conversation.id)}?profile=${encodeURIComponent(this.gateway.profile)}`);
-    if (row.id !== conversation.id || row.profile !== this.gateway.profile) throw new GatewayError('Conversation settings identity could not be verified.');
+    const row = await this.gateway.http(`/api/sessions/${encodeURIComponent(parseConversationRef(conversation.id).id)}?profile=${encodeURIComponent(this.gateway.profile)}`);
+    if (row.id !== parseConversationRef(conversation.id).id || row.profile !== this.gateway.profile) throw new GatewayError('Conversation settings identity could not be verified.');
     return sessionValues(row, true);
   }
   async view(id?: string, force = false): Promise<SettingsView> {
+    const profile = id && this.store.context(id)?.profile;
+    if (profile && this.gateway.withProfile && profile !== this.gateway.profile) return this.gateway.withProfile(profile, () => this.view(id, force));
     const context = id ? this.store.context(id) : undefined, state = this.store.sessionSettings();
     let current: SessionValues = {}, source: SettingsView['source'] = context?.link ? 'unknown' : 'profile', wireEffort: string | undefined, error = '';
     let catalogue: { models: ModelOption[]; profile: SessionValues } | undefined = this.catalogue;
@@ -110,7 +117,7 @@ export class SessionSettings {
     const context = this.store.context(id)!, state = this.store.sessionSettings(); let record = this.record(id);
     if (revisions.settingsRevision !== undefined && revisions.settingsRevision !== record.revision) throw new Conflict('Conversation settings changed. Review them before sending.');
     if (!context.link && revisions.defaultsRevision !== undefined && revisions.defaultsRevision !== state.defaults.revision) throw new Conflict('New conversation defaults changed. Review them before sending.');
-    const values = { ...(!context.link ? state.defaults.values : {}), ...record.values };
+    const values = { ...(!context.link && !context.botChat ? state.defaults.values : {}), ...record.values };
     if (!hasSettings(values)) return;
     if (!context.link && !sameSetting(values, record.values)) {
       record = { revision: record.revision + 1, values }; state.conversations[id] = record; this.store.saveSessionSettings(state);
@@ -210,5 +217,9 @@ export function registerSessionSettings(app: FastifyInstance, settings: SessionS
   });
   app.post('/api/v1/session-defaults', async req => settings.save(undefined, recordInput.parse(req.body)));
   app.post('/api/v1/contexts/:id/settings', async req => settings.save(z.string().uuid().parse((req.params as any).id), recordInput.parse(req.body)));
-  app.get('/api/v1/session-directories', async req => settings.directories(z.object({ path: text.optional() }).parse(req.query).path));
+  app.get('/api/v1/session-directories', async req => {
+    const q = z.object({ path: text.optional(), contextId: z.string().uuid().optional() }).parse(req.query);
+    const profile = q.contextId ? settings.store.context(q.contextId)?.profile : undefined;
+    return settings.gateway.withProfile(profile || settings.gateway.profile, () => settings.directories(q.path));
+  });
 }

@@ -1,13 +1,13 @@
+import {ModelPicker} from './ModelPicker';
 import { SettingsSection, DialogFrame, FormField } from './ui';
 import { useEffect, useRef, useState } from 'react';
 import { Folder, RefreshCw, SlidersHorizontal, X } from 'lucide-react';
 import type { ConversationContext } from '../shared/conversations';
-import { effectiveSettings, emptySettings, efforts, hasSettings, type Effort, type ModelChoice, type SessionValues, type SettingsView } from '../shared/sessionSettings';
+import { effectiveSettings, emptySettings, efforts, hasSettings, type Effort, type SessionValues, type SettingsView } from '../shared/sessionSettings';
 import { api, db, saveSessionChoices, useApp, useSyncedSessionChoices } from './data';
 import { useUpdatePreparation, useUpdateWork } from './updateSafety';
 
 const labels: Record<Effort, string> = { none: 'Off', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max', ultra: 'Ultra' };
-const modelKey = (model?: ModelChoice) => model ? JSON.stringify({ id: model.id, provider: model.provider }) : '';
 const currentSettingsLabel = (view?: SettingsView) => view?.source === 'live' ? 'Current session settings' : view?.source === 'saved' ? 'Current session settings (last saved)' : 'Current session settings are not fully confirmed';
 function useSettingsView(contextId?: string) {
   const state = useApp(), [view, setView] = useState<SettingsView>(), [error, setError] = useState(''), [loading, setLoading] = useState(false);
@@ -80,15 +80,13 @@ function SettingsDialog({ context, initial, reload, close }: { context?: Convers
   const inherited = defaults ? view.profile : context.link ? view.current : { ...view.profile, ...view.defaults.values };
   const effective = { ...inherited, ...values }, choice = effective.model;
   const selected = view.models.find(m => m.id === choice?.id && m.provider === choice?.provider);
-  const filtered = view.models.filter(m => !search || `${m.providerName} ${m.id}`.toLowerCase().includes(search.toLowerCase()) || (m.id === choice?.id && m.provider === choice.provider));
-  const providers = [...new Set(filtered.map(m => m.provider))];
   const unsupported = values.effort !== undefined && (selected?.reasoning !== true || (values.effort === 'none' && selected.canDisableReasoning === false))
     ? 'This model does not support that effort choice. Use its existing/default effort or choose another model.'
     : effective.fast === true && selected?.fast !== true ? 'Fast mode is unavailable for this model. Choose Off or a model that supports it.' : '';
   const set = <K extends keyof SessionValues>(key: K, value: SessionValues[K]) => setValues(old => { const next = { ...old }; if (value === undefined) delete next[key]; else next[key] = value; return next; });
   async function browse(path?: string) {
     setBusy(true); setError('');
-    try { setFolder(await api(`/session-directories${path ? `?path=${encodeURIComponent(path)}` : ''}`, undefined, undefined, 20000)); setBrowsing(true); }
+    try { setFolder(await api(`/session-directories?${new URLSearchParams({ ...(path ? { path } : {}), ...(context?.id ? { contextId: context.id } : {}) })}`, undefined, undefined, 20000)); setBrowsing(true); }
     catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
   async function save(next = values) {
@@ -97,7 +95,7 @@ function SettingsDialog({ context, initial, reload, close }: { context?: Convers
       let selectedValues = { ...next };
       if (next.cwd !== undefined) { if (next.cwd.trim()) selectedValues.cwd = next.cwd.trim(); else delete selectedValues.cwd; }
       if (selectedValues.cwd && state.online && state.gateway.online) {
-        const result = await api(`/session-directories?path=${encodeURIComponent(selectedValues.cwd)}`, undefined, undefined, 20000);
+        const result = await api(`/session-directories?${new URLSearchParams({ path: selectedValues.cwd, ...(context?.id ? { contextId: context.id } : {}) })}`, undefined, undefined, 20000);
         selectedValues = { ...selectedValues, cwd: result.path };
       }
       if (view.uncertain && !reviewed) throw new Error('Refresh the current settings before saving reviewed choices.');
@@ -118,12 +116,7 @@ function SettingsDialog({ context, initial, reload, close }: { context?: Convers
       {!defaults && <p>Changes apply on your next Send.</p>}
       {context?.link && view.source !== 'live' && <p className="subtle-note">{currentSettingsLabel(view)}</p>}
       {view.uncertain && <p role="alert" className="error-banner">An earlier settings change is unconfirmed. Refresh and review the current values. Applying reviewed choices allows them to be tried again only when you next press Send.</p>}
-      <FormField label="Find a model"><input type="search" aria-label="Find a model" value={search} onChange={e => setSearch(e.target.value)} placeholder="Model or provider" disabled={busy}/></FormField>
-      <FormField label="Model and provider"><select aria-label="Conversation model" disabled={busy || !view.models.length} value={modelKey(values.model)} onChange={e => set('model', e.target.value ? JSON.parse(e.target.value) as ModelChoice : undefined)}>
-        <option value="">{inheritLabel('model')}{inherited.model ? ` (${inherited.model.id})` : ' (model unknown)'}</option>
-        {choice && !view.models.some(m => m.id === choice.id && m.provider === choice.provider) && <option value={modelKey(choice)}>{choice.provider} · {choice.id} (current)</option>}
-        {providers.map(provider => <optgroup key={provider} label={filtered.find(m => m.provider === provider)!.providerName}>{filtered.filter(m => m.provider === provider).map(m => <option key={modelKey({ id: m.id, provider })} value={modelKey({ id: m.id, provider })} disabled={!m.available}>{m.id}{!m.available ? ' (unavailable)' : ''}</option>)}</optgroup>)}
-      </select></FormField>
+      <ModelPicker models={view.models} value={values.model} onChange={value=>set('model',value)} search={search} setSearch={setSearch} disabled={busy} ariaLabel="Conversation model" inheritedLabel={`${inheritLabel('model')}${inherited.model ? ` (${inherited.model.id})` : ' (model unknown)'}`}/>
       {values.model && <button type="button" className="text-button settings-inherit" disabled={busy} onClick={() => set('model', undefined)}>{inheritLabel('model')}</button>}
       <div className="session-settings-grid"><FormField label="Reasoning effort"><select aria-label="Reasoning effort" value={values.effort ?? ''} disabled={busy} onChange={e => set('effort', e.target.value ? e.target.value as Effort : undefined)}>
         <option value="">{inheritLabel('effort')}{inherited.effort ? ` (${labels[inherited.effort]})` : ' (effort unknown)'}</option>

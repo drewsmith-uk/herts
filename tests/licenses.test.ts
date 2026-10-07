@@ -9,14 +9,16 @@ it('keeps complete licence texts for bundled packages, including virtual module 
   expect(notices).not.toContain(process.cwd());
 });
 
+const dist = process.env.HERTS_TEST_DIST_DIR || 'dist';
+
 it('ships licence notices alongside minified application and prepared plugin bundles', async () => {
-  const notices = await readFile('dist/THIRD_PARTY_NOTICES.txt', 'utf8');
+  const notices = await readFile(`${dist}/THIRD_PARTY_NOTICES.txt`, 'utf8');
   for (const dependency of ['react', 'react-dom', 'dexie', 'lucide-react']) expect(notices).toContain(`${dependency}@`);
-  const chunks = (await readdir('dist/assets')).filter(name => /^(index|markdown|storage)-.*\.js$/.test(name));
+  const chunks = (await readdir(`${dist}/assets`)).filter(name => /^(index|markdown|storage)-.*\.js$/.test(name));
   expect(chunks.length).toBeGreaterThanOrEqual(3);
-  for (const file of chunks) expect(await readFile(`dist/assets/${file}`, 'utf8')).toContain('Third-party notices: /THIRD_PARTY_NOTICES.txt');
-  expect(await readFile('dist/sw.js', 'utf8')).toContain('/THIRD_PARTY_NOTICES.txt');
-  for (const plugin of ['plugins/tasks', 'plugins/reading', 'examples/notes']) {
+  for (const file of chunks) expect(await readFile(`${dist}/assets/${file}`, 'utf8')).toContain('Third-party notices: /THIRD_PARTY_NOTICES.txt');
+  expect(await readFile(`${dist}/sw.js`, 'utf8')).toContain('/THIRD_PARTY_NOTICES.txt');
+  for (const plugin of ['plugins/tasks', 'plugins/reading', 'plugins/bots', 'examples/notes']) {
     const pluginNotices = await readFile(`${plugin}/THIRD_PARTY_NOTICES.txt`, 'utf8');
     expect(pluginNotices).toContain('Third-party notices for this Herts build');
     expect(pluginNotices).not.toContain(process.cwd());

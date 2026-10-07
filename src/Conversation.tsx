@@ -3,9 +3,10 @@ import { MessageComposer } from './MessageComposer';
 import { outgoingInHistory, outgoingStatus, liveReplyReplacement, type OutgoingMessage } from './transcriptFeedback';
 import type { ConversationContext } from '../shared/conversations';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { MessageSquare, Square, RefreshCw, Volume2 } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { MessageSquare, RefreshCw } from 'lucide-react';
+import { MessageAuthor } from './MessageAuthor';
+import { useMessageSpeech } from './useMessageSpeech';
+import { MessageMarkdown } from './MessageMarkdown';
 import { MessageMedia } from './Media';
 import { MessageBoundary } from './MessageBoundary';
 import { useConversationHistory } from './useConversationHistory';
@@ -16,19 +17,12 @@ import { Clarification } from './Clarification';
 import { ConversationActivity } from './ConversationActivity';
 import { useUpdateWork } from './updateSafety';
 import { messageText, type Action, type History } from '../shared/core';
-import { useApp, submit, api, cacheRead, saveSessionChoices } from './data';
-import { ConversationContributions, MessageLinkContributions } from './plugins';
+import { useApp, submit, api, saveSessionChoices } from './data';
+import { ConversationContributions } from './plugins';
 
-const messageTimeFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
-function MessageTime({ timestamp }: { timestamp?: number }) {
-  if (typeof timestamp !== 'number' || !Number.isFinite(timestamp) || timestamp <= 0) return null;
-  const date = new Date(timestamp < 1e12 ? timestamp * 1000 : timestamp);
-  if (!Number.isFinite(date.getTime())) return null;
-  return <time className="message-time" dateTime={date.toISOString()} title={date.toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'long' })}>{messageTimeFormat.format(date)}</time>;
-}
 const finished = (a?: Action) => !!a && ['finished','failed','ready','unknown'].includes(a.state);
 
-export function ConversationPanel({ context: task, initialText = '', showActions = true, showHeading = true, readOnly = false, saveDraftAction }: { context: ConversationContext; initialText?: string; showActions?: boolean; showHeading?: boolean; showEmptyNotice?: boolean; readOnly?: boolean; saveDraftAction?: () => void }) {
+export function ConversationPanel({ context: task, initialText = '', showActions = true, showHeading = true, readOnly = false, saveDraftAction, refreshVersion = 0 }: { context: ConversationContext; initialText?: string; showActions?: boolean; showHeading?: boolean; showEmptyNotice?: boolean; readOnly?: boolean; saveDraftAction?: () => void; refreshVersion?: string | number }) {
   const state = useApp(); const [error, setError] = useState(''), [busy, setBusy] = useState(false);
   const [statusHost, setStatusHost] = useState<HTMLDivElement | null>(null), [savedHost, setSavedHost] = useState<HTMLDivElement | null>(null);
   const main = state.actions.find(a => !a.cancelled && a.taskId === task.id && ['send','continue'].includes(a.kind)); const binding = state.bindings[task.id];
@@ -38,7 +32,7 @@ export function ConversationPanel({ context: task, initialText = '', showActions
   const latestOutgoing: OutgoingMessage | undefined = local && (!send || local.id === send.id || local.at > send.createdAt) ? local : send ? { id: send.id, taskId: task.id, text: send.text, uploadIds: send.uploadIds, at: send.createdAt } : undefined;
   const outgoingAction = state.actions.find(a => a.id === latestOutgoing?.id);
   const outgoing = outgoingAction?.savedMessageDeletedAt ? undefined : latestOutgoing;
-  const historyChange = `${historyVersion}:${main?.id}:${main?.sendStage}:${main?.receipt}:${main?.state}:${main?.phase}:${main?.terminal}`;
+  const historyChange = `${refreshVersion}:${historyVersion}:${main?.id}:${main?.sendStage}:${main?.receipt}:${main?.state}:${main?.phase}:${main?.terminal}`;
   useEffect(() => { if (main?.terminal || main?.state === 'finished') setHistoryVersion(v => v + 1); }, [main?.terminal, main?.state]);
   async function control(kind: Action['kind'], approvalId?: string, text?: string, answers?: Record<string, string>) {
     setBusy(true); setError(''); try { await submit({ id: crypto.randomUUID(), contextId: task.id, kind, generation: binding?.generation, targetId: main?.id, ...(approvalId ? { approvalId } : {}), ...(text ? { text } : {}), ...(answers ? { answers } : {}) }); } catch(e) { setError((e as Error).message); } finally { setBusy(false); }
@@ -56,7 +50,7 @@ export function ConversationPanel({ context: task, initialText = '', showActions
     <div className="conversation-scroll" tabIndex={0} aria-label="Conversation messages">
     {showActions&&<ConversationContributions context={task}/>}
     {showHeading && <div className="conversation-heading"><span><MessageSquare size={17}/> Conversation</span></div>}
-    <HistoryView key={task.link?.storedId || task.id} conversationId={task.link?.storedId || ''} version={historyChange} liveText={main?.liveText} working={active} phase={main?.phase} outgoing={outgoing} outgoingAction={outgoingAction} sendVersion={sendVersion}/>
+    <HistoryView assistantName={task.botChat ? task.title : undefined} key={task.link?.storedId || task.id} conversationId={task.link?.storedId || ''} version={historyChange} liveText={main?.liveText} working={active} phase={main?.phase} outgoing={outgoing} outgoingAction={outgoingAction} sendVersion={sendVersion}/>
     {(active || attention || main?.phase === 'stopped') && <ConversationActivity statusHost={statusHost} label={statusLabel} active={active} attention={attention} stopping={main?.state === 'stopping'} disabled={busy || !state.online || !state.gateway.online || !binding} onStop={() => void control('stop')} onLatest={() => setSendVersion(v => v + 1)}>
       {attention && <>
         {main?.error && !modelConfirmation && <p className="inline-error" role="alert">{main.error}</p>}
@@ -90,7 +84,7 @@ function ModelSwitchConfirmation({ action }: { action: Action }) {
 }
 
 
-export function HistoryView({ conversationId, version = 0, liveText, working = false, phase, outgoing, outgoingAction, sendVersion = 0 }: { conversationId: string; version?: number | string; liveText?: string; working?: boolean; phase?: string; outgoing?: OutgoingMessage; outgoingAction?: Action; sendVersion?: number }) {
+export function HistoryView({ conversationId, assistantName = 'Hermes', version = 0, liveText, working = false, phase, outgoing, outgoingAction, sendVersion = 0 }: { conversationId: string; assistantName?: string; version?: number | string; liveText?: string; working?: boolean; phase?: string; outgoing?: OutgoingMessage; outgoingAction?: Action; sendVersion?: number }) {
   const feedback = `${outgoing?.id}:${outgoingStatus(outgoingAction)}:${working}:${version}`;
   const { pages, cached, busy, error, setError, newMessages, latest, refresh, older, root, end, pauseFollowing } = useConversationHistory(conversationId, version, liveText, working, sendVersion, feedback);
   const [toolbar, setToolbar] = useState<HTMLElement | null>(null);
@@ -103,28 +97,21 @@ export function HistoryView({ conversationId, version = 0, liveText, working = f
   const lastAssistant = pages.flatMap(p => p.messages).findLast(m => m.role === 'assistant' && messageText(m).trim());
   const replaceReply = liveReplyReplacement(pages, liveText, outgoing);
   const showLive = !replaceReply && liveText && messageText(lastAssistant || { role: 'assistant' }).trim() !== liveText.trim();
-  const [speaking, setSpeaking] = useState<string | null>(null);
-  const playback = useRef(0); const audio = useRef<HTMLAudioElement | null>(null); const mounted = useRef(true);
-  useEffect(() => () => { mounted.current = false; playback.current++; audio.current?.pause(); }, []);
-  async function speak(m: any, page: History, index: number) {
-    const generation = ++playback.current; const id = `${page.offset}:${index}`; if (speaking === id) { audio.current?.pause(); setSpeaking(null); return; }
-    audio.current?.pause(); setSpeaking(id); setError('');
-    try {
-      const text = messageText(m); const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))].map(n => n.toString(16).padStart(2,'0')).join('');
-      const data = await cacheRead(`speech:${conversationId}:${hash}`, () => api('/audio/speak', { conversationId, ...(m.id === undefined ? {} : { messageId: m.id }), offset: page.offset, order: page.order || 'oldest', index, text }));
-      if (!mounted.current || generation !== playback.current) return; const a = new Audio(data.value.data_url); audio.current = a; a.onended = () => setSpeaking(null); await a.play();
-    } catch(e) { if (mounted.current && generation === playback.current) { setError((e as Error).message); setSpeaking(null); } }
+  const {speaking,speak:playSpeech}=useMessageSpeech(setError);
+  async function speak(m:any,page:History,index:number){
+    const text=messageText(m);
+    await playSpeech(`${page.offset}:${index}`,conversationId,text,()=>api('/audio/speak',{conversationId,...(m.id===undefined?{}:{messageId:m.id}),offset:page.offset,order:page.order||'oldest',index,text}));
   }
   const speakRef = useRef(speak); speakRef.current = speak;
   const onSpeak = useCallback((message: any, page: History, index: number) => { void speakRef.current(message, page, index); }, []);
-  function renderMessage(entry: HistoryEntry) { if (entry.key === replaceReply) entry = { ...entry, message: { ...entry.message, content: liveText } }; return <MessageBoundary key={entry.key} revision={JSON.stringify(entry.message)}><HistoryMessage entry={entry} conversationId={conversationId} speaking={speaking === `${entry.page.offset}:${entry.index}`} onSpeak={onSpeak} pauseFollowing={pauseFollowing}/></MessageBoundary>; }
+  function renderMessage(entry: HistoryEntry) { if (entry.key === replaceReply) entry = { ...entry, message: { ...entry.message, content: liveText } }; return <MessageBoundary key={entry.key} revision={JSON.stringify(entry.message)}><HistoryMessage assistantName={assistantName} entry={entry} conversationId={conversationId} speaking={speaking === `${entry.page.offset}:${entry.index}`} onSpeak={onSpeak} pauseFollowing={pauseFollowing}/></MessageBoundary>; }
   const refreshButton = <button className="icon-button history-refresh" aria-label="Refresh conversation history" disabled={busy || !conversationId} onClick={() => void refresh()}><RefreshCw size={15} className={busy ? 'spin' : ''}/></button>;
   return <div className="history" ref={root}>{(cached || !toolbar) && <div className="history-note">{cached && <span role="status">Showing saved messages</span>}{!toolbar && refreshButton}</div>}{toolbar && createPortal(refreshButton, toolbar)}
     {error && <p className="inline-error" role="alert">{error}</p>}
     {pages[0]?.hasMore && <button className="load-more" disabled={busy} onClick={() => void older()}>{busy ? 'Loading…' : 'Load older messages'}</button>}
-    {groups.map(group => group.kind === 'message' ? renderMessage(group.entry) : <HistoryDisclosure key={group.key} activityKey={group.key} label={<><span className="hermes-mark">H</span><span>Hermes activity</span><span className="activity-count">{activitySummary(group)}</span></>} onInteract={pauseFollowing}>{group.entries.map(renderMessage)}</HistoryDisclosure>)}
+    {groups.map(group => group.kind === 'message' ? renderMessage(group.entry) : <HistoryDisclosure key={group.key} activityKey={group.key} label={<><span className="hermes-mark">H</span><span>{assistantName} activity</span><span className="activity-count">{activitySummary(group)}</span></>} onInteract={pauseFollowing}>{group.entries.map(renderMessage)}</HistoryDisclosure>)}
     {showOutgoing && <OutgoingFeedback message={outgoing} action={outgoingAction}/>}
-    {showLive && <article className="message live-message"><div className="message-author"><span className="hermes-mark">H</span>Hermes </div><div className="markdown"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({ href, children }) => <MessageLinkContributions href={href} conversationId={conversationId}>{children}</MessageLinkContributions>, img: ({alt}) => <span>[{alt || 'Image'}]</span> }}>{liveText}</ReactMarkdown></div></article>}
+    {showLive && <article className="message live-message"><div className="message-author"><span className="hermes-mark">{assistantName.slice(0, 1)}</span>{assistantName} </div><MessageMarkdown text={liveText || ''} conversationId={conversationId}/></article>}
     {!pages.some(p => p.messages.length) && !outgoing && !liveText && !busy && !error && <p className="history-empty">No messages are available yet.</p>}
     {newMessages && <button className="history-latest" onClick={() => void latest()}>Show latest messages</button>}
     <div ref={end}/>
@@ -134,16 +121,17 @@ function OutgoingFeedback({ message, action }: { message: OutgoingMessage; actio
   return <article className="message from-user outgoing-message" data-outgoing-id={message.id}><div className="message-author">You <span className="submission-status">{outgoingStatus(action)}</span></div>{message.text && <div className="outgoing-text">{message.text}</div>}{message.uploadIds.length > 0 && <div className="subtle-note">{message.uploadIds.length} attachment{message.uploadIds.length === 1 ? '' : 's'}</div>}</article>;
 }
 
-const HistoryMessage = memo(function HistoryMessage({ entry: { key: entryKey, message: m, page, index }, conversationId, speaking, onSpeak, pauseFollowing }: {
-  entry: HistoryEntry; conversationId: string; speaking: boolean; onSpeak: (message: any, page: History, index: number) => void; pauseFollowing: () => void;
+const HistoryMessage = memo(function HistoryMessage({ entry: { key: entryKey, message: m, page, index }, conversationId, assistantName, speaking, onSpeak, pauseFollowing }: {
+  entry: HistoryEntry; conversationId: string; assistantName: string; speaking: boolean; onSpeak: (message: any, page: History, index: number) => void; pauseFollowing: () => void;
 }) {
     const text = messageText(m), background = backgroundResultLabel(m), assistant = !background && m.role === 'assistant';
     return <article className={`message ${!background && m.role === 'user' ? 'from-user' : ''} ${m.role === 'tool' ? 'tool-message' : ''}`} key={entryKey} data-history-message={entryKey}>
-      <div className="message-author">{background ? <><span className="hermes-mark">H</span>{background}</> : assistant ? <><span className="hermes-mark">H</span>Hermes</> : m.role === 'user' ? 'You' : 'Tool output'}<MessageTime timestamp={m.timestamp}/>{assistant && text.trim() && <button className="read-aloud icon-button" aria-label={speaking ? 'Stop reading aloud' : 'Read response aloud'} title="Read response aloud" onClick={() => onSpeak(m, page, index)}>{speaking ? <Square size={15}/> : <Volume2 size={16}/>}</button>}</div>
+      <MessageAuthor name={background || (assistant?assistantName:m.role==='user'?'You':'Tool output')} mark={background?'H':assistant?assistantName.slice(0,1):undefined} timestamp={m.timestamp} speaking={speaking} onSpeak={assistant&&text.trim()?()=>onSpeak(m,page,index):undefined}/>
+
       {m.role === 'tool' ? <HistoryDisclosure label="View tool output" onInteract={pauseFollowing}><pre>{text || 'No output.'}</pre></HistoryDisclosure> : <div className="markdown">
-        <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({ href, children }) => <MessageLinkContributions href={href} conversationId={conversationId}>{children}</MessageLinkContributions>, img: ({ alt }) => <span className="attachment-placeholder">[{alt || 'Image attachment'}]</span> }}>{text}</ReactMarkdown>
+        <MessageMarkdown text={text} conversationId={conversationId}/>
         <MessageMedia message={m} conversationId={conversationId} offset={page.offset} index={index} order={page.order || 'oldest'}/>
         {!!m.tool_calls?.length && <HistoryDisclosure label={`${m.tool_calls.length} tool call${m.tool_calls.length === 1 ? '' : 's'}`} onInteract={pauseFollowing}><pre>{JSON.stringify(m.tool_calls, null, 2)}</pre></HistoryDisclosure>}
       </div>}
     </article>;
-}, (a, b) => a.conversationId === b.conversationId && a.speaking === b.speaking && a.entry.key === b.entry.key && a.entry.page.offset === b.entry.page.offset && a.entry.page.order === b.entry.page.order && a.entry.index === b.entry.index && JSON.stringify(a.entry.message) === JSON.stringify(b.entry.message));
+}, (a, b) => a.assistantName === b.assistantName && a.conversationId === b.conversationId && a.speaking === b.speaking && a.entry.key === b.entry.key && a.entry.page.offset === b.entry.page.offset && a.entry.page.order === b.entry.page.order && a.entry.index === b.entry.index && JSON.stringify(a.entry.message) === JSON.stringify(b.entry.message));
