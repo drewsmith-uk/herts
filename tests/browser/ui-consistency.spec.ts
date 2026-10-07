@@ -133,7 +133,9 @@ for (const theme of builtinThemes) {
       viewport.dispatchEvent(new Event('scroll'));
     });
     try {
+      await expect(page.getByLabel('Bot name', { exact: true })).toBeEditable();
       await page.getByLabel('Bot name', { exact: true }).focus();
+      await expect(page.getByLabel('Bot name', { exact: true })).toBeFocused();
       await expect(page.locator('body')).toHaveClass(/keyboard-open/);
       await expect.poll(async () => {
         const box = (await page.getByRole('dialog').boundingBox())!;
