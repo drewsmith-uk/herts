@@ -42,7 +42,7 @@
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
     "web-push": "^3.6.7",
-    "ws": "^8.18.3",
+    "ws": "^8.22.0",
     "zod": "^4.1.11",
     "tsx": "^4.20.6"
   },
@@ -54,7 +54,7 @@
     "@types/react": "^19.1.16",
     "@types/react-dom": "^19.1.9",
     "@types/web-push": "^3.6.4",
-    "@types/ws": "^8.18.1",
+    "@types/ws": "^8.18.2",
     "@vitejs/plugin-react": "^5.0.4",
     "sharp": "^0.35.4",
     "typescript": "^5.9.2",
