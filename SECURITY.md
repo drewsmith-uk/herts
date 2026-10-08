@@ -16,4 +16,4 @@ Exclude exploit details and sensitive data from that issue.
 
 Security fixes apply to the current main branch.
 Before you install a change, keep a private backup and a build that works.
-Read the setup and upgrade instructions in [README.md](README.md).
+Read the [installation guide](docs/installation.md) and [upgrade instructions](docs/maintenance.md).

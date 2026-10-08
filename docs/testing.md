@@ -110,3 +110,36 @@ Secret scans reduce risk but cannot prove the absence of all secrets or private 
 If published content contains a real credential, revoke or rotate it.
 Remove the exposure.
 Deleting only the current file is insufficient.
+
+
+## Development environment
+
+Use a separate data directory for interactive development:
+
+```sh
+HERTS_DEV=1 HERTS_DATA_DIR=.runtime/dev-data npm run dev:server
+# In another terminal:
+npm run dev
+```
+
+Open `http://127.0.0.1:5173`.
+If inherited environment variables configure Hermes, unset them for tasks-only development.
+Never use production data in development mode.
+
+## Staged browser builds
+
+`npm run check:release` checks documentation and types, then builds browser files in `.runtime/release-dist`.
+It runs unit, API, installer, and browser tests without replacing the served `dist`.
+Each browser spec uses a fresh fixture to prevent shared conversations, downloads, or pending work from affecting other specs.
+
+`npm run test:ui` runs the focused plugin and UI tests against an existing build.
+Set `HERTS_TEST_DIST_DIR` to test a staged build.
+Follow the UI completion criteria in [AGENTS.md](../AGENTS.md).
+
+For deployment, follow [Backups and upgrades](maintenance.md).
+Keep earlier hashed assets when you deploy the tested browser output.
+Restart the Herts app service if server code changed.
+Apply any plugin package update separately.
+
+Test traces and screenshots stay in ignored local directories.
+CI retains failed browser diagnostics with synthetic data for seven days.
