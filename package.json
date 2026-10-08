@@ -13,13 +13,15 @@
     "start": "tsx server/index.ts",
     "test": "vitest run",
     "test:browser": "playwright test",
-    "check": "npm run build && npm test",
+    "check": "npm run check:docs && npm run test:docs && npm run build && npm test",
     "check:connection": "node --import tsx scripts/check-connection.ts",
     "test:installer": "python3 -m unittest discover -s tests -p \"test_installer.py\"",
     "build:plugin": "node scripts/build-plugins.mjs",
     "plugin:new": "node scripts/create-plugin.mjs",
     "test:ui": "playwright test ui-consistency.spec.ts bots-ui.spec.ts bots.spec.ts",
-    "check:release": "node scripts/check-release.mjs"
+    "check:release": "node scripts/check-release.mjs",
+    "check:docs": "node scripts/check-docs.mjs",
+    "test:docs": "node --test tests/docs-style.test.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -58,6 +60,8 @@
     "typescript": "^5.9.2",
     "vite": "^7.1.7",
     "vitest": "^4.1.11",
-    "esbuild": "^0.28.2"
+    "esbuild": "^0.28.2",
+    "remark-parse": "11.0.0",
+    "unified": "11.0.5"
   }
 }
