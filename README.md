@@ -23,17 +23,135 @@ Optional features, including app installation, sharing, and notifications, depen
 Where supported, use the browser's install option to add Herts to the home screen or desktop.
 You can also use it directly in a browser tab.
 
-## Installation
+## Setup and installation
 
 Each installation provides private access for one user through Tailscale.
-The server requires:
+Run the following commands on the Linux server, using the account that will run Herts.
+For an existing Herts installation, use the [upgrade instructions](docs/maintenance.md).
 
-- Linux with systemd, Node.js 24 or later, npm, Python 3, and Git.
-- A configured Hermes Agent installation with its web backend.
-- Tailscale, with HTTPS and Serve enabled. Devices that access Herts also need Tailscale.
+### 1. Prepare the server
 
-Follow the [installation guide](docs/installation.md) to build Herts, connect Hermes, and configure access.
-The guide covers both a dedicated Hermes backend and an existing backend.
+Install these requirements:
+
+- Linux with a user systemd session, Node.js 24 or later, npm, Python 3, and Git.
+- [Hermes Agent](https://hermes-agent.nousresearch.com/docs/), including its [web backend dependencies](https://hermes-agent.nousresearch.com/docs/user-guide/features/web-dashboard#prerequisites).
+- Tailscale on the server and each device that will access Herts.
+
+Configure Hermes with `hermes setup` if it is not already configured.
+Enable HTTPS certificates and [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve) for the network.
+Native Node.js dependencies can also require C/C++ build tools when no prepared binary is available.
+
+### 2. Download and build Herts
+
+Use a directory owned by the service account, outside the Hermes source directory:
+
+```sh
+git clone https://github.com/drewsmith-uk/herts.git
+cd herts
+npm ci
+npm run build
+```
+
+Run the remaining commands from this `herts` directory.
+
+### 3. Set the address and user
+
+Check existing Tailscale Serve mappings:
+
+```sh
+tailscale serve status
+```
+
+These examples use HTTPS port `8443`, Herts port `8787`, and managed Hermes port `8788`.
+Use unused ports.
+For custom ports, see the [installation options](docs/installation.md).
+
+Set the server's Tailscale address and the exact Tailscale user login:
+
+```sh
+HERTS_ORIGIN='https://your-node.your-tailnet.ts.net:8443'
+HERTS_IDENTITY='you@example.com'
+```
+
+Replace both example values.
+Find the user login under **Users** in the Tailscale admin console.
+Use the login, not a display name or device name.
+
+### 4. Connect Hermes
+
+Choose one of the following options.
+
+#### Run a dedicated Hermes backend
+
+This option starts a separate backend using the existing default Hermes profile on this server.
+Check that `hermes serve --help` lists `--isolated`.
+
+Preview the installation:
+
+```sh
+python3 scripts/install-services.py --mode managed \
+  --origin "$HERTS_ORIGIN" --identity "$HERTS_IDENTITY" --dry-run
+```
+
+If validation succeeds, install and start the services:
+
+```sh
+python3 scripts/install-services.py --mode managed \
+  --origin "$HERTS_ORIGIN" --identity "$HERTS_IDENTITY"
+```
+
+The installer creates `herts.service`, `herts-backend.service`, and private configuration files under `data/`.
+
+#### Use an existing Hermes backend
+
+Use this option when a compatible `hermes serve` backend is already running.
+Obtain its address and Desktop session-token file.
+The token must be the backend session token, not a model provider API key.
+
+Replace the example backend address and token path, then preview the installation:
+
+```sh
+chmod 600 /private/path/backend-token
+python3 scripts/install-services.py --mode existing \
+  --origin "$HERTS_ORIGIN" --identity "$HERTS_IDENTITY" \
+  --backend-url http://127.0.0.1:9119 \
+  --token-file /private/path/backend-token --profile default --dry-run
+```
+
+If validation succeeds, repeat the installer command without `--dry-run`.
+This option installs only the Herts service.
+A remote backend requires HTTPS; a backend on loopback can use HTTP.
+The backend and its token must remain available after Hermes Desktop closes.
+
+### 5. Open the app
+
+Configure private access through Tailscale:
+
+```sh
+tailscale serve --bg --https=8443 http://127.0.0.1:8787
+```
+
+Use Tailscale Serve, not Funnel.
+Do not expose port `8787` publicly.
+
+Check the service and Hermes connection:
+
+```sh
+systemctl --user status herts.service
+node --env-file=data/app.env --import tsx scripts/check-connection.ts
+```
+
+On a device connected to Tailscale, open the HTTPS address set in `HERTS_ORIGIN`.
+Sign into Tailscale with the login set in `HERTS_IDENTITY`.
+
+To start services after reboot without an interactive login, enable lingering for the server account:
+
+```sh
+loginctl enable-linger "$USER"
+```
+
+This command can require administrator permission.
+See [Troubleshooting](docs/maintenance.md#troubleshooting) if installation or connection checks fail.
 
 ## Use Herts
 
