@@ -1,9 +1,19 @@
 # Security
 
-Herts is designed for one user behind Tailscale Serve, with the app bound to loopback and exact identity/origin checks. It is not designed for anonymous public hosting or mutually untrusted local server users. Task spaces do not isolate data from one another.
+Herts supports one user behind Tailscale Serve.
+The app binds to loopback and checks the exact identity and origin.
+It does not support anonymous public hosting or local server users who cannot trust each other.
+Task spaces do not isolate data from one another.
 
-Keep the app data directory, Hermes token/provider keys, database backups, browser profiles and conversation content private. Notification titles can appear on a device's lock screen. Cached browser data relies on the device's access controls.
+Keep the app data directory, Hermes tokens, provider keys, database backups, browser profiles, and conversation content private.
+Notification titles can appear on a device's lock screen.
+Cached browser data depends on the device's access controls.
 
-To report a vulnerability, use [private vulnerability reporting](https://github.com/drewsmith-uk/herts/security/advisories/new) when available. Do not put credentials, private hostnames, task data or transcripts in a public issue. If private reporting is unavailable, open a minimal issue requesting a private contact channel without exploit details or sensitive data.
+Use [private vulnerability reporting](https://github.com/drewsmith-uk/herts/security/advisories/new) to report a vulnerability when that service is available.
+Do not put credentials, private hostnames, task data, or transcripts in a public issue.
+If private reporting is unavailable, open an issue to request a private contact channel.
+Exclude exploit details and sensitive data from that issue.
 
-Supported fixes target the current main branch. Before installing a change, retain a private backup and a known-working build; review the setup and upgrade instructions in README.md.
+Security fixes apply to the current main branch.
+Before you install a change, keep a private backup and a build that works.
+Read the setup and upgrade instructions in [README.md](README.md).

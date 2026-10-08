@@ -2,13 +2,13 @@
 
 Fieldwork is the default. Choose Fieldwork, Edition, Signal, Nocturne, Studio, Press or an installed custom theme in **Settings → General → Appearance**. Selection is saved per browser/device, shared between tabs of that browser, and restored before the app renders. It is independent of Hermes session settings and does not start or interrupt any work.
 
-**Press** uses warm paper, black outlines, heavy headings, cobalt actions and yellow selections. Its optional `treatment` settings add crisp borders, hard action shadows, monospaced labels and filled navigation highlights. Other themes keep their existing styling.
+**Press** uses warm paper, black outlines, heavy headings, cobalt actions and yellow selections. Its optional `treatment` settings add borders, hard action shadows, monospaced labels, and filled navigation highlights. Other themes keep their existing styling.
 
 ## Install a custom theme
 
 1. Copy `woodland.json.example` to `woodland.json` in this folder.
 2. Edit the JSON and give the theme its own `id` and `name`.
-3. Select **Refresh themes** in Appearance, or reopen General settings. The theme appears in the selector immediately; no build or server restart is needed.
+3. Select **Refresh themes** in Appearance, or reopen General settings. The theme appears in the selector immediately. This change requires no build or server restart.
 
 By default, custom files are read from `themes/` relative to the server's working directory. Set **`HERTS_THEMES_DIR=/absolute/path/to/themes`** for an installation-local directory outside the checkout. Changing that environment variable requires restarting the app; adding/editing theme files does not. Back up that directory separately when it is outside your normal backup.
 
@@ -76,7 +76,7 @@ For a custom dark theme, extend `nocturne` so the inherited text, notices and co
 
 ## Local fonts
 
-System font stacks require no downloads. To package a font, place a licensed WOFF2 file inside the configured themes directory and reference its relative path:
+System font stacks require no downloads. A font stack lists fonts in order of preference. To package a font, place a licensed WOFF2 file inside the configured themes directory and reference its relative path:
 
 ```json
 {
@@ -94,15 +94,22 @@ System font stacks require no downloads. To package a font, place a licensed WOF
 }
 ```
 
-Use an appropriate weight or weight range for the font file, and `normal` or `italic` style. Always include a system fallback. Fonts are served through the same private access checks as Herts, use content-hashed URLs and are cached on the device when a theme is selected. Updated font files receive new URLs. Fonts not yet downloaded use the fallback while offline. Remote font URLs, arbitrary CSS/JavaScript and paths outside the theme directory are not accepted.
+Use an appropriate weight or weight range for the font file, and `normal` or `italic` style. Always include a system fallback. Herts applies its private access checks to font requests. Fonts use content-hashed URLs. Selecting a theme caches its fonts on the device. Updated font files receive new URLs. Fonts not yet downloaded use the fallback while offline. Remote font URLs, arbitrary CSS/JavaScript and paths outside the theme directory are not accepted.
 
-Limits: 64 custom config files, 64 KB per config, eight fonts per theme, 2 MB per font and 16 MB of distinct fonts per catalogue. A missing/invalid font makes its theme unavailable; other themes continue working.
+The theme catalogue has these limits:
+
+- 64 custom configuration files.
+- 64 KB per configuration file.
+- Eight fonts per theme.
+- 2 MB per font.
+- 16 MB of distinct fonts per catalogue.
+ A missing/invalid font makes its theme unavailable; other themes continue working.
 
 ## Offline and recovery
 
-The theme catalogue and selected appearance are saved in local storage, independently of task and conversation data. Network failure retains the cached appearance. When an online refresh confirms that the selected custom theme is invalid or removed, Herts falls back to Fieldwork. Settings shows diagnostics for invalid files. If browser storage is unavailable, selection still applies for the current page and a message explains that it could not be saved. Clearing browser storage resets the theme preference.
+The theme catalogue and selected appearance are saved in local storage, independently of task and conversation data. Network failure retains the cached appearance. When an online refresh confirms that the selected custom theme is invalid or removed, Herts falls back to Fieldwork. Settings shows diagnostics for invalid files. If browser storage is unavailable, the selection still applies to the current page. A message explains that Herts could not save it. Clearing browser storage resets the theme preference.
 
-If the theme list cannot be refreshed, Appearance explains the failure and offers **Try again**. The themes already listed remain usable. Offline devices retry automatically when they reconnect. If the server does not provide a theme list after installing an app update, restart the Herts app service so it loads the new server code, then retry. This restart is needed when updating Herts itself, not when adding custom theme files.
+If the theme list cannot be refreshed, Appearance explains the failure and offers **Try again**. The themes already listed remain usable. Offline devices retry automatically when they reconnect. After an app update, the server might not provide a theme list. Restart the Herts app service to load the new server code. Then retry. This restart is needed when updating Herts itself, not when adding custom theme files.
 
 The updated app requests the catalogue with `X-Herts-Theme-API: 2`. Older open pages receive the original fields and supported heading weights; Press becomes selectable after loading the updated app. This keeps older clients usable while their app update is pending. Existing saved themes and config files remain compatible.
 
