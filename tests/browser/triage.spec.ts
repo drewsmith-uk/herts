@@ -1,8 +1,18 @@
 import { detailsField, detailsControl } from './composer-helpers';
 import { test, expect, type Locator, type Page } from '@playwright/test';
 
+async function swipeBox(item: Locator) {
+  await expect(item).toHaveAttribute('aria-busy', 'false');
+  const row = item.locator('.conversation-row');
+  await row.scrollIntoViewIfNeeded();
+  // The wrapper stays still while its content returns from the previous swipe.
+  // Read coordinates only after that animation finishes.
+  await expect(item.locator('.conversation-item-content')).toHaveCSS('transform', 'matrix(1, 0, 0, 1, 0, 0)');
+  return (await row.boundingBox())!;
+}
+
 async function mouseSwipe(page: Page, item: Locator, dx: number) {
-  await item.scrollIntoViewIfNeeded(); const box = (await item.locator('.conversation-row').boundingBox())!;
+  const box = await swipeBox(item);
   const x = box.x + box.width * (dx < 0 ? .8 : .2), y = box.y + 38;
   await page.mouse.move(x, y); await page.mouse.down(); await page.mouse.move(x + dx, y, { steps: 8 }); await page.mouse.up();
 }
@@ -20,14 +30,17 @@ test('phone swipes respect scrolling and cancellation, hide with undo, and creat
   try {
     const page = await context.newPage(); let writes = 0;
     page.on('request', r => { if (r.method() === 'POST' && !/\/plugins\/[^/]+\/queries\//.test(new URL(r.url()).pathname)) writes++; });
-    await page.goto('/#/conversations'); await page.getByLabel('Search conversations').fill('Swipe conversation');
+    await page.goto('/#/conversations');
+    // Slow the return animation to expose gesture coordinates read before the row settles.
+    await page.addStyleTag({ content: '.conversation-item-content { transition-duration: 1s; }' });
+    await page.getByLabel('Search conversations').fill('Swipe conversation');
     const item = page.locator('[data-conversation-key="swipe-first"]');
     await expect(item).toBeVisible();
     await expect(page.locator('.conversation-list button:not(.swipe-keyboard-action)')).toHaveCount(0);
     await expect(item.locator('.swipe-keyboard-action')).toHaveCSS('clip-path', 'inset(50%)');
     const cdp = await context.newCDPSession(page);
     async function swipe(target: Locator, dx: number, dy = 0, cancel = false) {
-      await target.scrollIntoViewIfNeeded(); const box = (await target.locator('.conversation-row').boundingBox())!;
+      const box = await swipeBox(target);
       const x = box.x + (dx < 0 ? box.width * .8 : box.width * .2), y = box.y + 38;
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
       for (let i = 1; i <= 6; i++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x + dx * i / 6, y: y + dy * i / 6 }] });
