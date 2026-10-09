@@ -32,6 +32,19 @@ test('semicolons do not hide long sentences; list introductions have separate co
   assert.equal(checkMarkdown(`${Array(10).fill('word').join(' ')}; ${Array(11).fill('word').join(' ')}.`).length, 1);
   assert.equal(checkMarkdown('Use these options:\n\n- Save the draft.\n- Close the dialog.').length, 0);
 });
+test('recognizes sentence endings before closing quotes and brackets', () => {
+  const valid = Array(20).fill('word').join(' ');
+  for (const [open, close] of [['"', '"'], ["'", "'"], ['“', '”'], ['‘', '’'], ['(', ')'], ['[', ']'], ['{', '}'], ['(“', '”)']]) {
+    for (const ending of ['.', '!', '?']) {
+      assert.deepEqual(checkMarkdown(`${open}${valid}${ending}${close} ${valid}.`), []);
+      const issues = checkMarkdown(`${open}${long}${ending}${close} ${valid}.`);
+      assert.equal(issues.length, 1);
+      assert.match(issues[0].message, /21 words/);
+    }
+    assert.equal(checkMarkdown(`${open}${valid}${close} word.`).length, 1);
+    assert.equal(checkMarkdown(`${open}${valid};${close} word.`).length, 1);
+  }
+});
 test('discovers new documentation and excludes ignored private files and deleted files', () => {
   const root = mkdtempSync(join(tmpdir(), 'herts-docs-'));
   try {
