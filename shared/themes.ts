@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { defaultThemeId } from './themeValues';
 import fieldwork from '../themes/builtin/fieldwork.json' with { type: 'json' };
 import edition from '../themes/builtin/edition.json' with { type: 'json' };
 import signal from '../themes/builtin/signal.json' with { type: 'json' };
@@ -81,7 +80,7 @@ export function resolveThemeConfigs(configs: ThemeConfig[]) {
     const config = byId.get(id);
     if (!config) throw new Error(`Parent theme not found: ${id}`);
     const path = new Set(visiting).add(id);
-    const parentId = config.extends || (id === defaultThemeId ? undefined : defaultThemeId);
+    const parentId = config.extends || (id === fieldwork.id ? undefined : fieldwork.id);
     const parent = parentId ? resolve(parentId, path) : undefined;
     const result = resolvedConfigSchema.parse({
       schemaVersion: 1, id, name: config.name, description: config.description,

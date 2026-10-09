@@ -26,11 +26,12 @@ function contrast(a: string, b: string) {
 }
 
 describe('theme configuration and inheritance', () => {
-  it('ships six complete themes with Fieldwork as the default', () => {
+  it('ships six complete themes with Press as the default', () => {
     expect(builtinThemes.map(t => t.id)).toEqual(['fieldwork', 'edition', 'signal', 'nocturne', 'studio', 'press']);
-    expect(defaultTheme.colors.background).toBe('#F4F3ED');
+    expect(defaultTheme.id).toBe('press');
+    expect(defaultTheme.colors.background).toBe('#F7F5F0');
     expect(builtinThemes.find(t => t.id === 'nocturne')?.mode).toBe('dark');
-    expect(themeProperties(defaultTheme)['--radius-panel']).toBe('8px');
+    expect(themeProperties(defaultTheme)['--radius-panel']).toBe('2px');
     expect(resolveThemeConfigs(builtinConfigs).themes).toEqual(builtinThemes);
     expect(builtinThemes.every(isTheme)).toBe(true);
   });
@@ -154,6 +155,7 @@ describe('runtime theme catalogue', () => {
     expect(response.headers['cache-control']).toBe('no-store');
     const catalogue = response.json();
     expect(catalogue.fonts).toBeUndefined();
+    expect(catalogue.defaultThemeId).toBe('press');
     expect(catalogue.themes.find((theme: { id: string }) => theme.id === 'press')).toMatchObject({ treatment: { actionShadow: 3 }, typography: { headingWeight: 900 } });
     const href = catalogue.themes.at(-1).fonts[0].href;
     expect((await app.inject(href)).statusCode).toBe(403);
@@ -169,9 +171,13 @@ describe('runtime theme catalogue', () => {
     const { app } = await createApp({ dataDir, themesDir, origin: 'http://127.0.0.1', identity: 'fixture', dev: true, hermesBase: '', hermesToken: '' });
     cleanup.unshift(() => app.close());
     const old = (await app.inject('/api/v1/themes')).json();
+    expect(old.defaultThemeId).toBe('fieldwork');
+    const v2 = (await app.inject({ url: '/api/v1/themes', headers: { 'x-herts-theme-api': '2' } })).json();
+    expect(v2.defaultThemeId).toBe('fieldwork');
+    expect(v2.themes).toHaveLength(7);
     expect(old.themes.map((theme: { id: string }) => theme.id)).toEqual(['fieldwork', 'edition', 'signal', 'nocturne', 'studio', 'woodland']);
     for (const theme of old.themes) {
-      expect(Object.keys(theme).sort()).toEqual(Object.keys(defaultTheme).sort());
+      expect(Object.keys(theme).sort()).toEqual(Object.keys(builtinThemes[0]).sort());
       expect(theme.typography.headingWeight).toBeLessThanOrEqual(750);
       expect(isTheme(theme)).toBe(true);
     }
@@ -202,18 +208,18 @@ describe('appearance startup cache', () => {
     applyTheme(defaultTheme);
     expect(win.document.getElementById('herts-theme-fonts')?.textContent).toBe('');
   });
-  it('falls back to Fieldwork for malformed, tampered, or inaccessible storage', () => {
+  it('falls back to Press for malformed, tampered, or inaccessible storage', () => {
     const win = browser();
     for (const value of ['{', JSON.stringify({ id: 'other', theme: defaultTheme }), JSON.stringify({ id: 'fieldwork', theme: { ...defaultTheme, fonts: [{ family: 'Bad', href: 'https://example.com/font' }] } })]) {
       win.localStorage.setItem(themeStorageKey, value);
-      expect(readAppearance().theme.id).toBe('fieldwork');
+      expect(readAppearance().theme.id).toBe('press');
     }
     vi.stubGlobal('localStorage', { getItem() { throw new Error('Blocked'); } });
-    expect(readAppearance().theme.id).toBe('fieldwork');
+    expect(readAppearance().theme.id).toBe('press');
   });
   it('preserves older saved themes and resets every Press treatment when switching back', () => {
     const win = browser();
-    const previous = { ...defaultTheme, id: 'existing-custom', name: 'Existing custom' };
+    const previous = { ...builtinThemes[0], id: 'existing-custom', name: 'Existing custom' };
     win.localStorage.setItem(themeStorageKey, JSON.stringify({ id: previous.id, theme: previous, catalogue: [previous] }));
     expect(readAppearance().theme.id).toBe(previous.id);
     const press = builtinThemes.find(theme => theme.id === 'press')!;

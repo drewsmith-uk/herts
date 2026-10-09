@@ -47,7 +47,7 @@ export function refreshThemes(): Promise<void> {
         throw new ThemeRefreshError('Herts could not load custom themes. Try again in a moment.');
       }
       const catalogue = await response.json().catch(() => { throw new ThemeRefreshError(invalidCatalogueMessage); });
-      if (!catalogue || catalogue.defaultThemeId !== 'fieldwork' || !Array.isArray(catalogue.themes) || !catalogue.themes.length || catalogue.themes.length > maxThemeCount ||
+      if (!catalogue || catalogue.defaultThemeId !== defaultTheme.id || !Array.isArray(catalogue.themes) || !catalogue.themes.length || catalogue.themes.length > maxThemeCount ||
           !catalogue.themes.every(isTheme) || !Array.isArray(catalogue.errors) || catalogue.errors.length > 200 ||
           !catalogue.errors.every((error: {file?: unknown; message?: unknown}) => error && typeof error.file === 'string' && typeof error.message === 'string')) throw new ThemeRefreshError(invalidCatalogueMessage);
       const themes: Theme[] = catalogue.themes;
@@ -58,7 +58,7 @@ export function refreshThemes(): Promise<void> {
       const selected = found || defaultTheme;
       applyTheme(selected);
       publish({ selected, themes, errors: catalogue.errors, refreshError: '',
-        notice: found ? '' : 'The selected theme is unavailable. Fieldwork is now selected.' });
+        notice: found ? '' : `The selected theme is unavailable. ${defaultTheme.name} is now selected.` });
       persist();
       void cacheFonts(selected);
     } catch (error) {
