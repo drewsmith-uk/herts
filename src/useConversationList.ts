@@ -17,7 +17,7 @@ const offsets = (offset: number) => Array.from({ length: offset / 50 + 1 }, (_, 
 const isConversation = (c: any): c is Conversation => !!c && ['key', 'id', 'title', 'preview', 'source'].every(key => typeof c[key] === 'string') && Number.isFinite(c.updatedAt) && Array.isArray(c.aliases) && c.aliases.every((id: unknown) => typeof id === 'string');
 function unique(rows: Conversation[]) {
   const found = new Map<string, Conversation>();
-  for (const row of rows) if (!found.has(row.key) || found.get(row.key)!.updatedAt <= row.updatedAt) found.set(row.key, row);
+  for (const row of rows) if (!found.has(row.key) || found.get(row.key)!.updatedAt < row.updatedAt) found.set(row.key, row);
   return [...found.values()];
 }
 function pageRows(pages: Page[]) {

@@ -113,6 +113,25 @@ it('keeps newer displayed rows when a failed refresh finds an older partial cach
   expect(result.rows[0].title).toBe('newest'); expect(result.cached).toBe(true);
 });
 
+it('keeps displayed metadata on timestamp ties after failure and accepts recovered server metadata', async () => {
+  const displayed = { ...conversation('saved', 3), title: 'Renamed conversation', extensions: { tasks: { title: 'Updated task' } } };
+  mocks.api.mockResolvedValueOnce(page([displayed]));
+  await render(); await request();
+  records.set(key('', 0, false, 'tasks:linked'), page([
+    { ...displayed, title: 'Old conversation title', extensions: { tasks: { title: 'Old task' } } },
+    conversation('cached-only', 2),
+  ]));
+  mocks.api.mockRejectedValueOnce(new Error('Offline')); version = '2';
+  await render(); await request();
+  expect(result.rows).toEqual([displayed, conversation('cached-only', 2)]);
+  expect(result).toMatchObject({ busy: false, cached: true, error: '' });
+  const recovered = { ...displayed, title: 'Server rename', extensions: { tasks: { title: 'Server task' } } };
+  mocks.api.mockResolvedValueOnce(page([recovered]));
+  await act(async () => { await vi.advanceTimersByTimeAsync(8000); });
+  await request();
+  expect(result.rows).toEqual([recovered]); expect(result.cached).toBe(false);
+});
+
 it('retains rows during pagination, deduplicates page boundaries and drops pages after the new end', async () => {
   mocks.api.mockResolvedValueOnce(page([conversation('first')], true)); await render(); await request();
   input.offset = 50;
