@@ -1,6 +1,6 @@
 # Herts themes
 
-Fieldwork is the default. Choose Fieldwork, Edition, Signal, Nocturne, Studio, Press or an installed custom theme in **Settings → General → Appearance**. Selection is saved per browser/device, shared between tabs of that browser, and restored before the app renders. It is independent of Hermes session settings and does not start or interrupt any work.
+Press is the default. Choose Fieldwork, Edition, Signal, Nocturne, Studio, Press or an installed custom theme in **Settings → General → Appearance**. Selection is saved per browser/device, shared between tabs of that browser, and restored before the app renders. It is independent of Hermes session settings and does not start or interrupt any work.
 
 **Press** uses warm paper, black outlines, heavy headings, cobalt actions and yellow selections. Its optional `treatment` settings add borders, hard action shadows, monospaced labels, and filled navigation highlights. Other themes keep their existing styling.
 
@@ -107,13 +107,13 @@ The theme catalogue has these limits:
 
 ## Offline and recovery
 
-The theme catalogue and selected appearance are saved in local storage, independently of task and conversation data. Network failure retains the cached appearance. When an online refresh confirms that the selected custom theme is invalid or removed, Herts falls back to Fieldwork. Settings shows diagnostics for invalid files. If browser storage is unavailable, the selection still applies to the current page. A message explains that Herts could not save it. Clearing browser storage resets the theme preference.
+The theme catalogue and selected appearance are saved in local storage, independently of task and conversation data. Network failure retains the cached appearance. When an online refresh confirms that the selected custom theme is invalid or removed, Herts falls back to Press. Settings shows diagnostics for invalid files. If browser storage is unavailable, the selection still applies to the current page. A message explains that Herts could not save it. Clearing browser storage resets the theme preference.
 
 If the theme list cannot be refreshed, Appearance explains the failure and offers **Try again**. The themes already listed remain usable. Offline devices retry automatically when they reconnect. After an app update, the server might not provide a theme list. Restart the Herts app service to load the new server code. Then retry. This restart is needed when updating Herts itself, not when adding custom theme files.
 
-The updated app requests the catalogue with `X-Herts-Theme-API: 2`. Older open pages receive the original fields and supported heading weights; Press becomes selectable after loading the updated app. This keeps older clients usable while their app update is pending. Existing saved themes and config files remain compatible.
+The updated app requests the catalogue with `X-Herts-Theme-API: 3`. Version 2 clients keep Fieldwork as their default. Older clients receive the original fields and supported heading weights. This keeps older clients usable while their app update is pending. Existing saved themes and config files remain compatible.
 
-Themes affect presentation, not page layouts, navigation order, touch targets, features or behaviour. Installed-app launch/splash colours use the default Fieldwork identity; in-app browser chrome follows the selected theme where the browser supports it.
+Themes affect presentation, not page layouts, navigation order, touch targets, features or behaviour. Installed-app launch and splash colours use Press. Browser chrome follows the selected theme where the browser supports it.
 
 ## Plugin styling
 
