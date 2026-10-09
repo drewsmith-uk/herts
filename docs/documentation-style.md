@@ -79,6 +79,10 @@ The checker rejects sentences with more than 20 words, common contractions, and 
 A colon separates a list introduction from the following text.
 A semicolon does not reset the word count.
 The word count is an approximation for Markdown, not the standard's complete word-count method.
+The checker uses `Intl.Segmenter` with English sentence rules to find sentence boundaries.
+These rules keep a period with the current sentence when lowercase text follows, including after closing quotes or brackets.
+Capital letters after abbreviations can still cause incorrect boundaries.
+Review these cases manually, including abbreviations before names and sentences that start with lowercase technical terms.
 
 `npm run check` and `npm run check:release` run the documentation checker and its regression tests first.
 The Check and Quality workflows run those commands on pull requests.
