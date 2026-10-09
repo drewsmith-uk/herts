@@ -79,7 +79,7 @@ it('ignores late cache and network results after changing search or filters, and
   await act(async () => { oldCache.resolve([{ key: key('old'), value: page([conversation('old')]) }]); oldResponse.resolve(page([conversation('old')])); });
   expect(result.rows.map(c => c.key)).toEqual(['new']); expect(records.has(key('old'))).toBe(false);
   const filteredCache = deferred<any[]>(); mocks.read.mockReturnValueOnce(filteredCache.promise);
-  input.filterKey = 'tasks:active'; await render(); expect(result.rows).toEqual([]); await request();
+  input.filterKey = 'tasks:active'; await render(); expect(result.rows.map(c => c.key)).toEqual(['new']); await request();
   const signal: AbortSignal = mocks.api.mock.calls.at(-1)![4];
   await act(async () => root.unmount()); expect(signal.aborted).toBe(true);
   await act(async () => filteredCache.resolve([]));
@@ -123,4 +123,25 @@ it('retains rows during pagination, deduplicates page boundaries and drops pages
   expect(result.rows.map(c => c.key)).toEqual(['first', 'second']); expect(result.rows[0].updatedAt).toBe(2); expect(result.more).toBe(false);
   version = '2'; mocks.api.mockResolvedValueOnce(page([])).mockResolvedValueOnce(page([conversation('obsolete-page')]));
   await render(); await request(); expect(result.rows).toEqual([]); expect(result.more).toBe(false);
+});
+
+it('keeps rows while plugin filters load and ignores the obsolete response', async () => {
+  input.filterKey = 'reading:linked';
+  records.set(key('', 0, false, input.filterKey), page([conversation('saved')]));
+  const oldResponse = deferred<ReturnType<typeof page>>();
+  mocks.api.mockReturnValueOnce(oldResponse.promise);
+  await render(); await request();
+  const cache = deferred<any[]>(), response = deferred<ReturnType<typeof page>>();
+  mocks.read.mockReturnValueOnce(cache.promise);
+  mocks.api.mockReturnValueOnce(response.promise);
+  input.filterKey = 'tasks:linked,reading:linked';
+  await render();
+  expect(result.rows.map(c => c.key)).toEqual(['saved']);
+  await request();
+  await act(async () => oldResponse.resolve(page([conversation('obsolete')])));
+  expect(result.rows.map(c => c.key)).toEqual(['saved']);
+  await act(async () => cache.resolve([]));
+  expect(result.rows.map(c => c.key)).toEqual(['saved']);
+  await act(async () => response.resolve(page([conversation('fresh')])));
+  expect(result.rows.map(c => c.key)).toEqual(['fresh']);
 });

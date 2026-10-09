@@ -13,7 +13,11 @@ function gate() {
 
 for (const width of [390, 1280]) test(`cached conversations can be opened before a refresh completes at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 844 });
-  const delayed = gate(); let refreshing = false;
+  const delayed = gate(), plugin = gate(); let refreshing = false;
+  await page.route('**/_plugins/tasks/**/client.js', async route => {
+    if (refreshing) await plugin.promise;
+    await route.continue();
+  });
   const saved = conversation('existing', 'Previously saved conversation');
   const fresh = [conversation('filter-390', 'New first conversation'), { ...saved, title: 'Updated conversation title' }];
   await page.route(endpoint, async route => {
@@ -29,6 +33,8 @@ for (const width of [390, 1280]) test(`cached conversations can be opened before
     await expect(row).toBeVisible();
     await expect(page.getByText('Refreshing conversations…', { exact: true })).toBeVisible();
     await expect(page.getByText('SAVED ON THIS DEVICE', { exact: true })).toHaveCount(0);
+    plugin.release();
+    await expect(page.getByRole('link', { name: 'Tasks', exact: true })).toBeVisible();
     await row.click();
     await expect(page.locator('.history')).toContainText('A slower pace sounds good.');
     await page.evaluate(() => { location.hash = '/conversations'; });
@@ -38,7 +44,7 @@ for (const width of [390, 1280]) test(`cached conversations can be opened before
     await expect(page.locator('.conversation-list .item-title')).toHaveText(['New first conversation', 'Updated conversation title']);
     await expect(page.locator('.loading')).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  } finally { delayed.release(); }
+  } finally { delayed.release(); plugin.release(); }
 });
 
 test('a new search immediately finds saved message text, then accepts an empty server result', async ({ page }) => {

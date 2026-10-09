@@ -46,7 +46,9 @@ async function savedConversations(selection: Selection, fallback = false) {
 
 export function useConversationList({ query, showAll, filterKey, offset }: Selection, version: string) {
   const { online, connectionVersion } = useApp();
-  const selection = JSON.stringify([query, showAll, filterKey]);
+  // The screen applies current plugin filters to these rows.
+  // Plugin readiness must not clear the current search while its replacement loads.
+  const selection = JSON.stringify([query, showAll]);
   const [retry, setRetry] = useState(0);
   const [result, setResult] = useState<Result>({ selection, rows: [], busy: true, cached: false, more: false, error: '' });
   useEffect(() => {
