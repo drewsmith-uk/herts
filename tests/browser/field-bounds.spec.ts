@@ -4,6 +4,9 @@ import { detailsField } from './composer-helpers';
 
 async function expectFocusFits(control: Locator) {
   await control.page().keyboard.press('Tab');
+  // focus() does not wait for controls to become visible or enabled.
+  await expect(control).toBeVisible();
+  await expect(control).toBeEnabled();
   await control.focus();
   await expect(control).toBeFocused();
   const result = await control.evaluate(node => {
@@ -68,5 +71,28 @@ for (const theme of builtinThemes) test(`${theme.name}: title and scrollable con
     for (const control of await dialog.locator('.session-folder-browser li button').all()) await expectFocusFits(control);
     await page.keyboard.press('Escape');
     if (width < 700) for (const link of await page.locator('.mobile-nav > a').all()) await expectFocusFits(link);
+  }
+});
+
+test('focus checks wait for delayed conversation settings', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 844 });
+  let release!: () => void;
+  const settings = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/v1/session-settings?*', async route => {
+    await settings;
+    await route.continue();
+  });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await page.goto('/#/conversation/existing');
+    await page.getByLabel('Message Hermes', { exact: true }).click();
+    const control = page.getByRole('button', { name: /^Conversation settings:/ });
+    await expect(control).toBeVisible();
+    await expect(control).toBeDisabled();
+    timer = setTimeout(release, 500);
+    await expectFocusFits(control);
+  } finally {
+    clearTimeout(timer);
+    release();
   }
 });
