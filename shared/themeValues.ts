@@ -14,7 +14,7 @@ export interface Theme {
   treatment?: { borderWidth?: number; actionShadow?: number; labels?: 'body' | 'mono'; navigation?: 'indicator' | 'filled' };
   fonts: { family: string; weight: string; style: 'normal' | 'italic'; href: string }[];
 }
-export const defaultThemeId = 'fieldwork';
+export const defaultThemeId = 'press';
 export const themeStorageKey = 'herts:appearance:v1';
 export const themeFontCache = 'herts-theme-fonts-v1';
 export const builtinThemes: Theme[] = [fieldwork, edition, signal, nocturne, studio, press].map(input => ({
@@ -25,14 +25,14 @@ export const builtinThemes: Theme[] = [fieldwork, edition, signal, nocturne, stu
   radii: { ...fieldwork.radii, ...input.radii }, elevation: input.elevation as Theme['elevation'], fonts: [],
   ...('treatment' in input ? { treatment: input.treatment as Theme['treatment'] } : {}),
 }));
-export const defaultTheme = builtinThemes[0];
+export const defaultTheme = builtinThemes.find(theme => theme.id === defaultThemeId)!;
 export const maxThemeCount = builtinThemes.length + 64;
-export const themeApiVersion = '2';
+export const themeApiVersion = '3';
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
 const text = (value: unknown, max: number, pattern?: RegExp): value is string => typeof value === 'string' && value.length > 0 && value.length <= max && (!pattern || pattern.test(value));
 const exactKeys = (value: Record<string, unknown>, keys: string[]) => Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
 export function isTheme(value: unknown): value is Theme {
-  if (!record(value) || !exactKeys(value, [...Object.keys(defaultTheme), ...(Object.hasOwn(value, 'treatment') ? ['treatment'] : [])])) return false;
+  if (!record(value) || !exactKeys(value, [...Object.keys(defaultTheme).filter(key => key !== 'treatment'), ...(Object.hasOwn(value, 'treatment') ? ['treatment'] : [])])) return false;
   if (value.schemaVersion !== 1 || !text(value.id, 64, /^[a-z][a-z0-9-]*$/) || !text(value.name, 60) ||
       typeof value.description !== 'string' || value.description.length > 200 || (value.mode !== 'light' && value.mode !== 'dark') ||
       (value.elevation !== 'flat' && value.elevation !== 'soft' && value.elevation !== 'raised')) return false;

@@ -7,10 +7,10 @@ const custom = { schemaVersion: 1, id: 'woodland', name: 'Woodland', extends: 'f
 const file = (request: APIRequestContext, content: string | null) => request.post('/__test/theme-file', { headers: { 'x-herts-request': '1' }, data: { content } });
 test.afterEach(async ({ request }) => { await file(request, null); });
 
-test('Fieldwork is the default and every theme preserves desktop and mobile task controls', async ({ page, request }) => {
+test('Press is the default and every theme preserves desktop and mobile task controls', async ({ page, request }) => {
   await request.post('/api/v1/sync', { headers: { 'x-herts-request': '1' }, data: { id: crypto.randomUUID(), taskId: crypto.randomUUID(), kind: 'create', title: 'Check theme controls', at: Date.now() } });
   await page.goto('/#/settings');
-  await expect(page.getByLabel('Theme on this device', { exact: true })).toHaveValue('fieldwork');
+  await expect(page.getByLabel('Theme on this device', { exact: true })).toHaveValue('press');
   for (const theme of builtinThemes) {
     await page.getByLabel('Theme on this device', { exact: true }).selectOption(theme.id);
     await expect(page.locator('html')).toHaveAttribute('data-theme', theme.id);
@@ -29,7 +29,7 @@ test('Fieldwork is the default and every theme preserves desktop and mobile task
   }
 });
 
-test('themes persist across reload and tabs but a separate device starts with Fieldwork', async ({ page, context, browser }) => {
+test('themes persist across reload and tabs but a separate device starts with Press', async ({ page, context, browser }) => {
   await page.goto('/#/settings');
   const other = await context.newPage();await other.goto('/#/settings');
   await page.getByLabel('Theme on this device', { exact: true }).selectOption('nocturne');
@@ -40,7 +40,7 @@ test('themes persist across reload and tabs but a separate device starts with Fi
   const fresh = await browser.newContext();
   try {
     const freshPage = await fresh.newPage();await freshPage.goto('http://127.0.0.1:8790/#/settings');
-    await expect(freshPage.getByLabel('Theme on this device', { exact: true })).toHaveValue('fieldwork');
+    await expect(freshPage.getByLabel('Theme on this device', { exact: true })).toHaveValue('press');
   } finally { await fresh.close(); }
 });
 
@@ -129,7 +129,7 @@ test('theme failures distinguish access, server, invalid response and network pr
     await card.getByRole('button', { name: 'Try again', exact: true }).click();
     await expect(card.getByRole('status')).toContainText(message);
     await expect(card.getByRole('button', { name: 'Try again', exact: true })).toBeEnabled();
-    await expect(card.getByLabel('Theme on this device', { exact: true })).toHaveValue('fieldwork');
+    await expect(card.getByLabel('Theme on this device', { exact: true })).toHaveValue('press');
   }
   await expect(card).not.toContainText('Connect to check for new themes.');
 });
@@ -141,7 +141,7 @@ test('invalid or removed selected configs fall back without blocking the app', a
   await page.getByLabel('Theme on this device', { exact: true }).selectOption('woodland');
   await file(request, '{');
   await page.reload();
-  await expect(page.getByLabel('Theme on this device', { exact: true })).toHaveValue('fieldwork');
+  await expect(page.getByLabel('Theme on this device', { exact: true })).toHaveValue('press');
   await expect(page.getByText('Some custom themes could not be loaded')).toBeVisible();
   await file(request, JSON.stringify(custom));
   await page.reload();
@@ -149,7 +149,7 @@ test('invalid or removed selected configs fall back without blocking the app', a
   await page.getByLabel('Theme on this device', { exact: true }).selectOption('woodland');
   await file(request, null);
   await page.reload();
-  await expect(page.getByLabel('Theme on this device', { exact: true })).toHaveValue('fieldwork');
+  await expect(page.getByLabel('Theme on this device', { exact: true })).toHaveValue('press');
   await expect(page.getByRole('heading', { name: 'Appearance', exact: true })).toBeVisible();
 });
 
@@ -164,20 +164,21 @@ test('a delayed catalogue response does not undo a newer selection', async ({ pa
   await expect(page.getByLabel('Theme on this device', { exact: true })).toHaveValue('studio');
 });
 
-for (const themeId of ['nocturne', 'press']) test(`cached ${themeId} is applied before the React bundle runs`, async ({ browser }) => {
+for (const themeId of ['nocturne', 'press', 'fieldwork', 'unsaved']) test(`cached ${themeId} is applied before the React bundle runs`, async ({ browser }) => {
   const context = await browser.newContext({ serviceWorkers: 'block' });
   try {
-    const page = await context.newPage(), theme = builtinThemes.find(t => t.id === themeId)!;
-    await page.addInitScript(({ key, theme }) => { localStorage.setItem(key, JSON.stringify({ id: theme.id, theme })); }, { key: themeStorageKey, theme });
+    const page = await context.newPage(), theme = builtinThemes.find(t => t.id === themeId);
+    const expectedId = theme?.id || 'press';
+    if (theme) await page.addInitScript(({ key, theme }) => { localStorage.setItem(key, JSON.stringify({ id: theme.id, theme })); }, { key: themeStorageKey, theme });
     let release!: () => void;const gate = new Promise<void>(resolve => { release = resolve; });
     await page.route('**/assets/index-*.js', async route => { await gate; await route.continue(); });
     await page.goto('http://127.0.0.1:8790/#/settings', { waitUntil: 'commit' });
     try {
-      await expect(page.locator('html')).toHaveAttribute('data-theme', themeId);
+      await expect(page.locator('html')).toHaveAttribute('data-theme', expectedId);
       expect(await page.locator('#root').innerHTML()).toBe('');
-      await expect(page.locator('html')).toHaveCSS('background-color', themeId === 'press' ? 'rgb(247, 245, 240)' : 'rgb(25, 28, 34)');
+      await expect(page.locator('html')).toHaveCSS('background-color', expectedId === 'press' ? 'rgb(247, 245, 240)' : expectedId === 'fieldwork' ? 'rgb(244, 243, 237)' : 'rgb(25, 28, 34)');
     } finally { release(); }
-    await expect(page.getByLabel('Theme on this device', { exact: true })).toHaveValue(themeId);
+    await expect(page.getByLabel('Theme on this device', { exact: true })).toHaveValue(expectedId);
   } finally { await context.close(); }
 });
 
