@@ -33,7 +33,7 @@ test('semicolons do not hide long sentences; list introductions have separate co
   assert.equal(checkMarkdown('Use these options:\n\n- Save the draft.\n- Close the dialog.').length, 0);
 });
 test('recognizes sentence endings before closing quotes and brackets', () => {
-  const valid = Array(20).fill('word').join(' ');
+  const valid = `Word ${Array(19).fill('word').join(' ')}`;
   for (const [open, close] of [['"', '"'], ["'", "'"], ['“', '”'], ['‘', '’'], ['(', ')'], ['[', ']'], ['{', '}'], ['(“', '”)']]) {
     for (const ending of ['.', '!', '?']) {
       assert.deepEqual(checkMarkdown(`${open}${valid}${ending}${close} ${valid}.`), []);
@@ -44,6 +44,25 @@ test('recognizes sentence endings before closing quotes and brackets', () => {
     assert.equal(checkMarkdown(`${open}${valid}${close} word.`).length, 1);
     assert.equal(checkMarkdown(`${open}${valid};${close} word.`).length, 1);
   }
+});
+test('keeps abbreviations with a lowercase continuation in the same sentence', () => {
+  for (const [open, close] of [['', ''], ['"', '"'], ["'", "'"], ['“', '”'], ['‘', '’'], ['(', ')'], ['[', ']'], ['{', '}'], ['(“', '”)']]) {
+    const company = `${open}Acme Inc.${close}`;
+    const valid = `Before you approve the request from ${company} check that the supplier has provided all required documents for this installation.`;
+    assert.deepEqual(checkMarkdown(valid), []);
+    const source = valid.replace(/installation\.$/, 'installation and the subsequent maintenance work.');
+    const issues = checkMarkdown(source);
+    assert.equal(issues.length, 1);
+    assert.match(issues[0].message, /25 words/);
+  }
+});
+test('allows an abbreviation at the end of a sentence', () => {
+  const first = 'Send all required documents for this installation to the supplier whose registered company name appears here as “Acme Inc.”';
+  const second = 'Check that the supplier has provided all required documents before you approve the request for installation and subsequent maintenance work.';
+  assert.deepEqual(checkMarkdown(`${first} ${second}`), []);
+  const issues = checkMarkdown(`${first} ${second.replace(/work\.$/, 'work tomorrow.')}`);
+  assert.equal(issues.length, 1);
+  assert.match(issues[0].message, /21 words/);
 });
 test('discovers new documentation and excludes ignored private files and deleted files', () => {
   const root = mkdtempSync(join(tmpdir(), 'herts-docs-'));

@@ -7,6 +7,7 @@ import remarkParse from 'remark-parse';
 import remarkGfm from 'remark-gfm';
 
 const parser = unified().use(remarkParse).use(remarkGfm);
+const sentenceSegmenter = new Intl.Segmenter('en', { granularity: 'sentence' });
 const replacements = new Map([
   ['utilize', 'use'], ['utilise', 'use'], ['leverage', 'use'],
   ['facilitate', 'help'], ['aforementioned', 'name the item'],
@@ -30,7 +31,8 @@ export function checkMarkdown(source, file = '<text>') {
     if (['paragraph', 'heading', 'tableCell'].includes(node.type)) {
       const text = prose(node).replace(/\s+/g, ' ').trim();
       // A colon ends a list introduction. Semicolons do not reset the limit.
-      const sentences = text.split(/(?<=[.!?]["'”’\)\]}]*)\s+|:\s+(?=\S)|:\s*$/u);
+      const sentences = [...sentenceSegmenter.segment(text)]
+        .flatMap(({ segment }) => segment.trim().split(/:\s+(?=\S)|:\s*$/u));
       for (const sentence of sentences) {
         const words = sentence.match(/[\p{L}\p{N}]+(?:[-/'’.][\p{L}\p{N}]+)*/gu) || [];
         if (words.length > 20) report(node, `${words.length} words; maximum 20: ${sentence}`);
