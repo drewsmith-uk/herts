@@ -2,6 +2,10 @@ import { useSyncExternalStore } from 'react';
 import { defaultTheme, isTheme, themeStorageKey, themeFontCache, maxThemeCount, themeApiVersion, type Theme } from '../shared/themeValues';
 import { applyTheme, readAppearance } from './themeAppearance';
 
+function storedAppearance() {
+  try { return localStorage.getItem(themeStorageKey); } catch { return undefined; }
+}
+let observedAppearance = storedAppearance();
 const cached = readAppearance();
 let state = { selected: cached.theme, themes: cached.catalogue, loading: false, notice: '', refreshError: '', storageError: '', errors: [] as { file: string; message: string }[] };
 const listeners = new Set<() => void>();
@@ -9,9 +13,19 @@ const subscribe = (listener: () => void) => { listeners.add(listener); return ()
 const getSnapshot = () => state;
 export const useThemes = () => useSyncExternalStore(subscribe, getSnapshot);
 function publish(patch: Partial<typeof state>) { state = { ...state, ...patch }; listeners.forEach(listener => listener()); }
+function syncAppearance() {
+  const raw = storedAppearance();
+  if (raw === undefined || raw === observedAppearance) return;
+  observedAppearance = raw;
+  const saved = readAppearance();
+  applyTheme(saved.theme);
+  publish({ selected: saved.theme, themes: saved.catalogue, storageError: '', notice: '' });
+}
 function persist() {
   try {
-    localStorage.setItem(themeStorageKey, JSON.stringify({ id: state.selected.id, theme: state.selected, catalogue: state.themes }));
+    const raw = JSON.stringify({ id: state.selected.id, theme: state.selected, catalogue: state.themes });
+    localStorage.setItem(themeStorageKey, raw);
+    observedAppearance = raw;
     publish({ storageError: '' });
   } catch { publish({ storageError: 'Your theme is applied, but this browser could not save it for your next visit.' }); }
 }
@@ -52,8 +66,9 @@ export function refreshThemes(): Promise<void> {
           !catalogue.errors.every((error: {file?: unknown; message?: unknown}) => error && typeof error.file === 'string' && typeof error.message === 'string')) throw new ThemeRefreshError(invalidCatalogueMessage);
       const themes: Theme[] = catalogue.themes;
       if (!themes.some(theme => theme.id === defaultTheme.id) || new Set(themes.map(t => t.id)).size !== themes.length) throw new ThemeRefreshError(invalidCatalogueMessage);
-      // Use the current selection, not the selection at request start: switching
-      // while a refresh is in flight must not be undone by its response.
+      // A storage event from another tab can arrive after this response.
+      // Read its saved choice before writing the refreshed catalogue.
+      syncAppearance();
       const found = themes.find(theme => theme.id === state.selected.id);
       const selected = found || defaultTheme;
       applyTheme(selected);
@@ -74,14 +89,13 @@ export function refreshThemes(): Promise<void> {
   return refreshing;
 }
 export function initialiseThemes() {
+  syncAppearance();
   applyTheme(state.selected);
   void refreshThemes();
   window.addEventListener('online', () => { void refreshThemes(); });
   window.addEventListener('offline', () => { publish({ refreshError: `${offlineMessage} ${availableThemesMessage}` }); });
   window.addEventListener('storage', event => {
     if (event.key !== themeStorageKey && event.key !== null) return;
-    const saved = readAppearance();
-    applyTheme(saved.theme);
-    publish({ selected: saved.theme, themes: saved.catalogue, storageError: '', notice: '' });
+    syncAppearance();
   });
 }
