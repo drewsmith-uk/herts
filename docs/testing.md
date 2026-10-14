@@ -77,7 +77,12 @@ Checks preserve protection against duplicate sends with uncertain outcomes.
 13. Keep the old build and data backup for rollback.
 
 Release checks build browser files in `.runtime/release-dist` and keep the served `dist` unchanged.
-The Check and Quality workflows use pinned Actions revisions.
+The Quality workflow uses pinned Actions revisions.
+It runs release checks once on each pull request update and each push to `main` or `master`.
+A newer update cancels the previous run for that pull request or branch.
+The `verify` job runs release checks and scans repository history and built files for secrets.
+The `check` job reports the `verify` result without repeating tests.
+Both job names remain available for existing branch protection rules.
 CI uses a scanner with a verified checksum and requires no live credentials.
 
 ## Repository publication
@@ -90,7 +95,7 @@ Enable Dependabot alerts and review scheduled updates.
 At publication, configure these settings:
 
 - Enable private vulnerability reporting, secret scanning, and push protection.
-- Require the Check workflow's `check` job and the Quality workflow's `verify` job on `main`.
+- Require the Quality workflow's `check` and `verify` jobs on `main`.
 - Block force-pushes and branch deletion.
 - Require approval of workflows from outside contributors.
 
