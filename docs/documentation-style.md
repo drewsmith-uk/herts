@@ -53,7 +53,7 @@ They do not exempt surrounding prose from the writing rules.
 | migration | A change to stored data that a new application version requires. |
 | fixture | Isolated synthetic data or services used by a test. |
 | PWA | Progressive web app; an app installed through a browser. |
-| pin | Save a conversation title as a device notification. Also, the saved notification record. |
+| pin | Save a conversation or task title as a device notification. Also, the saved notification record. |
 | service worker | A browser script that can run without an open app window. |
 | restoration | Showing a saved notification again after dismissal. |
 | UI | User interface. |
@@ -88,8 +88,8 @@ Capital letters after abbreviations can still cause incorrect boundaries.
 Review these cases manually, including abbreviations before names and sentences that start with lowercase technical terms.
 
 `npm run check` and `npm run check:release` run the documentation checker and its regression tests first.
-The Check and Quality workflows run those commands on pull requests.
-Repository administrators must require their status checks in branch protection to prevent merges after failures.
+The Quality workflow runs release checks on pull requests and pushes to main branches.
+Repository administrators must require its status checks in branch protection to prevent merges after failures.
 Local checks and workflow files cannot configure that remote setting.
 
 ## Review before completion
