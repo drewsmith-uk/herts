@@ -212,3 +212,33 @@ test('updates existing notification text without losing the pin', async ({ page 
   expect(rows).toHaveLength(1);
   expect(rows[0]).toMatchObject({ key: pin.key, title: pin.title, route: pin.route, metadata: pin.metadata, body: 'Pinned' });
 });
+
+test('only pins a new conversation after its draft is saved', async ({ page, context }) => {
+  await pinnedReady(page);
+  await page.goto('/#/new');
+  const draft = page.getByRole('textbox', { name: /^Message / });
+  const pin = page.getByRole('button', { name: 'Pin notification', exact: true });
+  await expect(draft).toBeVisible();
+  await expect(pin).toBeDisabled();
+  expect(await savedPins(page)).toHaveLength(0);
+  await page.goto('/#/conversations');
+  await page.goto('/#/new');
+  await expect(draft).toBeVisible();
+  await expect(pin).toBeDisabled();
+  await draft.fill('Keep this synthetic draft available from its notification.');
+  await expect(page).toHaveURL(/#\/draft\//);
+  await expect(pin).toBeEnabled();
+  await pin.click();
+  await expect(page.getByRole('button', { name: 'Unpin notification', exact: true })).toBeEnabled();
+  const rows = await savedPins(page);
+  expect(rows).toHaveLength(1);
+  expect(rows[0].route).toBe(new URL(page.url()).hash.slice(1));
+  await context.setOffline(true);
+  try {
+    await page.goto('/#/plugins/pinned');
+    await page.locator('.pinned-list a').click();
+    await page.reload();
+    await expect(draft).toHaveValue('Keep this synthetic draft available from its notification.');
+    await expect(page.getByRole('heading', { name: 'Draft unavailable' })).toHaveCount(0);
+  } finally { await context.setOffline(false); }
+});

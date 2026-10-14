@@ -66,10 +66,12 @@ function usePins(store: PinStore) { return useSyncExternalStore(store.subscribe,
 
 function PinAction({ store, ...props }: ConversationActionProps & { store: PinStore }) {
   const state = usePins(store), ids = identities(props), pin = matchingPin(state.rows, ids);
+  const core = sdk.useCore();
   const title = props.suggestedTitle || props.conversation.title;
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   const work = useUpdateWork(), operating = useRef(false);
   const route = pinRoute(props.context?.id);
+  const savedDestination = !route.startsWith('/draft/') || core.snapshot.contexts.some(context => context.id === props.context?.id);
   const pinRevision = pin?.revision;
   useEffect(() => {
     if (!pin || pin.route !== route || pin.title === title || busy || error || state.compatibility) return;
@@ -80,7 +82,7 @@ function PinAction({ store, ...props }: ConversationActionProps & { store: PinSt
     return () => { alive = false; };
   }, [pinRevision, title, route, busy, error, state.compatibility]);
   async function toggle() {
-    if (operating.current) return;
+    if (operating.current || (!pin && !savedDestination)) return;
     operating.current = true; setBusy(true); setError('');
     try {
       if (pin) await work(store.service.remove(pin.key));
@@ -98,7 +100,7 @@ function PinAction({ store, ...props }: ConversationActionProps & { store: PinSt
   }
   const problem = error || state.error || state.compatibility || pin?.displayError;
   return <><sdk.IconButton aria-pressed={!!pin} aria-label={pin ? 'Unpin notification' : 'Pin notification'}
-    title={pin ? 'Unpin notification' : 'Pin notification'} disabled={busy || state.loading || state.checking || !!state.compatibility || !!state.error}
+    title={pin ? 'Unpin notification' : 'Pin notification'} disabled={(!pin && !savedDestination) || busy || state.loading || state.checking || !!state.compatibility || !!state.error}
     onClick={() => void toggle()}>{pin ? <PinOff size={16}/> : <Pin size={16}/>}</sdk.IconButton>
     {problem && <ButtonLink className="icon-button" aria-label={`Open Pinned: ${problem}`} title={problem} href={`#${path}`}><AlertTriangle size={16}/></ButtonLink>}
   </>;
