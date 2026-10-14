@@ -31,7 +31,8 @@ test('completion and reading undo survive navigation and offline use', async ({ 
 test('queued changes get separate undo periods and expire after five seconds', async ({ page }) => {
   await page.goto('/#/tasks/inbox');
   await expect(page.locator('.page-header')).toBeVisible();
-  await page.clock.install();
+  await page.clock.install({ time: new Date('2026-10-14T12:00:00Z') });
+  await page.clock.pauseAt(new Date('2026-10-14T12:00:01Z'));
   await page.evaluate(async () => {
     const sdk = (globalThis as any).__HERTS_PLUGIN_RUNTIME__.sdk;
     (globalThis as any).undoCalls = 0;

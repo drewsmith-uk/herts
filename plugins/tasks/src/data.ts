@@ -80,10 +80,7 @@ export async function restoreTask(task: Task, beforeId: string | null) {
     const state = current(), now = state.snapshot.tasks.find(item => item.id === task.id);
     const expected = task.status === 'done' ? ['done', 'snoozed'].includes(task.previousStatus) ? 'inbox' : task.previousStatus : 'done';
     if (!now || now.status !== expected || taskSpaceId(now) !== taskSpaceId(task)) throw new Error('The task changed. Check the task list.');
-    if (task.status === 'snoozed' && task.snoozedUntil && task.snoozedUntil > Date.now()) {
-        await moveTask(task.id, 'inbox');
-        return snoozeTask(current().snapshot.tasks.find(item => item.id === task.id)!, task.snoozedUntil);
-    }
+    if (task.status === 'snoozed' && task.snoozedUntil && task.snoozedUntil > Date.now()) return snoozeTask(now, task.snoozedUntil);
     const status = task.status === 'snoozed' ? 'inbox' : task.status;
     const next = beforeId && state.snapshot.tasks.find(item => item.id === beforeId && item.status === status && taskSpaceId(item) === taskSpaceId(task));
     return moveTask(task.id, status, next ? next.id : null);
