@@ -28,7 +28,7 @@ export function rememberSpace(id: string) { localViewed = id; void db.kv.put({ k
 export async function mutate(op: TaskOp) { return mutatePlugin('tasks', 'task', op, op.taskId); }
 export async function createTask(title: string, spaceId = current().snapshot.defaultSpaceId || originalSpaceId, taskId: string = crypto.randomUUID()) { if (!current().snapshot.tasks.some(task => task.id === taskId)) await mutate({ id: taskId, taskId, spaceId, kind: 'create', title: title.trim(), at: Date.now() }); return taskId; }
 export function renameTask(taskId: string, title: string) { const task = current().snapshot.tasks.find(t => t.id === taskId)!; return mutate({ id: crypto.randomUUID(), taskId, kind: 'title', title, baseTitle: task.title, at: Date.now() }); }
-export function moveTask(taskId: string, status: Status, beforeId?: string | null, destinationSpace?: string) { const state = current(), task = state.snapshot.tasks.find(t => t.id === taskId)!; const baseSpaceId = taskSpaceId(task), spaceId = destinationSpace || baseSpaceId; return mutate({ id: crypto.randomUUID(), taskId, kind: 'move', spaceId, baseSpaceId, status: spaceId !== baseSpaceId ? 'inbox' : status, beforeId, baseStatus: task.status, baseSnoozeId: task.snoozeId || null, listVersion: spaceLists(state.snapshot, spaceId)[spaceId !== baseSpaceId ? 'inbox' : status].version, at: Date.now() }); }
+export function moveTask(taskId: string, status: Status, beforeId?: string | null, destinationSpace?: string, restoreCompletedAt?: number) { const state = current(), task = state.snapshot.tasks.find(t => t.id === taskId)!; const baseSpaceId = taskSpaceId(task), spaceId = destinationSpace || baseSpaceId; return mutate({ id: crypto.randomUUID(), taskId, kind: 'move', restoreCompletedAt, spaceId, baseSpaceId, status: spaceId !== baseSpaceId ? 'inbox' : status, beforeId, baseStatus: task.status, baseSnoozeId: task.snoozeId || null, listVersion: spaceLists(state.snapshot, spaceId)[spaceId !== baseSpaceId ? 'inbox' : status].version, at: Date.now() }); }
 export function snoozeTask(task: Task, until: number) { const now = current().snapshot.tasks.find(t => t.id === task.id); if (!now || now.status !== task.status || taskSpaceId(now) !== taskSpaceId(task) || now.snoozeId !== task.snoozeId)
     throw new Error('This task or reminder changed. Close this picker and open it again.'); if (!Number.isFinite(until) || until <= Date.now())
     throw new Error('Choose a future date and time.'); return mutate({ id: crypto.randomUUID(), taskId: task.id, kind: 'snooze', spaceId: taskSpaceId(task), baseSpaceId: taskSpaceId(task), baseStatus: task.status, baseSnoozeId: task.snoozeId || null, snoozedUntil: until, at: Date.now() }); }
@@ -74,4 +74,15 @@ export function linkedTaskId(conversation:import('@herts/plugin-api/types').Conv
 export function taskInboxName(id: string) {
     const { snapshot } = current();
     return `${spaceName(snapshot, snapshot.tasks.find(t => t.id === id)?.spaceId)} Inbox`;
+}
+
+export async function restoreTask(task: Task, beforeId: string | null) {
+    await sync();
+    const state = current(), now = state.snapshot.tasks.find(item => item.id === task.id);
+    const expected = task.status === 'done' ? ['done', 'snoozed'].includes(task.previousStatus) ? 'inbox' : task.previousStatus : 'done';
+    if (!now || now.status !== expected || taskSpaceId(now) !== taskSpaceId(task)) throw new Error('The task changed. Check the task list.');
+    if (task.status === 'snoozed' && task.snoozedUntil && task.snoozedUntil > Date.now()) return snoozeTask(now, task.snoozedUntil);
+    const status = task.status === 'snoozed' ? 'inbox' : task.status;
+    const next = beforeId && state.snapshot.tasks.find(item => item.id === beforeId && item.status === status && taskSpaceId(item) === taskSpaceId(task));
+    return moveTask(task.id, status, next ? next.id : null, undefined, task.completedAt ?? undefined);
 }

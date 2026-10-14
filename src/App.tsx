@@ -1,3 +1,4 @@
+import { UndoToasts } from './UndoToast';
 import { PageHeader, SectionNav, SectionLink, SettingsSection, Button } from './ui';
 import { useListPosition } from './listState';
 import { useVisualViewport } from './useVisualViewport';
@@ -16,7 +17,7 @@ import { AppearanceSettings } from './AppearanceSettings';
 import type { RouteProps } from './pluginContract';
 import type { SharedContent } from '../shared/plugins';
 export { ConversationPanel, HistoryView } from './Conversation';
-export function App() { return <><PluginLoader /><Shell /></>; }
+export function App() { return <><PluginLoader /><Shell /><UndoToasts /></>; }
 function Shell() {
     useVisualViewport();
     const state = useApp(), plugins = usePlugins(), route = useRoute();

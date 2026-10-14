@@ -1,3 +1,4 @@
+import { undoableAction } from './UndoToast';
 import { PageHeader, Button, ButtonLink, DialogFrame, ItemList, ItemRow, ItemMeta, EmptyState, StatusMessage } from './ui';
 import { useEffect, useRef, useState } from 'react';
 import { liveQuery } from 'dexie';
@@ -22,7 +23,6 @@ export function Conversations() {
     const [query, setQuery] = useListState('conversations:query', ''), [offset, setOffset] = useListState('conversations:offset', 0), [notice, setNotice] = useState<{
         text: string;
         route?: string;
-        undo?: Conversation;
     }>(), [working, setWorking] = useState(''), [chooser, setChooser] = useState<Conversation>();
     const [savedDrafts, setSavedDrafts] = useState<{ ids: string[]; deleted: string[]; messages: Draft[]; routes: Record<string, string>; recordings: string[] }>({ ids: [], deleted: [], messages: [], routes: {}, recordings: [] });
     const [draftError, setDraftError] = useState(''), [showAllDrafts, setShowAllDrafts] = useState(false);
@@ -47,8 +47,8 @@ export function Conversations() {
     useEffect(() => { if (previousFilter.current !== selection) { setOffset(0); previousFilter.current = selection; } }, [selection]);
     const { rows, more, busy, error, cached } = useConversationList({ query, showAll, filterKey, offset: listOffset }, listVersion);
     async function hide(c: Conversation) { setWorking(c.key); setActionError(''); try {
-        await setConversationHidden(c, !c.hidden);
-        setNotice({ text: c.hidden ? 'Conversation unhidden.' : 'Conversation hidden.', undo: c.hidden ? undefined : c });
+        await undoableAction(`conversation:${c.key}`, c.hidden ? 'Conversation unhidden.' : 'Conversation hidden.',
+            () => setConversationHidden(c, !c.hidden), () => setConversationHidden(c, !!c.hidden));
     }
     catch (e) {
         setActionError((e as Error).message);
@@ -116,7 +116,7 @@ export function Conversations() {
     </DialogFrame>}
     {drafts.length > 0 && <h2 className="conversation-list-heading">Hermes conversations</h2>}
     <div className="conversation-filters"><label className="conversation-filter"><input type="checkbox" checked={showAll} onChange={e => setShowAll(e.target.checked)}/>Show all</label></div>
-    {notice && <StatusMessage tone="notice" className="conversation-notice"><span>{notice.text}</span>{notice.route && <a href={`#${notice.route}`}>Open</a>}{notice.undo && <button onClick={() => void hide({ ...notice.undo!, hidden: true })}>Undo</button>}</StatusMessage>}
+    {notice && <StatusMessage tone="notice" className="conversation-notice"><span>{notice.text}</span>{notice.route && <a href={`#${notice.route}`}>Open</a>}</StatusMessage>}
     {actionError && <StatusMessage>{actionError}</StatusMessage>}{error && <StatusMessage>{error}</StatusMessage>}{cached && (!busy || !state.online) && <div><span className="eyebrow">SAVED ON THIS DEVICE</span><p>Offline results cover conversations previously viewed on this device.</p></div>}
     <ItemList divided className="conversation-list">{visible.map(c => <ConversationRow key={c.key} conversation={c} badges={<ConversationBadges conversation={c}/>} canActOffline={swipes.some(p=>pluginHook(p,()=>p.definition.swipe?.canRunOffline?.(c)||false,false))} updatedAt={time(c.updatedAt)} online={state.online} busy={working === c.key} actionLabel={swipes.length === 1 ? pluginHook(swipes[0], () => swipes[0].definition.swipe!.label(c), 'Actions') : swipes.length ? 'Actions' : undefined} onAction={kind => kind === 'visibility' ? hide(c) : swipe(c)}/>)}</ItemList>
     {busy && <p className="loading"><LoaderCircle className="spin" size={17}/> {visible.length ? 'Refreshing conversations…' : 'Loading conversations…'}</p>}{!busy && !visible.length && !error && !actionError && <EmptyState icon={<MessageSquare size={30}/>} title={drafts.length ? 'No Hermes conversations found' : 'No conversations found'} description={query ? 'Try a different search.' : 'Your personal Hermes conversations will appear here.'}>{!showAll && <p>Turn on “Show all” to include linked and hidden conversations.</p>}</EmptyState>}{more && !busy && <button className="load-more" onClick={() => setOffset(offset + 50)}>Load more conversations</button>}

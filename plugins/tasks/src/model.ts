@@ -63,6 +63,7 @@ export interface TaskOp {
     listVersion?: number;
     snoozedUntil?: number;
     baseSnoozeId?: string | null;
+    restoreCompletedAt?: number;
 }
 export function conversationTaskId(conversation: Conversation, tasks: Task[]): string | undefined {
     const ids = [conversation.key, conversation.id, ...conversation.aliases];
@@ -154,8 +155,8 @@ export function applyTaskOp(input: Snapshot, op: TaskOp, check = true): Snapshot
             const crossing = originSpace !== destinationSpace;
             if (check && (task.snoozeId || null) !== (op.baseSnoozeId || null))
                 throw new Conflict('The reminder changed on another device.');
-            if (op.kind === 'snooze' && (crossing || !['inbox', 'snoozed'].includes(task.status)))
-                throw new Conflict('Only Inbox tasks can be snoozed. Move this task to Inbox first.');
+            if (op.kind === 'snooze' && (crossing || !['inbox', 'snoozed', 'done'].includes(task.status)))
+                throw new Conflict('Only Inbox, Snoozed, or Done tasks can be snoozed. Move this task to Inbox first.');
             if (op.kind === 'snooze' && (!Number.isSafeInteger(op.snoozedUntil) || op.snoozedUntil! <= op.at || op.snoozedUntil! > 8640000000000000))
                 throw new Conflict('Choose a future date and time for the reminder.');
             const destination = op.kind === 'snooze' ? 'snoozed' : crossing ? 'inbox' : op.status!;
@@ -172,7 +173,7 @@ export function applyTaskOp(input: Snapshot, op: TaskOp, check = true): Snapshot
             from.version++;
             if (destination === 'done') {
                 task.previousStatus = origin === 'snoozed' ? 'inbox' : origin;
-                task.completedAt = op.at;
+                task.completedAt = op.restoreCompletedAt ?? op.at;
             }
             else {
                 task.completedAt = null;

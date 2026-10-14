@@ -15,6 +15,7 @@ export interface ReadingItem {
     readAt: number | null;
     offline: 'auto' | 'keep' | 'remove';
     downloadVersion: number;
+    articleHold?: string;
 }
 export interface Article {
     itemId: string;
@@ -37,13 +38,15 @@ export interface ReadingState {
 export interface ReadingOp {
     id: string;
     itemId: string;
-    kind: 'create' | 'title' | 'read' | 'reorder' | 'offline' | 'settings';
+    kind: 'create' | 'title' | 'read' | 'reorder' | 'offline' | 'settings' | 'release';
     at: number;
     contextId?: string;
     conversationId?: string;
     url?: string;
     title?: string;
     read?: boolean;
+    restoreReadAt?: number;
+    articleHold?: string;
     baseTitle?: string;
     baseReadAt?: number | null;
     beforeId?: string | null;
@@ -84,7 +87,7 @@ export function sharedUrls(...parts: string[]): string[] {
         }
     return [...urls];
 }
-export function retainsArticle(item: ReadingItem, state: ReadingState) { return item.readAt === null && (item.offline === 'keep' || (item.offline === 'auto' && state.autoDownload)); }
+export function retainsArticle(item: ReadingItem, state: ReadingState) { return (item.readAt === null || !!item.articleHold) && (item.offline === 'keep' || (item.offline === 'auto' && state.autoDownload)); }
 export function applyReadingOp(input: ReadingState, op: ReadingOp, check = true): ReadingState {
     const s = structuredClone(input);
     const item = s.items.find(i => i.id === op.itemId);
@@ -115,16 +118,24 @@ export function applyReadingOp(input: ReadingState, op: ReadingOp, check = true)
                 throw new Conflict('This reading title changed on another device.');
             item.title = title;
         }
+        else if (op.kind === 'release') {
+            if (!op.articleHold || item.articleHold !== op.articleHold) return s;
+            delete item.articleHold;
+            if (item.readAt !== null) item.downloadVersion++;
+        }
         else if (op.kind === 'read') {
             if (check && item.readAt !== op.baseReadAt && (item.readAt !== null) !== op.read)
                 throw new Conflict('This item changed on another device.');
             if ((item.readAt !== null) === op.read)
                 return s;
-            item.readAt = op.read ? op.at : null;
-            item.downloadVersion++;
+            item.readAt = op.read ? op.restoreReadAt ?? op.at : null;
+            if (!op.articleHold && !item.articleHold) item.downloadVersion++;
+            item.articleHold = op.read ? op.articleHold : undefined;
             s.unread.ids = s.unread.ids.filter(id => id !== item.id);
-            if (!op.read)
-                s.unread.ids.unshift(item.id);
+            if (!op.read) {
+                const position = op.beforeId === undefined ? 0 : op.beforeId === null ? s.unread.ids.length : s.unread.ids.indexOf(op.beforeId);
+                s.unread.ids.splice(position < 0 ? s.unread.ids.length : position, 0, item.id);
+            }
             s.unread.version++;
         }
         else if (op.kind === 'reorder') {

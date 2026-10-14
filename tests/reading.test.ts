@@ -1,9 +1,11 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { applyReadingOp as applyPluginReadingOp } from '../plugins/reading/src/model';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { Store } from '../server/store';
 import { Articles, extractArticle, fetchArticleHtml, publicAddress } from '../server/articles';
 import { applyReadingOp, emptyReading, normalizeUrl, sharedUrls, type ReadingOp, type ReadingItem } from '../shared/reading';
+vi.mock('@herts/plugin-api/types', () => import('../sdk/types'));
 const closes: (() => void)[] = [];
 afterEach(() => closes.splice(0).forEach(close => close()));
 function fixture() { const store = new Store(':memory:'); closes.push(() => store.close()); return store; }
@@ -135,4 +137,19 @@ describe('article safety and honest offline copies', () => {
   it('extracts shared URLs from every Android field without dropping query parameters or fragments', () => {
     expect(sharedUrls('Article https://example.com/a?x=1#p', 'https://example.com/a?x=1#p', 'Also https://example.org/second.')).toEqual(['https://example.com/a?x=1#p','https://example.org/second']);
   });
+});
+
+it('restores an unread position with one mutation and tolerates a removed neighbour', () => {
+  let state = emptyReading();
+  const apply = (op: ReadingOp) => { state = applyPluginReadingOp(state, op); };
+  const entries = [create(), create('https://example.com/two'), create('https://example.com/three')];
+  for (const entry of entries) apply(entry);
+  const before = [...state.unread.ids], itemId = entries[1].itemId;
+  apply({ id: randomUUID(), itemId, kind: 'read', read: true, baseReadAt: null, at: 200 });
+  const undo: ReadingOp = { id: randomUUID(), itemId, kind: 'read', read: false, baseReadAt: 200, beforeId: entries[0].itemId, at: 201 };
+  apply(undo); apply(undo);
+  expect(state.unread.ids).toEqual(before);
+  apply({ id: randomUUID(), itemId, kind: 'read', read: true, baseReadAt: null, at: 202 });
+  apply({ ...undo, id: randomUUID(), baseReadAt: 202, beforeId: randomUUID(), at: 203 });
+  expect(state.unread.ids.at(-1)).toBe(itemId);
 });
