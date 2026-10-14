@@ -1,6 +1,6 @@
 import { Inbox, Link2 } from 'lucide-react';
 import type { ClientPlugin } from '@herts/plugin-api/client';
-import { PageHeader, MessageComposer } from '@herts/plugin-api/client';
+import { PageHeader, MessageComposer, getCore } from '@herts/plugin-api/client';
 import { applyTaskOp, applySpaceOp, emptySnapshot, conversationTaskId, type Snapshot } from './model';
 import { TasksScreen, TasksSidebar, TaskActions, TaskConflicts } from './Tasks';
 import { TaskDragging } from './TaskDragging';
@@ -11,6 +11,7 @@ export default function activate(): ClientPlugin {
     if (!PageHeader || !MessageComposer) throw new Error('Update Herts in Settings → App updates to use this version of Tasks.');
     return {
         tab: { title: 'Tasks', path: '/tasks', icon: Inbox },
+        conversationTitle(contextId, route) { return (getCore().pluginData.tasks?.records.state as Snapshot | undefined)?.tasks.find(task => (task.contextId || task.id) === contextId && route === `/task/${task.id}`)?.title; },
         routes: [{ match: path => /^\/(tasks|task|spaces)(\/|$)/.test(path) || path.startsWith('/plugins/tasks/'), component: TasksScreen }],
         Provider: TaskDragging, Sidebar: TasksSidebar, Settings: SpaceSettings, ConversationActions: TaskActions, ConversationBadge: TaskBadge, Conflicts: TaskConflicts,
         filter: { id: 'linked', label: 'Show linked conversations', hiddenMessage:'Turn on “Show linked conversations” to include them.', visible: (c, records, contexts) => !conversationTaskId(c, ((records.state || emptySnapshot()) as Snapshot).tasks.map(t => ({ ...t, link: contexts.find(v => v.id === t.contextId)?.link || t.link }))) },

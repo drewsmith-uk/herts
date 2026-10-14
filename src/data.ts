@@ -130,6 +130,7 @@ export function publish(patch: Partial<State> = {}) {
     state = { ...state, ...patch }; Dexie.ignoreTransaction(() => { for (const listener of listeners)
     listener(); }); }
 export function useApp() { return useSyncExternalStore(fn => { listeners.add(fn); return () => listeners.delete(fn); }, () => state); }
+export function subscribeCore(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; }
 export function registerPluginData(id: string, definition?: ClientPlugin) { if (definition)
     definitions.set(id, definition);
 else
@@ -253,6 +254,7 @@ export async function acceptPlugins(catalogue: PluginCatalogue, data: Record<str
     for (const entry of catalogue.entries) if (entry.generation > 0) discardResetDrafts(entry.manifest.id, entry.generation);
     publish({ plugins: catalogue, pluginRemote: next });
     await rebuild();
+    window.dispatchEvent(new Event('herts-plugin-catalogue'));
 }
 export async function initialise() {
     try {
@@ -279,6 +281,7 @@ export async function initialise() {
         }
         await rebuild();
         publish({ loaded: true, defaultsReady: !!saved });
+        window.dispatchEvent(new Event('herts-plugin-catalogue'));
         void cleanLocalFiles().catch(() => {});
         setInterval(() => { if (!document.hidden) void cleanLocalFiles().catch(() => {}); }, 60000);
         if (navigator.storage?.persist)

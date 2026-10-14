@@ -99,7 +99,7 @@ export function NotificationSettings() {
       if (await (await navigator.serviceWorker.getRegistration())?.pushManager.getSubscription()) throw new Error('Notifications are off on the server, but the browser could not clear its registration. Try turning them off again.');
     }
     setTest(undefined); setLastTest(undefined); try { localStorage.removeItem(testKey); } catch { /* Optional diagnostic history. */ }
-    setMessage('Notifications are off on this device.');
+    setMessage('Push notifications are off on this device.');
   }
   async function sendTest() {
     const registration = await readyWorker(), sub = await registration.pushManager.getSubscription();
@@ -114,20 +114,21 @@ export function NotificationSettings() {
     checking: 'Checking this device’s notification registration…',
     unsupported: 'This browser does not support web push. Use the installed app in a supported browser.',
     blocked: 'Notifications are blocked in this browser. Allow them in the browser’s site settings to enable reminders.',
-    off: 'Notifications are off on this device.',
+    off: 'Push notifications are off on this device.',
     repair: 'Notifications need repair. The browser’s saved registration is not connected to the server.',
-    enabled: view.error ? 'Notifications are registered, but the last delivery failed.' : 'Notifications are registered on this device.',
+    enabled: view.error ? 'Notifications are registered, but the last delivery failed.' : 'Push notifications are registered on this device.',
     unknown: 'Notification registration could not be verified. Connect to the app to check it.'
   };
   const disabled = !online || !pushKey || busy || view.kind === 'checking';
   const currentStatus = [descriptions[view.kind], view.error].filter(Boolean).join(' ');
-  return <SettingsSection title="Notifications on this device" icon={<Bell size={22}/>}>
+  return <SettingsSection title="Push notifications on this device" icon={<Bell size={22}/>}>
     <p role="status">{currentStatus}</p>
+    <p>These controls affect server push notifications. Plugins manage their device notifications separately.</p>
     {view.kind === 'off' && <p className="subtle-note">Notifications include conversation and item titles.</p>}
     <div className="notification-actions">
       {['off', 'repair'].includes(view.kind) && <button disabled={disabled} onClick={() => void run(enable)}>{view.kind === 'repair' ? 'Repair notifications' : 'Enable notifications'}</button>}
       {view.kind === 'enabled' && <button disabled={disabled} onClick={() => void run(sendTest)}>Send test notification</button>}
-      {view.subscribed && <button disabled={disabled} onClick={() => void run(disable)}>Turn off notifications</button>}
+      {view.subscribed && <button disabled={disabled} onClick={() => void run(disable)}>Turn off push notifications</button>}
       {view.kind === 'unknown' && <button disabled={!online || busy} onClick={() => void check()}>Check again</button>}
     </div>
     {message && message !== currentStatus && <p role="status">{message}</p>}

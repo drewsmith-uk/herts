@@ -59,3 +59,8 @@ See [the authoring guide](plugin-api.md) to build your own plugin, and [the Note
 ## Bots and external work
 
 [Bots](bots.md) exposes profiles, permanent chats and routines on the existing Hermes backend. It is initially disabled on both new and upgraded installations. Its remote actions require connectivity and use durable receipts, separately from queued offline metadata edits. Disabling or resetting it never deletes Hermes profiles or stops Hermes routines. Cached bot records and form drafts are plugin-owned; conversation contexts, drafts, accepted sends and remote-action receipts survive reset.
+
+## Pinned notifications
+
+The optional Pinned plugin keeps conversation titles in device notifications.
+See [Pinned notifications](pinned.md) for installation, removal, and browser limits.

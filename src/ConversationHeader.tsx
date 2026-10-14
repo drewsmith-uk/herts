@@ -4,8 +4,8 @@ import type { Conversation } from '../shared/core';
 import type { ConversationContext } from '../shared/conversations';
 import { ConversationContributions } from './plugins';
 
-export function ConversationHeader({ children, title, backHref, backLabel, context, conversation, actions, contributionsInDetails = false }: {
-  children: ReactNode; title?: string; backHref?: string; backLabel?: string;
+export function ConversationHeader({ children, title, savedTitle, backHref, backLabel, context, conversation, actions, contributionsInDetails = false }: {
+  children: ReactNode; title?: string; savedTitle?: string; backHref?: string; backLabel?: string;
   context?: ConversationContext; conversation?: Conversation; actions?:ReactNode; contributionsInDetails?:boolean;
 }) {
   const [hidden, setHidden] = useState(true), detailsId = useId();
@@ -40,10 +40,10 @@ export function ConversationHeader({ children, title, backHref, backLabel, conte
     {title && <div className="conversation-toolbar">
       {backHref && <a className="conversation-back" href={backHref} aria-label={`Back to ${backLabel || 'list'}`} title={`Back to ${backLabel || 'list'}`}><ChevronLeft size={19}/><span>{backLabel}</span></a>}
       <span className="conversation-compact-title" title={title}>{title}</span>
-      {!contributionsInDetails && (context || conversation) && <ConversationContributions context={context} conversation={conversation} suggestedTitle={title}/>}
+      {!contributionsInDetails && (context || conversation) && <ConversationContributions context={context} conversation={conversation} suggestedTitle={savedTitle || title}/>}
       <button className="icon-button conversation-details-toggle" aria-label={hidden ? 'Show page details' : 'Collapse page details'} aria-expanded={!hidden} aria-controls={detailsId} onClick={() => setHidden(value => !value)}>{hidden ? <ChevronDown size={18}/> : <ChevronUp size={18}/>}</button>
     </div>}
     {actions && <div className="conversation-navigation button-row">{actions}</div>}
-    <div id={detailsId} className="conversation-header-details" hidden={!!title && hidden}>{children}{contributionsInDetails && (context || conversation) && <ConversationContributions context={context} conversation={conversation} suggestedTitle={title}/>}</div>
+    <div id={detailsId} className="conversation-header-details" hidden={!!title && hidden}>{children}{contributionsInDetails && (context || conversation) && <ConversationContributions context={context} conversation={conversation} suggestedTitle={savedTitle || title}/>}</div>
   </header>;
 }

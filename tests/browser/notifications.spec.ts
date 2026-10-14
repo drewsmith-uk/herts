@@ -22,14 +22,14 @@ async function browserPush(page:Page, existing=false, permission='granted', real
     else Object.defineProperty(navigator,'serviceWorker',{value:{addEventListener:()=>{},getRegistration:async()=>registration,register:async()=>registration,ready:Promise.resolve(registration)}});
   },{existing,permission,realWorker});
 }
-const settings=(page:Page)=>page.getByRole('heading',{name:'Notifications on this device'}).locator('../..');
+const settings=(page:Page)=>page.getByRole('heading',{name:'Push notifications on this device'}).locator('../..');
 
 test('detects the stale enabled setting, repairs it, confirms a test and persists the repaired registration',async({page,request})=>{
   await request.post('/__test/push-status',{headers,data:{status:201}});
   await page.setViewportSize({width:390,height:844});await browserPush(page,true);await page.goto('/#/settings');
   await expect(settings(page)).toContainText('Notifications need repair');await expect(page.getByRole('button',{name:'Send test notification'})).toHaveCount(0);
   const before=await page.evaluate(()=>JSON.parse(localStorage.getItem('fixture-push-sub')!).endpoint);
-  await page.getByRole('button',{name:'Repair notifications',exact:true}).click();await expect(settings(page)).toContainText('Notifications are registered on this device.');
+  await page.getByRole('button',{name:'Repair notifications',exact:true}).click();await expect(settings(page)).toContainText('Push notifications are registered on this device.');
   await expect(page.getByRole('button',{name:'Repair notifications',exact:true})).toHaveCount(0);
   const after=await page.evaluate(()=>JSON.parse(localStorage.getItem('fixture-push-sub')!).endpoint);expect(after).not.toBe(before);
   const status=async(endpoint:string)=>(await(await request.post('/api/v1/notifications/status',{headers,data:{endpoint}})).json());
@@ -44,9 +44,9 @@ test('detects the stale enabled setting, repairs it, confirms a test and persist
   await page.reload();await expect(settings(page)).toContainText('This device confirmed showing the test notification.');
   await expect(page.getByRole('button',{name:'Repair notifications',exact:true})).toHaveCount(0);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
-  await page.getByRole('button',{name:'Turn off notifications'}).click();await expect(settings(page)).toContainText('Notifications are off on this device.');expect((await status(after)).registered).toBe(false);
-  await expect(settings(page).getByText('Notifications are off on this device.', { exact: true })).toHaveCount(1);
-  await expect(settings(page).getByRole('status').filter({ hasText: 'Notifications are off on this device.' })).toHaveCount(1);
+  await page.getByRole('button',{name:'Turn off push notifications'}).click();await expect(settings(page)).toContainText('Push notifications are off on this device.');expect((await status(after)).registered).toBe(false);
+  await expect(settings(page).getByText('Push notifications are off on this device.', { exact: true })).toHaveCount(1);
+  await expect(settings(page).getByRole('status').filter({ hasText: 'Push notifications are off on this device.' })).toHaveCount(1);
 });
 
 test('an expired provider subscription becomes repairable, and a test never silently retries',async({page,request})=>{

@@ -163,3 +163,43 @@ Use `FormDialog` for editors with a scrolling body and persistent, separately la
 `pluginLocal(id).watchDrafts(next, error)` observes saved drafts after journal recovery; it returns an unsubscribe function. Do not recover pending draft writes inside a Dexie live-query observation. Keep the remote operation receipt until local cleanup has completed. A successful remote mutation must never be reissued because draft deletion or refresh failed.
 
 `pluginActionStatus(id, undefined, { profile, offset })` supports scoped history pagination. Unreviewed pending/unknown actions remain present on every page. `reviewPluginAction(id, operationId)` marks an unknown outcome reviewed; it does not change its outcome or execute it again.
+
+## Device notifications
+
+`pluginNotifications(id)` returns a device notification service scoped to the plugin's current generation and package.
+Feature-detect this SDK export before use.
+Call `ready()` to check worker support.
+An older worker requires a Browser App update.
+
+`list()` reads saved records on this device.
+`watch(next, error)` observes those records and returns a cleanup function.
+Call `requestPermission()` only from a user action.
+A denied permission does not delete saved records.
+
+`set(input, expectedRevision)` saves and displays a notification.
+The input contains `key`, `title`, optional `body`, `route`, `restoreOnDismiss`, and plugin-owned `metadata`.
+Use an app route such as `/plugins/example/item`.
+Use `null` as the expected revision for a new record.
+For an update, pass the saved record's `revision`.
+A conflicting revision rejects the update.
+Records also contain `createdAt` and an optional `displayError`.
+
+`remove(key)` removes the record before closing the notification.
+`retry(key)` attempts notification display again.
+After an unconfirmed operation, read the saved records before another mutation.
+Do not repeat remote work to recover a notification.
+
+Records use the existing `pluginLocal` namespace and reset generation.
+They do not synchronise with the server.
+Disabling a plugin closes its notifications and stops restoration.
+Re-enabling restores retained notifications with `restoreOnDismiss` enabled.
+Reset removes records from earlier generations.
+The worker checks saved plugin state before notification restoration.
+Other devices apply lifecycle changes when they receive the updated catalogue.
+
+`subscribeCore(listener)` observes app state and returns a cleanup function.
+`getConversationTitle(contextId, route)` reads the saved title for a destination.
+A plugin can supply the optional `conversationTitle(contextId, route)` contribution for its own screens.
+Return `undefined` when the destination is unknown.
+This contribution must not submit work or change records.
+Use `ConversationHeader.savedTitle` when the displayed title includes an unsaved edit.

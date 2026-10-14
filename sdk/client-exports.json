@@ -62,5 +62,8 @@
   "ModelPicker",
   "MessageAuthor",
   "useMessageSpeech",
-  "reviewPluginAction"
+  "reviewPluginAction",
+  "pluginNotifications",
+  "subscribeCore",
+  "getConversationTitle"
 ]

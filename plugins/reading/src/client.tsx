@@ -1,5 +1,5 @@
 import { BookOpen } from 'lucide-react';
-import { PageHeader, MessageComposer, type ClientPlugin, type RouteProps, type ConversationActionProps } from '@herts/plugin-api/client';
+import { PageHeader, MessageComposer, getCore, type ClientPlugin, type RouteProps, type ConversationActionProps } from '@herts/plugin-api/client';
 import { ReadingList, ReadingCapture, ReadingDetail, Reader, BookmarkLink, ReadingSettings } from './Reading';
 import { applyReadingOp, emptyReading, conversationReadingItems, type ReadingState, type ReadingOp } from './model';
 import { useApp, resolveReadingConflict, startReading, db } from './data';
@@ -15,6 +15,7 @@ export default function activate(): ClientPlugin {
     return {
         tab: { title: 'Reading', path: '/reading', icon: BookOpen }, routes: [{ match: path => /^\/(reading|reading-item|reader)(\/|$)/.test(path), component: Screen }],
         Settings: ReadingSettings, Conflicts, MessageLink: BookmarkLink, ConversationBadge: ReadingBadge,
+        conversationTitle(contextId, route) { return (getCore().pluginData.reading?.records.state as ReadingState | undefined)?.items.find(item => item.contextId === contextId && route === `/reading-item/${item.id}`)?.title; },
         filter: { id: 'linked', label: 'Show linked conversations', visible: (conversation, records, contexts) => !conversationReadingItems(conversation, (records.state || emptyReading()) as ReadingState, contexts).length },
         shares: [{ id: 'link', title: 'Reading', accepts: c => /https?:\/\//i.test(`${c.url} ${c.text} ${c.title}`), path: '/reading/add' }],
         reduce(records, operation) { return { ...records, state: applyReadingOp((records.state || emptyReading()) as ReadingState, operation.input as ReadingOp, false) }; },

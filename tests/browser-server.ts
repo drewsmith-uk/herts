@@ -219,7 +219,7 @@ webpush.sendNotification=async(_subscription,payload)=>{
 const fixtureRoot=await mkdtemp('/tmp/herts-browser-');
 const themesDir=fixtureRoot+'/themes';await mkdir(themesDir);
 const pluginsDir=fixtureRoot+'/plugins';await mkdir(pluginsDir);
-for(const id of ['tasks','reading','bots'])await cp('plugins/'+id,pluginsDir+'/'+id,{recursive:true});
+for(const id of ['tasks','reading','bots','pinned'])await cp('plugins/'+id,pluginsDir+'/'+id,{recursive:true});
 const { app, articles, store, plugins, gateway } = await createApp({ staticDir: process.env.HERTS_TEST_DIST_DIR, dataDir: fixtureRoot+'/data', pluginsDir, themesDir, origin: 'http://127.0.0.1:8790', identity: 'fixture', dev: true, hermesBase: 'http://127.0.0.1:8791', hermesToken: 'fixture-token' });
 app.post('/__test/prompt-protocol', async req => {
   modernPrompts = (req.body as { modern: boolean }).modern;
@@ -271,7 +271,7 @@ app.post('/__test/conversation-message', async req => {
   if (!hermesUnavailable) gateway.metadata = undefined;
   return { ok: true };
 });
-await plugins.activate('tasks');await plugins.activate('reading');plugins.reorder(['tasks','conversations','reading','bots']);
+await plugins.activate('tasks');await plugins.activate('reading');plugins.reorder(['tasks','conversations','reading','bots','pinned']);
 // Simulate a client on a previous release without intercepting browser traffic
 // while real service workers install and take control. Their cached index stays new.
 app.get('/', async (req, reply) => {

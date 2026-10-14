@@ -37,6 +37,8 @@ export interface ClientPlugin {
     Conflicts?: ComponentType;
     ConversationBadge?: ComponentType<ConversationActionProps>;
     ConversationActions?: ComponentType<ConversationActionProps>;
+    /** Return the saved title for a destination owned by this plugin. */
+    conversationTitle?: (contextId: string, route: string) => string | undefined;
     MessageLink?: ComponentType<MessageLinkProps>;
     filter?: {
         id: string;

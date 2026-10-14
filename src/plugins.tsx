@@ -22,6 +22,17 @@ function changed() { version++; for (const fn of listeners)
     fn(); }
 export function usePlugins() { useSyncExternalStore(fn => { listeners.add(fn); return () => listeners.delete(fn); }, () => version); const state = useApp(); return state.plugins.order.flatMap(id => { const p = loaded.get(id); return p && state.plugins.entries.some(e => e.manifest.id === id && e.enabled && e.hash === p.hash && e.generation === p.generation) ? [p] : []; }); }
 export function pluginError(id: string) { return errors.get(id); }
+export function getConversationTitle(contextId: string, route: string): string | undefined {
+    if (/^\/(conversation|draft)\//.test(route)) {
+        const context = getState().snapshot.contexts.find(c => c.id === contextId);
+        return context?.link?.title || context?.title;
+    }
+    for (const plugin of loaded.values()) {
+        const entry = getState().plugins.entries.find(e => e.manifest.id === plugin.id);
+        if (entry?.enabled && entry.hash === plugin.hash && entry.generation === plugin.generation && matchPluginRoute(plugin, route))
+            return pluginHook(plugin, () => plugin.definition.conversationTitle?.(contextId, route), undefined);
+    }
+}
 export async function loadPlugins() {
     if (loading) {
         reloadRequested = true;
