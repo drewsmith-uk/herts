@@ -63,6 +63,7 @@ export interface TaskOp {
     listVersion?: number;
     snoozedUntil?: number;
     baseSnoozeId?: string | null;
+    restoreCompletedAt?: number;
 }
 export function conversationTaskId(conversation: Conversation, tasks: Task[]): string | undefined {
     const ids = [conversation.key, conversation.id, ...conversation.aliases];
@@ -172,7 +173,7 @@ export function applyTaskOp(input: Snapshot, op: TaskOp, check = true): Snapshot
             from.version++;
             if (destination === 'done') {
                 task.previousStatus = origin === 'snoozed' ? 'inbox' : origin;
-                task.completedAt = op.at;
+                task.completedAt = op.restoreCompletedAt ?? op.at;
             }
             else {
                 task.completedAt = null;

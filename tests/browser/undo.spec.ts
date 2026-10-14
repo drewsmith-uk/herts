@@ -111,3 +111,74 @@ test('failed saves show no undo and duplicate pending actions run once', async (
   await page.locator('.undo-toast').getByRole('button', { name: 'Dismiss' }).click();
   await expect(page.locator('.undo-toast')).toHaveCount(0);
 });
+
+for (const offline of [false, true]) test(`reading undo preserves saved content ${offline ? 'offline' : 'online'}`, async ({ page, request, context }) => {
+  const itemId = crypto.randomUUID(), title = `Saved undo ${itemId}`, headers = { 'x-herts-request': '1' };
+  await request.post('/api/v1/reading/sync', { headers, data: { id: crypto.randomUUID(), itemId, contextId: crypto.randomUUID(), kind: 'create', title, url: `https://example.com/${itemId}`, at: Date.now() } });
+  await page.goto('/#/reading');
+  const row = page.getByRole('group', { name: title, exact: true });
+  await expect(row).toContainText('Available offline');
+  const article = async () => (await request.post('/api/v1/plugins/reading/queries/article', { headers, data: { id: itemId } })).json();
+  const saved = await article();
+  if (offline) await context.setOffline(true);
+  await row.getByRole('button', { name: `Mark read: ${title}`, exact: true }).click();
+  if (!offline) {
+    await expect(page.locator('.save-state')).toHaveText('Changes synced');
+    expect(await article()).toEqual(saved);
+  }
+  await page.locator('.undo-toast').getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(row).toContainText('Available offline');
+  await page.evaluate(id => { location.hash = `/reader/${id}`; }, itemId);
+  await expect(page.locator('.reader-article')).toContainText('Article paragraph 7');
+  if (offline) await context.setOffline(false);
+  await expect(page.locator('.save-state')).toHaveText('Changes synced');
+  expect(await article()).toEqual(saved);
+});
+
+test('undo restores original task and reading completion timestamps on the server', async ({ page, request }) => {
+  const headers = { 'x-herts-request': '1' }, taskId = crypto.randomUUID(), itemId = crypto.randomUUID();
+  const at = Date.now() - 86400000;
+  await request.post('/api/v1/sync', { headers, data: { id: crypto.randomUUID(), taskId, kind: 'create', title: taskId, at: at - 1 } });
+  await request.post('/api/v1/sync', { headers, data: { id: crypto.randomUUID(), taskId, kind: 'move', status: 'done', baseStatus: 'inbox', at } });
+  await request.post('/api/v1/reading/sync', { headers, data: { id: crypto.randomUUID(), itemId, contextId: crypto.randomUUID(), kind: 'create', title: itemId, url: 'https://example.com/time', at: at - 1 } });
+  await request.post('/api/v1/reading/sync', { headers, data: { id: crypto.randomUUID(), itemId, kind: 'read', read: true, baseReadAt: null, at } });
+  await page.goto('/#/tasks/done');
+  await page.getByRole('button', { name: `Reopen ${taskId}`, exact: true }).click();
+  await page.locator('.undo-toast').getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(page.locator('.save-state')).toHaveText('Changes synced');
+  await page.goto('/#/reading/read');
+  await page.getByRole('button', { name: `Mark unread: ${itemId}`, exact: true }).click();
+  await page.locator('.undo-toast').getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(page.locator('.save-state')).toHaveText('Changes synced');
+  const state = (await (await request.get('/api/v1/state')).json()).snapshot;
+  expect(state.tasks.find((item: any) => item.id === taskId).completedAt).toBe(at);
+  expect(state.reading.items.find((item: any) => item.id === itemId).readAt).toBe(at);
+});
+
+test('article cleanup waits until its queued undo window expires', async ({ page, request }) => {
+  const itemId = crypto.randomUUID(), title = `Expire ${itemId}`, headers = { 'x-herts-request': '1' };
+  await request.post('/api/v1/reading/sync', { headers, data: { id: crypto.randomUUID(), itemId, contextId: crypto.randomUUID(), kind: 'create', title, url: `https://example.com/${itemId}`, at: Date.now() } });
+  await page.goto('/#/reading');
+  const row = page.getByRole('group', { name: title, exact: true });
+  await expect(row).toContainText('Available offline');
+  await page.clock.install({ time: new Date('2026-10-14T12:00:00Z') });
+  await page.clock.pauseAt(new Date('2026-10-14T12:00:01Z'));
+  await page.evaluate(async () => {
+    await (globalThis as any).__HERTS_PLUGIN_RUNTIME__.sdk.undoableAction('queue-blocker', 'Earlier change.', async () => {}, async () => {});
+  });
+  await row.getByRole('button', { name: `Mark read: ${title}`, exact: true }).click();
+  const cached = () => page.evaluate(async id => !!await (globalThis as any).__HERTS_PLUGIN_RUNTIME__.sdk.pluginLocal('reading').articles.get(id), itemId);
+  expect(await cached()).toBe(true);
+  await page.clock.runFor(5000);
+  await expect(page.locator('.undo-toast')).toContainText('Marked as read.');
+  expect(await cached()).toBe(true);
+  await page.clock.runFor(4900);
+  expect(await cached()).toBe(true);
+  await page.clock.runFor(100);
+  await expect(page.locator('.undo-toast')).toHaveCount(0);
+  await expect.poll(cached).toBe(false);
+  await page.clock.resume();
+  await expect(page.locator('.save-state')).toHaveText('Changes synced');
+  const state = (await (await request.get('/api/v1/state')).json()).snapshot.reading;
+  expect(state.items.find((item: any) => item.id === itemId).articleHold).toBeUndefined();
+});

@@ -1,22 +1,31 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Button } from './ui';
 
-type Notice = { id: number; key: string; message: string; undo?: () => Promise<unknown> };
+type Notice = { id: number; key: string; message: string; undo?: () => Promise<unknown>; expire?: () => Promise<unknown> };
 let notices: Notice[] = [], sequence = 0;
 const listeners = new Set<() => void>(), pending = new Set<string>();
 const subscribe = (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; };
 const snapshot = () => notices;
 function emit() { for (const listener of listeners) listener(); }
 function remove(id: number) { notices = notices.filter(notice => notice.id !== id); emit(); }
-export async function undoableAction(key: string, message: string, action: () => Promise<unknown>, undo: () => Promise<unknown>) {
+export async function undoableAction(key: string, message: string, action: () => Promise<unknown>, undo: () => Promise<unknown>, expire?: () => Promise<unknown>) {
     if (pending.has(key)) return;
     pending.add(key);
     try {
         await action();
-        notices = [...notices.filter(notice => notice.key !== key), { id: ++sequence, key, message, undo }];
+        for (const notice of notices.filter(notice => notice.key === key)) void finish(notice);
+        notices = [...notices.filter(notice => notice.key !== key), { id: ++sequence, key, message, undo, expire }];
     } catch (error) {
         notices = [...notices, { id: ++sequence, key, message: (error as Error).message || 'Could not save the change.' }];
     } finally { pending.delete(key); emit(); }
+}
+async function finish(notice: Notice) {
+    remove(notice.id);
+    try { await notice.expire?.(); }
+    catch (error) {
+        notices = [...notices, { id: ++sequence, key: notice.key, message: (error as Error).message || 'Could not remove the saved article.' }];
+        emit();
+    }
 }
 export function UndoToasts() {
     const queue = useSyncExternalStore(subscribe, snapshot);
@@ -27,7 +36,7 @@ function UndoToast({ notice }: { notice: Notice }) {
     const working = useRef(false);
     useEffect(() => {
         if (busy || error || !notice.undo) return;
-        const timer = setTimeout(() => remove(notice.id), 5000);
+        const timer = setTimeout(() => void finish(notice), 5000);
         return () => clearTimeout(timer);
     }, [notice, busy, error]);
     async function undo() {

@@ -14,3 +14,16 @@ it('restores a completed snooze atomically and rejects a changed task', () => {
   apply({ id: 'move', taskId: 'task', kind: 'move', status: 'next', baseStatus: 'done', baseSnoozeId: null, at: 4 });
   expect(() => applyTaskOp(state, undo)).toThrow('The task moved');
 });
+
+it('restores the original completion time and Done order after reopening', () => {
+  let state = emptySnapshot();
+  const apply = (op: TaskOp) => { state = applyTaskOp(state, op); };
+  for (const [index, taskId] of ['older', 'newer'].entries()) {
+    apply({ id: `create-${taskId}`, taskId, kind: 'create', title: taskId, at: 1 });
+    apply({ id: `done-${taskId}`, taskId, kind: 'move', status: 'done', baseStatus: 'inbox', at: 10 + index });
+  }
+  apply({ id: 'reopen', taskId: 'older', kind: 'move', status: 'inbox', baseStatus: 'done', at: 20 });
+  apply({ id: 'undo', taskId: 'older', kind: 'move', status: 'done', baseStatus: 'inbox', restoreCompletedAt: 10, at: 30 });
+  expect(state.tasks.find(task => task.id === 'older')?.completedAt).toBe(10);
+  expect(state.lists.done.ids).toEqual(['newer', 'older']);
+});
