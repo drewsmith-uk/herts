@@ -77,6 +77,7 @@ export function taskInboxName(id: string) {
 }
 
 export async function restoreTask(task: Task, beforeId: string | null) {
+    await sync();
     const state = current(), now = state.snapshot.tasks.find(item => item.id === task.id);
     const expected = task.status === 'done' ? ['done', 'snoozed'].includes(task.previousStatus) ? 'inbox' : task.previousStatus : 'done';
     if (!now || now.status !== expected || taskSpaceId(now) !== taskSpaceId(task)) throw new Error('The task changed. Check the task list.');

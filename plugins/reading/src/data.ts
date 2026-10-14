@@ -114,6 +114,7 @@ export function startReading() {
 }
 
 export async function restoreReading(item: ReadingItem, beforeId: string | null) {
+    await sync();
     const now = current().snapshot.reading.items.find(row => row.id === item.id);
     if (!now || (now.readAt === null) === (item.readAt === null)) throw new Error('The item changed. Check the reading list.');
     await readingChange(item.id, { kind: 'read', read: item.readAt !== null, restoreReadAt: item.readAt ?? undefined, beforeId });

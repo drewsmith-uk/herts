@@ -83,6 +83,7 @@ test('undo restores task position and a future snooze', async ({ page, request }
   const before = await rows.evaluateAll(nodes => nodes.map(node => node.getAttribute('data-task-id')));
   await page.getByRole('button', { name: `Complete ${ids[1]}`, exact: true }).click();
   await page.locator('.undo-toast').getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(page.locator('.undo-toast')).toHaveCount(0);
   await expect.poll(() => rows.evaluateAll(nodes => nodes.map(node => node.getAttribute('data-task-id')))).toEqual(before);
   await expect(page.locator('.save-state')).toHaveText('Changes synced');
   const until = Date.now() + 3600000;
@@ -90,6 +91,7 @@ test('undo restores task position and a future snooze', async ({ page, request }
   await page.goto(`/#/spaces/${spaceId}/snoozed`);
   await page.getByRole('button', { name: `Complete ${ids[1]}`, exact: true }).click();
   await page.locator('.undo-toast').getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(page.locator('.undo-toast')).toHaveCount(0);
   await expect(page.getByRole('link', { name: ids[1], exact: true })).toBeVisible();
   await expect(page.locator('.save-state')).toHaveText('Changes synced');
   const state = (await (await request.get('/api/v1/state')).json()).snapshot;
@@ -127,6 +129,7 @@ for (const offline of [false, true]) test(`reading undo preserves saved content 
     expect(await article()).toEqual(saved);
   }
   await page.locator('.undo-toast').getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(page.locator('.undo-toast')).toHaveCount(0);
   await expect(row).toContainText('Available offline');
   await page.evaluate(id => { location.hash = `/reader/${id}`; }, itemId);
   await expect(page.locator('.reader-article')).toContainText('Article paragraph 7');
@@ -145,14 +148,18 @@ test('undo restores original task and reading completion timestamps on the serve
   await page.goto('/#/tasks/done');
   await page.getByRole('button', { name: `Reopen ${taskId}`, exact: true }).click();
   await page.locator('.undo-toast').getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(page.locator('.undo-toast')).toHaveCount(0);
   await expect(page.locator('.save-state')).toHaveText('Changes synced');
   await page.goto('/#/reading/read');
   await page.getByRole('button', { name: `Mark unread: ${itemId}`, exact: true }).click();
   await page.locator('.undo-toast').getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(page.locator('.undo-toast')).toHaveCount(0);
   await expect(page.locator('.save-state')).toHaveText('Changes synced');
-  const state = (await (await request.get('/api/v1/state')).json()).snapshot;
-  expect(state.tasks.find((item: any) => item.id === taskId).completedAt).toBe(at);
-  expect(state.reading.items.find((item: any) => item.id === itemId).readAt).toBe(at);
+  await expect.poll(async () => {
+    const state = (await (await request.get('/api/v1/state')).json()).snapshot;
+    return [state.tasks.find((item: any) => item.id === taskId).completedAt,
+      state.reading.items.find((item: any) => item.id === itemId).readAt];
+  }).toEqual([at, at]);
 });
 
 test('article cleanup waits until its queued undo window expires', async ({ page, request }) => {
@@ -181,4 +188,37 @@ test('article cleanup waits until its queued undo window expires', async ({ page
   await expect(page.locator('.save-state')).toHaveText('Changes synced');
   const state = (await (await request.get('/api/v1/state')).json()).snapshot.reading;
   expect(state.items.find((item: any) => item.id === itemId).articleHold).toBeUndefined();
+});
+
+for (const plugin of ['tasks', 'reading']) test(`${plugin} undo waits for a delayed save acknowledgement`, async ({ page, request }) => {
+  const id = crypto.randomUUID(), headers = { 'x-herts-request': '1' };
+  const reading = plugin === 'reading';
+  await request.post(reading ? '/api/v1/reading/sync' : '/api/v1/sync', { headers, data: reading
+    ? { id: crypto.randomUUID(), itemId: id, contextId: crypto.randomUUID(), kind: 'create', title: id, url: 'https://example.com/delayed-undo', at: Date.now() }
+    : { id: crypto.randomUUID(), taskId: id, kind: 'create', title: id, at: Date.now() } });
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  let delayed = false;
+  await page.route(`**/api/v1/plugins/${plugin}/commands`, async route => {
+    if (delayed) return route.continue();
+    delayed = true;
+    const response = await route.fetch();
+    await held;
+    await route.fulfill({ response });
+  });
+  try {
+    await page.goto(reading ? '/#/reading' : '/#/tasks/inbox');
+    await page.getByRole('button', { name: reading ? `Mark read: ${id}` : `Complete ${id}`, exact: true }).click();
+    const toast = page.locator('.undo-toast');
+    await toast.getByRole('button', { name: 'Undo', exact: true }).click();
+    await expect(toast).toContainText('Undoing');
+    await expect(toast.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
+    release();
+    await expect(toast).toHaveCount(0);
+    await expect(page.getByRole('link', { name: id, exact: true })).toBeVisible();
+    await expect.poll(async () => {
+      const snapshot = (await (await request.get('/api/v1/state')).json()).snapshot;
+      return reading ? snapshot.reading.items.find((item: any) => item.id === id).readAt : snapshot.tasks.find((item: any) => item.id === id).status;
+    }).toBe(reading ? null : 'inbox');
+  } finally { release(); }
 });

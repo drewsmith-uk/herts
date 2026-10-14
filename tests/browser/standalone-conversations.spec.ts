@@ -126,13 +126,17 @@ test('shows saved history and a retry when a new conversation reference is unava
   const id = `unavailable-${crypto.randomUUID()}`, text = 'Saved history remains readable while the conversation reference is unavailable.';
   expect((await request.post('/__test/conversation-message', { headers: { 'x-herts-request': '1' }, data: { id, title: 'Conversation retry', text } })).ok()).toBe(true);
   const before = await calls(request), endpoint = `**/api/v1/conversations/${id}/context`;
-  await page.route(endpoint, route => route.fulfill({ status: 503, json: { error: 'Hermes is temporarily unavailable.' } }));
+  await page.route(endpoint, async route => {
+    if (await page.evaluate(() => (window as any).allowContextRetry === true)) await route.continue();
+    else await route.fulfill({ status: 503, json: { error: 'Hermes is temporarily unavailable.' } });
+  });
   await page.goto(`/#/conversation/${id}`);
   await expect(page.getByText('Hermes is temporarily unavailable.', { exact: true })).toBeVisible();
   await expect(page.locator('.message').last()).toContainText(text);
   await expect(page.getByLabel('Message Hermes')).toHaveCount(0);
-  await page.unroute(endpoint);
-  await page.getByRole('button', { name: 'Try again', exact: true }).click();
+  const retry = page.getByRole('button', { name: 'Try again', exact: true });
+  await retry.evaluate(button => button.addEventListener('click', () => { (window as any).allowContextRetry = true; }, { once: true }));
+  await retry.click();
   await expect(page.getByLabel('Message Hermes')).toBeEditable();
   expect(await calls(request)).toEqual(before);
 });
