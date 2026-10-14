@@ -32,3 +32,5 @@ export { reviewPluginAction } from '../src/pluginApi';
 export { pluginNotifications, type DeviceNotification, type DeviceNotificationInput } from '../src/pluginNotifications';
 export { subscribeCore } from '../src/data';
 export { getConversationTitle } from '../src/plugins';
+
+export { undoableAction } from '../src/UndoToast';

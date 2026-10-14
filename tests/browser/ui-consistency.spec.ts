@@ -284,3 +284,43 @@ for (const theme of builtinThemes) {
     }
   });
 }
+
+for (const theme of builtinThemes) {
+  test(`${theme.name}: undo toast fits the shared lists`, async ({ page, request }) => {
+    await page.addInitScript(({ key, theme }) => localStorage.setItem(key, JSON.stringify({ id: theme.id, theme })), { key: themeStorageKey, theme });
+    const title = `${theme.name}: Undo layout ` + 'long task title https://example.com/reference '.repeat(8);
+    await request.post('/api/v1/sync', { headers: { 'x-herts-request': '1' }, data: { id: crypto.randomUUID(), taskId: crypto.randomUUID(), kind: 'create', title, at: Date.now() } });
+    await request.post('/api/v1/reading/sync', { headers: { 'x-herts-request': '1' }, data: { id: crypto.randomUUID(), itemId: crypto.randomUUID(), contextId: crypto.randomUUID(), kind: 'create', title, url: `https://example.com/undo-${theme.id}`, at: Date.now() } });
+    for (const width of [320, 390, 768, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      for (const path of ['/tasks/inbox', '/reading', '/conversations']) {
+        await page.goto(`/#${path}`);
+        if (path === '/conversations') {
+          await page.getByLabel('Search conversations').fill('Header conversation');
+          const hide = page.locator('[data-conversation-key="header-history"]').getByRole('button', { name: 'Hide', exact: true });
+          await hide.focus();
+          await page.keyboard.press('Enter');
+        } else {
+          await page.getByRole('button', { name: `${path === '/reading' ? 'Mark read:' : 'Complete'} ${title}`, exact: true }).click();
+        }
+        const toast = page.locator('.undo-toast');
+        await expect(toast).toBeVisible();
+        const bounds = (await toast.boundingBox())!;
+        expect(bounds.x).toBeGreaterThanOrEqual(0);
+        expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+        expect(bounds.height).toBeLessThanOrEqual(64);
+        const bottom = width <= 700 ? (await page.locator('.mobile-nav').boundingBox())!.y : 900;
+        expect(bounds.y + bounds.height).toBeLessThan(bottom);
+        await toast.getByRole('button', { name: 'Undo', exact: true }).focus();
+        await expect(toast.getByRole('button', { name: 'Undo', exact: true })).toBeFocused();
+        await page.screenshot({ path: `test-results/undo-${theme.id}-${path.split('/')[1]}-${width}.png` });
+        await page.keyboard.press('Enter');
+        await expect(toast).toHaveCount(0);
+        await expect(page.locator('.save-state')).toHaveText('Changes synced');
+        await expect(page.locator('.conflict-banner')).toHaveCount(0);
+        if (path === '/conversations') await expect(page.locator('[data-conversation-key="header-history"]')).toBeVisible();
+        else await expect(page.getByRole('link', { name: title, exact: true })).toBeVisible();
+      }
+    }
+  });
+}

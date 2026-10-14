@@ -151,3 +151,12 @@ a.task-title { min-height: var(--control-size); display: flex; align-items: cent
 .form-dialog .check-field { display:flex;align-items:center; }
 
 button.draft-open { width:100%;align-items:flex-start;text-align:left;background:none;border:0;padding:0;box-shadow:none; }
+
+.undo-toast { position: fixed; z-index: 59; bottom: 16px; right: 16px; display: flex; align-items: center; gap: 16px; width: max-content; max-width: min(380px, calc(100vw - 32px)); min-height: 48px; padding: 0 8px 0 16px; overflow: hidden; border: var(--border-width, 1px) solid var(--color-border); border-radius: var(--radius-control); background: var(--color-surface); color: var(--color-text); box-shadow: var(--shadow-floating); font-size: var(--text-secondary); }
+.undo-toast > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.undo-toast button { flex-shrink: 0; color: var(--color-link); min-height: 44px; }
+.undo-toast-timer { position: absolute; inset: auto 0 0; height: 2px; background: var(--color-primary-action); transform-origin: left; animation: undo-countdown 5s linear forwards; }
+@keyframes undo-countdown { to { transform: scaleX(0); } }
+@media (max-width: 700px) { .undo-toast { bottom: calc(82px + env(safe-area-inset-bottom)); } }
+body:has(.update-toast) .undo-toast { bottom: 220px; }
+@media (prefers-reduced-motion: reduce) { .undo-toast-timer { animation-timing-function: steps(5, end); } }

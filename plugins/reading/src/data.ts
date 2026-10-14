@@ -1,5 +1,5 @@
 import { useCore, getCore, pluginLocal, mutatePlugin, resolvePluginOperation, pluginQuery, conversationDrafts, submit, sync, publish, rebuild, type CoreState } from '@herts/plugin-api/client';
-import { normalizeUrl, emptyReading, retainsArticle, type ReadingState, type ReadingOp, type Article } from './model';
+import { normalizeUrl, emptyReading, retainsArticle, type ReadingState, type ReadingOp, type ReadingItem, type Article } from './model';
 export { sync, publish };
 const copies: Record<string, Article> = {}, errors: Record<string, {
     version: number;
@@ -111,4 +111,10 @@ export function startReading() {
     void download();
     const timer = setInterval(() => void download(), 5000);
     return () => { stopped = true; clearInterval(timer); };
+}
+
+export async function restoreReading(item: ReadingItem, beforeId: string | null) {
+    const now = current().snapshot.reading.items.find(row => row.id === item.id);
+    if (!now || (now.readAt === null) === (item.readAt === null)) throw new Error('The item changed. Check the reading list.');
+    await readingChange(item.id, { kind: 'read', read: item.readAt !== null, beforeId });
 }

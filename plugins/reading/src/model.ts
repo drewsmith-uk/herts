@@ -123,8 +123,10 @@ export function applyReadingOp(input: ReadingState, op: ReadingOp, check = true)
             item.readAt = op.read ? op.at : null;
             item.downloadVersion++;
             s.unread.ids = s.unread.ids.filter(id => id !== item.id);
-            if (!op.read)
-                s.unread.ids.unshift(item.id);
+            if (!op.read) {
+                const position = op.beforeId === undefined ? 0 : op.beforeId === null ? s.unread.ids.length : s.unread.ids.indexOf(op.beforeId);
+                s.unread.ids.splice(position < 0 ? s.unread.ids.length : position, 0, item.id);
+            }
             s.unread.version++;
         }
         else if (op.kind === 'reorder') {

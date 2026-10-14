@@ -3,9 +3,9 @@ import { AlarmClock, ArrowDown, ArrowUp, Check, Circle } from 'lucide-react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import type { Task } from './model';
-import { moveTask, renameTask, useApp } from './data';
+import { moveTask, restoreTask, renameTask, useApp } from './data';
 import { holdListeners, useTaskInteractions } from './TaskDragging';
-import { useUpdatePreparation, useUpdateWork, ItemRow, ItemMeta, IconButton } from '@herts/plugin-api/client';
+import { undoableAction, useUpdatePreparation, useUpdateWork, ItemRow, ItemMeta, IconButton } from '@herts/plugin-api/client';
 const time = (at: number) => new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(at);
 export function TaskRow({ task, edit, index, tasks }: {
     task: Task;
@@ -89,7 +89,7 @@ export function TaskRow({ task, edit, index, tasks }: {
     } }}>
     <div className={`task-swipe-action ${offset < 0 ? 'swipe-left' : ''}`} aria-hidden="true"><AlarmClock size={20}/>Snooze</div>
     <ItemRow className={`task-row ${task.status === 'done' ? 'completed' : ''} ${offset ? 'swiping' : ''}`} style={{ transform: `translateX(${offset}px)` }}
-      leading={<IconButton className="completion-button" aria-label={task.status === 'done' ? `Reopen ${task.title}` : `Complete ${task.title}`} onClick={() => void moveTask(task.id, task.status === 'done' ? ['done', 'snoozed'].includes(task.previousStatus) ? 'inbox' : task.previousStatus : 'done')}>{task.status === 'done' ? <Check size={18}/> : <Circle size={21}/>}</IconButton>}
+      leading={<IconButton className="completion-button" aria-label={task.status === 'done' ? `Reopen ${task.title}` : `Complete ${task.title}`} onClick={() => void undoableAction(`task:${task.id}`, task.status === 'done' ? 'Task reopened.' : 'Marked as complete.', () => moveTask(task.id, task.status === 'done' ? ['done', 'snoozed'].includes(task.previousStatus) ? 'inbox' : task.previousStatus : 'done'), () => restoreTask(task, tasks[index + 1]?.id || null))}>{task.status === 'done' ? <Check size={18}/> : <Circle size={21}/>}</IconButton>}
       trailing={<>{action && !['finished', 'failed', 'ready', 'unknown'].includes(action.state) && <span className={`activity-chip ${action.state === 'awaiting_input' ? 'attention' : ''}`}>{action.state === 'awaiting_input' ? 'Needs you' : 'Working'}</span>}
       {edit && ordered && <div className="reorder-controls"><IconButton aria-label={`Move ${task.title} up`} disabled={!index} onClick={() => void moveTask(task.id, task.status, tasks[index - 1].id)}><ArrowUp size={16}/></IconButton><IconButton aria-label={`Move ${task.title} down`} disabled={index === tasks.length - 1} onClick={() => void moveTask(task.id, task.status, tasks[index + 2]?.id || null)}><ArrowDown size={16}/></IconButton></div>}</>}>
       {edit ? <input className="inline-title" aria-label="Edit task title" value={text} onChange={e => setText(e.target.value)} onBlur={() => { if (text.trim() && text.trim() !== task.title)
