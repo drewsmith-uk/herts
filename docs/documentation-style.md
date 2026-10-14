@@ -53,6 +53,9 @@ They do not exempt surrounding prose from the writing rules.
 | migration | A change to stored data that a new application version requires. |
 | fixture | Isolated synthetic data or services used by a test. |
 | PWA | Progressive web app; an app installed through a browser. |
+| pin | Save a conversation title as a device notification. Also, the saved notification record. |
+| service worker | A browser script that can run without an open app window. |
+| restoration | Showing a saved notification again after dismissal. |
 | UI | User interface. |
 | API | Application programming interface. |
 
