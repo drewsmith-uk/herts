@@ -1,0 +1,9 @@
+{
+  "id": "pinned",
+  "name": "Pinned",
+  "description": "Keep conversation titles in notifications on this device.",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "schemaVersion": 0,
+  "client": "client.js"
+}

@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "dev:server": "tsx watch server/index.ts",
-    "build": "tsc --noEmit && node scripts/build-plugins.mjs plugins/tasks plugins/reading plugins/bots examples/notes && vite build && node scripts/build-sw.mjs",
+    "build": "tsc --noEmit && node scripts/build-plugins.mjs plugins/tasks plugins/reading plugins/bots plugins/pinned examples/notes && vite build && node scripts/build-sw.mjs",
     "start": "tsx server/index.ts",
     "test": "vitest run",
     "test:browser": "playwright test",

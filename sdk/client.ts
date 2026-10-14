@@ -29,3 +29,6 @@ export { MessageAuthor } from '../src/MessageAuthor';
 export { useMessageSpeech } from '../src/useMessageSpeech';
 
 export { reviewPluginAction } from '../src/pluginApi';
+export { pluginNotifications, type DeviceNotification, type DeviceNotificationInput } from '../src/pluginNotifications';
+export { subscribeCore } from '../src/data';
+export { getConversationTitle } from '../src/plugins';

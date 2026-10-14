@@ -133,5 +133,7 @@ function BotsPage({ parts }: RouteProps) {
 function Screen(props: RouteProps) { return <><style>{styles}</style><BotsPage {...props}/></>; }
 export default function activate(): ClientPlugin {
   if (!sdk.MessageAuthor || !sdk.useMessageSpeech || !sdk.reviewPluginAction || !sdk.FormDialog || !sdk.SwipeRow || !sdk.ModelPicker || !sdk.MessageMarkdown || !sdk.useListState || !sdk.DialogHeading) return { tab: { title: 'Bots', path: '/plugins/bots' }, routes: [{ match: p => p.startsWith('/plugins/bots'), component: () => <p>Update Herts through Settings → App updates to use Bots.</p> }] };
-  return { tab: { title: 'Bots', path: '/plugins/bots', icon: BotIcon }, routes: [{ match: p => p === '/plugins/bots' || p.startsWith('/plugins/bots/'), component: Screen }], filter: { id: 'linked', label: 'Bot Chats', visible: (conversation, _records, contexts) => !conversation.botChat && !contexts.some(c => c.botChat && c.aliases.includes(conversation.id)) }, ConversationBadge: ({ context, conversation }) => context?.botChat || conversation.botChat ? <span>Bot Chat</span> : null };
+  return { tab: { title: 'Bots', path: '/plugins/bots', icon: BotIcon }, routes: [{ match: p => p === '/plugins/bots' || p.startsWith('/plugins/bots/'), component: Screen }],
+    conversationTitle(contextId) { return sdk.getCore().snapshot.contexts.find(context => context.id === contextId)?.title; },
+    filter: { id: 'linked', label: 'Bot Chats', visible: (conversation, _records, contexts) => !conversation.botChat && !contexts.some(c => c.botChat && c.aliases.includes(conversation.id)) }, ConversationBadge: ({ context, conversation }) => context?.botChat || conversation.botChat ? <span>Bot Chat</span> : null };
 }

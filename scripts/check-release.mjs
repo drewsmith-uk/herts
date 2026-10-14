@@ -13,7 +13,7 @@ const run = (command, args) => {
 run(process.execPath, ['scripts/check-docs.mjs']);
 run(process.execPath, ['--test', 'tests/docs-style.test.mjs']);
 run(process.execPath, ['node_modules/typescript/bin/tsc', '--noEmit']);
-run(process.execPath, ['scripts/build-plugins.mjs', 'plugins/tasks', 'plugins/reading', 'plugins/bots', 'examples/notes']);
+run(process.execPath, ['scripts/build-plugins.mjs', 'plugins/tasks', 'plugins/reading', 'plugins/bots', 'plugins/pinned', 'examples/notes']);
 run(process.execPath, ['node_modules/vite/bin/vite.js', 'build', '--outDir', dist]);
 run(process.execPath, ['scripts/build-sw.mjs', dist]);
 run(process.execPath, ['node_modules/vitest/vitest.mjs', 'run', '--maxWorkers=2', '--testTimeout=15000']);

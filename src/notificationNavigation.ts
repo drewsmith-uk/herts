@@ -1,4 +1,5 @@
 import { flushSync } from 'react-dom';
+import { deviceNotificationRoute } from '../shared/deviceNotifications';
 
 // A notification can change the route without reloading the installed app.
 export function replaceRoute(path: string) {
@@ -13,7 +14,7 @@ export function installNotificationNavigation() {
       || event.source.scriptURL !== new URL('/sw.js', location.origin).href
       || event.data?.type !== 'OPEN_NOTIFICATION') return;
     const data = event.data;
-    const path = data.kind === 'test' ? '/settings'
+    const path = data.kind === 'device-plugin' && deviceNotificationRoute(data.route) ? data.route : data.kind === 'test' ? '/settings'
       : typeof data.id === 'string' && data.id ? `/notice/${encodeURIComponent(data.id)}` : '/tasks';
     // Commit the notification view before acknowledging readiness to foreground
     // the app. Do not wait for a paint: hidden pages may not receive animation

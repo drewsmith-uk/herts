@@ -12,7 +12,7 @@ async function reminder(request: APIRequestContext, title: string) {
 }
 async function ready(page: Page) {
   await page.goto('/#/settings');
-  await expect(page.getByRole('heading', { name: 'Notifications on this device' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Push notifications on this device' })).toBeVisible();
   await page.evaluate(() => navigator.serviceWorker.ready.then(() => true));
   await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
 }
@@ -84,7 +84,7 @@ test('a warm notification switches to its task and test Settings without a docum
   await expect(page).toHaveURL(new RegExp(`#/task/${second.taskId}$`));
   await expect((await detailsField(page, 'Task title'))).toHaveValue('In-place reminder two');
   await deliver(page, { kind: 'test' });
-  await expect(page.getByRole('heading', { name: 'Notifications on this device' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Push notifications on this device' })).toBeVisible();
   expect(await page.evaluate(() => performance.timeOrigin)).toBe(documentStarted); expect(documents).toEqual([]);
   expect(await agentCalls(request)).toEqual(before);
 });
@@ -123,7 +123,7 @@ test('notification intent survives offline reload and cold launches wait for the
     await page.goto(`/?notice=${encodeURIComponent(notice.id)}`);
     await expect(page.getByText('Opening notification…', { exact: true })).toBeVisible();
     await expect(page.getByLabel('Message Hermes', { exact: true })).toHaveCount(0);
-    await expect(page.getByRole('heading', { name: 'Notifications on this device' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Push notifications on this device' })).toHaveCount(0);
     await reply.release(); await expect((await detailsField(page, 'Task title'))).toHaveValue('Recovered reminder');
     expect(new URL(page.url()).search).toBe('');
   } finally { await reply.release(); }

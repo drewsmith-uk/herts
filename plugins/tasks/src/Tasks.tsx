@@ -37,7 +37,7 @@ function TaskDetail({ task }: {
     const savingTitle = useUpdateWork();
     useUpdatePreparation({ blocked: () => title.trim() !== task.title ? 'The task title is still being saved. Please try updating again after it is saved.' : undefined });
     useEffect(() => setTitle(task.title), [task.title]);
-    return <div className="task-detail"><ConversationHeader title={title || task.title} backHref={`#${spacePath(taskSpaceId(task), task.status)}`} backLabel={`${spaceName(state.snapshot, taskSpaceId(task))} / ${labels[task.status]}`} context={contextForTask(task.id)}><div className="detail-heading"><textarea className="detail-title" aria-label="Task title" rows={2} value={title} onChange={e => setTitle(e.target.value)} onBlur={() => { if (title.trim() && title !== task.title)
+    return <div className="task-detail"><ConversationHeader title={title || task.title} savedTitle={task.title} backHref={`#${spacePath(taskSpaceId(task), task.status)}`} backLabel={`${spaceName(state.snapshot, taskSpaceId(task))} / ${labels[task.status]}`} context={contextForTask(task.id)}><div className="detail-heading"><textarea className="detail-title" aria-label="Task title" rows={2} value={title} onChange={e => setTitle(e.target.value)} onBlur={() => { if (title.trim() && title !== task.title)
         void savingTitle(renameTask(task.id, title));
     else
         setTitle(task.title); }}/><div className="detail-controls"><select aria-label="Task space" value={taskSpaceId(task)} onChange={e => void moveTask(task.id, 'inbox', undefined, e.target.value)}>{state.snapshot.spaces?.map(space => <option key={space.id} value={space.id}>{space.name}</option>)}</select><select aria-label="Task list" value={task.status} onChange={e => { if (e.target.value === 'snoozed')

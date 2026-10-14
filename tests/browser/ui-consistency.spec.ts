@@ -1,11 +1,12 @@
 import { test, expect } from '@playwright/test';
+import { pinnedPlugin, pinnedReady, seedPin } from './pinned-helpers';
 import { builtinThemes, themeStorageKey } from '../../shared/themeValues';
 
 async function bots(request: import('@playwright/test').APIRequestContext, action: 'enable' | 'disable') {
   const { catalogue } = await (await request.get('/api/v1/plugins')).json();
   expect((await request.post('/api/v1/plugins/bots/manage', { headers: { 'x-herts-request': '1' }, data: { action, revision: catalogue.revision } })).ok()).toBe(true);
 }
-test.afterEach(async ({ request }) => { await bots(request, 'disable'); });
+test.afterEach(async ({ request }) => { await bots(request, 'disable'); await pinnedPlugin(request, 'disable'); });
 
 test('an older app gets an actionable plugin update message and can still open app updates', async ({ page }) => {
   await page.addInitScript(() => {
@@ -211,5 +212,75 @@ for (const theme of builtinThemes) {
     await page.keyboard.press('Escape');
     await expect(dialog).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Edit conversation defaults', exact: true })).toBeFocused();
+  });
+}
+
+for (const theme of builtinThemes) {
+  test(`${theme.name}: pinned notifications match shared lists and conversation controls`, async ({ page, request, context }) => {
+    test.setTimeout(180_000);
+    await pinnedPlugin(request, 'enable'); await context.grantPermissions(['notifications']);
+    await page.addInitScript(({ key, theme }) => localStorage.setItem(key, JSON.stringify({ id: theme.id, theme })), { key: themeStorageKey, theme });
+    await pinnedReady(page);
+    const title = 'Review the project plan and reference https://example.com/' + 'long-reference-without-spaces'.repeat(20);
+    await seedPin(page, title); await seedPin(page, 'Prepare an agenda, review the research notes, and confirm the next project meeting');
+    for (const width of [320, 390, 768, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto('/#/conversations'); await expect(page.locator('.conversation-row').first()).toBeVisible();
+      await page.screenshot({ path: `test-results/pinned-${theme.id}-comparison-${width}.png` });
+      await page.goto('/#/plugins/pinned'); await expect(page.locator('.pinned-list .item-row')).toHaveCount(2);
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme.id);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      for (const row of await page.locator('.pinned-list .item-row').all()) {
+        const titleBounds = (await row.locator('.draft-open').boundingBox())!;
+        const actionBounds = (await row.getByRole('button', { name: /^Unpin:/ }).boundingBox())!;
+        expect(Math.abs(titleBounds.y + titleBounds.height / 2 - actionBounds.y - actionBounds.height / 2)).toBeLessThan(2);
+      }
+      const searchBounds = (await page.locator('.search-field').boundingBox())!;
+      const listBounds = (await page.locator('.pinned-list').boundingBox())!;
+      expect(listBounds.y - searchBounds.y - searchBounds.height).toBeGreaterThanOrEqual(16);
+      const links = page.locator('.pinned-list a');
+      for (const link of await links.all()) await expect(link).toHaveAttribute('href', '#/conversation/existing');
+      const search = page.getByRole('searchbox', { name: 'Search pinned notifications' });
+      await search.focus(); await expect(search).toBeFocused();
+      await page.keyboard.press('Tab'); await expect(page.locator('.pinned-list a').first()).toBeFocused();
+      for (const control of await page.locator('.pinned-list button, .search-field').all()) {
+        const bounds = (await control.boundingBox())!;
+        expect(bounds.x).toBeGreaterThanOrEqual(0); expect(bounds.x + bounds.width).toBeLessThanOrEqual(width + 1);
+        expect(bounds.height).toBeGreaterThanOrEqual(44);
+      }
+      await page.screenshot({ path: `test-results/pinned-${theme.id}-list-${width}.png` });
+      await search.fill('no matching notification'); await expect(page.getByRole('heading', { name: 'No pins match this search' })).toBeVisible();
+      await page.getByRole('button', { name: 'Clear search pinned notifications' }).click(); await expect(page.locator('.pinned-list .item-row')).toHaveCount(2);
+      await context.clearPermissions();
+      const retryPins = () => page.evaluate(async () => {
+        const service = (globalThis as any).__HERTS_PLUGIN_RUNTIME__.sdk.pluginNotifications('pinned');
+        for (const row of await service.list()) await service.retry(row.key);
+      });
+      await retryPins(); await expect(page.locator('.pinned-list').getByRole('button', { name: 'Retry', exact: true })).toHaveCount(2);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      for (const control of await page.locator('.pinned-list button').all()) {
+        const bounds = (await control.boundingBox())!;
+        expect(bounds.x).toBeGreaterThanOrEqual(0); expect(bounds.x + bounds.width).toBeLessThanOrEqual(width + 1);
+      }
+      await page.screenshot({ path: `test-results/pinned-${theme.id}-failure-${width}.png` });
+      await context.grantPermissions(['notifications']); await retryPins();
+      await expect(page.locator('.pinned-list').getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0);
+      await page.setViewportSize({ width, height: 480 }); await page.goto('/#/conversation/existing');
+      const pin = page.getByRole('button', { name: 'Pin notification', exact: true }); await expect(pin).toBeEnabled();
+      await pin.focus(); await expect(pin).toBeFocused();
+      const bounds = (await pin.boundingBox())!;
+      expect(bounds.x).toBeGreaterThanOrEqual(0); expect(bounds.x + bounds.width).toBeLessThanOrEqual(width + 1);
+      expect(bounds.height).toBeGreaterThanOrEqual(44);
+      for (const control of await page.locator('.conversation-toolbar button, .conversation-toolbar a').all()) {
+        if (!await control.isVisible()) continue;
+        const box = (await control.boundingBox())!;
+        expect(box.x).toBeGreaterThanOrEqual(0); expect(box.x + box.width).toBeLessThanOrEqual(width + 1);
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      const composer = (await page.locator('.composer-wrap').boundingBox())!;
+      const bottom = width <= 700 ? await page.locator('.mobile-nav').evaluate(node => node.getBoundingClientRect().top) : 480;
+      expect(composer.y + composer.height).toBeLessThanOrEqual(bottom + 1);
+      await page.screenshot({ path: `test-results/pinned-${theme.id}-conversation-${width}.png` });
+    }
   });
 }

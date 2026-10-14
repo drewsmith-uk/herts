@@ -1,9 +1,10 @@
-.conversation-toolbar { display: flex; align-items: center; gap: 8px; min-height: 44px; }
+.conversation-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 44px; }
 .conversation-back { display: inline-flex; align-items: center; gap: 5px; min-height: 44px; min-width: 44px; max-width: 55%; color: var(--color-text-secondary); font-size: .85rem; margin-right: auto; }
 .conversation-back svg { flex-shrink: 0; }
 .conversation-back span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .conversation-compact-title { display: none; }
 .conversation-toolbar .conversation-plugin-actions { margin: 0; flex-shrink: 0; }
+.conversation-details-toggle { flex-shrink: 0; }
 .conversation-toolbar .conversation-plugin-actions > button { white-space: nowrap; }
 .conversation-toolbar .conversation-plugin-actions:empty { display: none; }
 .conversation-header-details { padding: 10px 0 6px; }
@@ -40,4 +41,7 @@
   .conversation-toolbar .conversation-plugin-actions > button { padding-inline: 8px; font-size: .78rem; }
   .conversation-toolbar .conversation-plugin-actions > button svg { width: 15px; }
   .conversation-status-link, .conversation-stop { font-size: .8rem; }
+}
+@media(max-width:420px) {
+  .conversation-toolbar:has(.conversation-plugin-actions > :nth-child(2)) .conversation-plugin-actions { order: 3; flex-basis: 100%; justify-content: flex-end; }
 }
