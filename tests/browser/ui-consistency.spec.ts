@@ -364,3 +364,27 @@ for (const theme of builtinThemes) test(`${theme.name}: speech preparation and e
     } finally {release();await page.unroute('**/api/v1/audio/speak');}
   }
 });
+
+for (const theme of builtinThemes) test(`${theme.name}: file downloads fit conversation layouts`, async ({ page }) => {
+  await page.addInitScript(({key,theme}) => localStorage.setItem(key,JSON.stringify({id:theme.id,theme})),{key:themeStorageKey,theme});
+  const filename = 'Project-review-and-accessibility-report-'.repeat(4) + '.html';
+  await page.route('**/api/v1/conversations/*/history*', route => route.fulfill({json:{sessionId:'existing',offset:0,order:'latest',hasMore:false,fetchedAt:Date.now(),messages:[
+    {role:'assistant',content:`The report contains the review results.\n\nMEDIA:/tmp/${filename}`},
+  ]}}));
+  await page.route('**/api/v1/media', route => route.fulfill({status:503,json:{error:'Hermes is unavailable. Try again when the connection returns.'}}));
+  for (const width of [320,390,768,1280]) {
+    await page.setViewportSize({width,height:480});
+    await page.goto('/#/conversation/existing');
+    const button = page.getByRole('button',{name:'Download file',exact:true});
+    await button.focus(); await expect(button).toBeFocused();
+    await page.screenshot({path:`test-results/media-${theme.id}-${width}-idle.png`});
+    await button.press('Enter');
+    await expect(page.locator('.message-file [role="alert"]')).toBeVisible();
+    for (const element of [page.locator('.message-file'),button]) {
+      const bounds = (await element.boundingBox())!;
+      expect(bounds.x).toBeGreaterThanOrEqual(0);expect(bounds.x+bounds.width).toBeLessThanOrEqual(width+1);
+    }
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    await page.screenshot({path:`test-results/media-${theme.id}-${width}-error.png`});
+  }
+});

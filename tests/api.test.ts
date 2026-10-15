@@ -354,7 +354,7 @@ describe('private API and upload recovery', () => {
   });
   it('serves only files referenced in the selected personal message and speaks assistant responses only', async () => {
     const { app, gateway } = await fixture(); const headers = {'x-tasks-request':'1'}; const requests: string[] = [];
-    gateway.history = async () => ({sessionId:'personal',offset:0,hasMore:false,fetchedAt:Date.now(),messages:[{id:1,role:'user',content:'My private question'}, {id:2,role:'assistant',content:'Response with @file:/tmp/report.pdf'}]});
+    gateway.history = async () => ({sessionId:'personal',offset:0,hasMore:false,fetchedAt:Date.now(),messages:[{id:1,role:'user',content:'My private question'}, {id:2,role:'assistant',content:'Response with MEDIA:/tmp/report.pdf'}]});
     gateway.http = async path => { requests.push(path); return {dataUrl:'data:application/pdf;base64,JVBERg=='}; };
     const body = {conversationId:'personal',offset:0,index:1,path:'/etc/passwd'};
     expect((await app.inject({method:'POST',url:'/api/v1/media',headers,payload:body})).statusCode).toBe(409); expect(requests).toHaveLength(0);
