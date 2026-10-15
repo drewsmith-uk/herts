@@ -55,3 +55,10 @@ describe('Desktop history and personal conversation projection', () => {
     expect(request).toContain('order=latest&limit=200&offset=200'); expect(page.order).toBe('latest'); expect(page.messages.map(m=>m.id)).toEqual([251,450]); expect(page.hasMore).toBe(true);
   });
 });
+
+it('recognises MEDIA markers, quoted paths, and duplicate references', () => {
+  const content = 'MEDIA:/tmp/report.html\nMEDIA: "/tmp/report with spaces.html"\nMEDIA:\'/tmp/notes.pdf\'\nMEDIA:`/tmp/chart.png`\n@file:/tmp/report.html\nMEDIA:https://example.com/private\nMEDIA:javascript:alert(1)';
+  expect(mediaRefs({ role: 'assistant', content }).map(ref => ref.path)).toEqual([
+    '/tmp/report.html', '/tmp/report with spaces.html', '/tmp/notes.pdf', '/tmp/chart.png',
+  ]);
+});
