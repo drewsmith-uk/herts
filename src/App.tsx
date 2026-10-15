@@ -13,6 +13,7 @@ import { PluginSettings } from './PluginSettings';
 import { NotificationSettings } from './NotificationSettings';
 import { AppUpdateSettings } from './AppUpdates';
 import { NewConversationDefaults } from './SessionSettings';
+import { SpeechSettings } from './SpeechSettings';
 import { AppearanceSettings } from './AppearanceSettings';
 import type { RouteProps } from './pluginContract';
 import type { SharedContent } from '../shared/plugins';
@@ -66,7 +67,7 @@ function Preferences({ plugins }: { plugins: boolean }) {
     const state = useApp();
     return <><PageHeader title="Settings"/>
       <SectionNav variant="sections" className="settings-tabs" aria-label="Settings sections"><SectionLink active={!plugins} href="#/settings">General</SectionLink><SectionLink active={plugins} href="#/settings/plugins">Plugins</SectionLink></SectionNav>
-      {plugins ? <PluginSettings /> : <><AppearanceSettings /><AppUpdateSettings /><NewConversationDefaults /><NotificationSettings />
+      {plugins ? <PluginSettings /> : <><AppearanceSettings /><SpeechSettings /><AppUpdateSettings /><NewConversationDefaults /><NotificationSettings />
         <SettingsSection title="Hermes connection" icon={<Link2 size={22}/>} description={state.gateway.promptError || (state.gateway.online ? `Connected to your ${state.gateway.profile || 'default'} profile.` : state.gateway.configured ? 'Hermes is currently unavailable. Saved data remains usable.' : 'The Hermes connection has not been configured yet.')} >{state.gateway.promptWarning && <p role="status">{state.gateway.promptWarning}</p>}</SettingsSection>
         <SettingsSection title="Sync" icon={<RefreshCw size={22}/>}>
           <Button onClick={() => void refresh()} disabled={!navigator.onLine}>Sync now</Button>

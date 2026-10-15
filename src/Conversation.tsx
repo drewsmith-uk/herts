@@ -86,7 +86,7 @@ function ModelSwitchConfirmation({ action }: { action: Action }) {
 
 export function HistoryView({ conversationId, assistantName = 'Hermes', version = 0, liveText, working = false, phase, outgoing, outgoingAction, sendVersion = 0 }: { conversationId: string; assistantName?: string; version?: number | string; liveText?: string; working?: boolean; phase?: string; outgoing?: OutgoingMessage; outgoingAction?: Action; sendVersion?: number }) {
   const feedback = `${outgoing?.id}:${outgoingStatus(outgoingAction)}:${working}:${version}`;
-  const { pages, cached, busy, error, setError, newMessages, latest, refresh, older, root, end, pauseFollowing } = useConversationHistory(conversationId, version, liveText, working, sendVersion, feedback);
+  const { pages, cached, busy, error, newMessages, latest, refresh, older, root, end, pauseFollowing } = useConversationHistory(conversationId, version, liveText, working, sendVersion, feedback);
   const [toolbar, setToolbar] = useState<HTMLElement | null>(null);
   useEffect(() => { setToolbar(root.current?.closest('.conversation-panel')?.parentElement?.querySelector<HTMLElement>('.conversation-toolbar') || null); }, []);
   const confirmed = useRef(new Set<string>());
@@ -97,14 +97,15 @@ export function HistoryView({ conversationId, assistantName = 'Hermes', version 
   const lastAssistant = pages.flatMap(p => p.messages).findLast(m => m.role === 'assistant' && messageText(m).trim());
   const replaceReply = liveReplyReplacement(pages, liveText, outgoing);
   const showLive = !replaceReply && liveText && messageText(lastAssistant || { role: 'assistant' }).trim() !== liveText.trim();
-  const {speaking,speak:playSpeech}=useMessageSpeech(setError);
+  const {speaking,preparing,error:speechError,speak:playSpeech}=useMessageSpeech();
   async function speak(m:any,page:History,index:number){
+    pauseFollowing();
     const text=messageText(m);
-    await playSpeech(`${page.offset}:${index}`,conversationId,text,()=>api('/audio/speak',{conversationId,...(m.id===undefined?{}:{messageId:m.id}),offset:page.offset,order:page.order||'oldest',index,text}));
+    await playSpeech(`${page.sessionId}:${m.id ?? `${page.offset}:${index}`}`,conversationId,text,()=>api('/audio/speak',{conversationId,...(m.id===undefined?{}:{messageId:m.id}),offset:page.offset,order:page.order||'oldest',index,text}));
   }
   const speakRef = useRef(speak); speakRef.current = speak;
   const onSpeak = useCallback((message: any, page: History, index: number) => { void speakRef.current(message, page, index); }, []);
-  function renderMessage(entry: HistoryEntry) { if (entry.key === replaceReply) entry = { ...entry, message: { ...entry.message, content: liveText } }; return <MessageBoundary key={entry.key} revision={JSON.stringify(entry.message)}><HistoryMessage assistantName={assistantName} entry={entry} conversationId={conversationId} speaking={speaking === `${entry.page.offset}:${entry.index}`} onSpeak={onSpeak} pauseFollowing={pauseFollowing}/></MessageBoundary>; }
+  function renderMessage(entry: HistoryEntry) { if (entry.key === replaceReply) entry = { ...entry, message: { ...entry.message, content: liveText } }; return <MessageBoundary key={entry.key} revision={JSON.stringify(entry.message)}><HistoryMessage assistantName={assistantName} entry={entry} conversationId={conversationId} speaking={speaking === entry.key} preparing={preparing === entry.key} speechError={speechError?.id === entry.key ? speechError.message : undefined} onSpeak={onSpeak} pauseFollowing={pauseFollowing}/></MessageBoundary>; }
   const refreshButton = <button className="icon-button history-refresh" aria-label="Refresh conversation history" disabled={busy || !conversationId} onClick={() => void refresh()}><RefreshCw size={15} className={busy ? 'spin' : ''}/></button>;
   return <div className="history" ref={root}>{(cached || !toolbar) && <div className="history-note">{cached && <span role="status">Showing saved messages</span>}{!toolbar && refreshButton}</div>}{toolbar && createPortal(refreshButton, toolbar)}
     {error && <p className="inline-error" role="alert">{error}</p>}
@@ -121,12 +122,12 @@ function OutgoingFeedback({ message, action }: { message: OutgoingMessage; actio
   return <article className="message from-user outgoing-message" data-outgoing-id={message.id}><div className="message-author">You <span className="submission-status">{outgoingStatus(action)}</span></div>{message.text && <div className="outgoing-text">{message.text}</div>}{message.uploadIds.length > 0 && <div className="subtle-note">{message.uploadIds.length} attachment{message.uploadIds.length === 1 ? '' : 's'}</div>}</article>;
 }
 
-const HistoryMessage = memo(function HistoryMessage({ entry: { key: entryKey, message: m, page, index }, conversationId, assistantName, speaking, onSpeak, pauseFollowing }: {
-  entry: HistoryEntry; conversationId: string; assistantName: string; speaking: boolean; onSpeak: (message: any, page: History, index: number) => void; pauseFollowing: () => void;
+const HistoryMessage = memo(function HistoryMessage({ entry: { key: entryKey, message: m, page, index }, conversationId, assistantName, speaking, preparing, speechError, onSpeak, pauseFollowing }: {
+  entry: HistoryEntry; conversationId: string; assistantName: string; speaking: boolean; preparing: boolean; speechError?: string; onSpeak: (message: any, page: History, index: number) => void; pauseFollowing: () => void;
 }) {
     const text = messageText(m), background = backgroundResultLabel(m), assistant = !background && m.role === 'assistant';
     return <article className={`message ${!background && m.role === 'user' ? 'from-user' : ''} ${m.role === 'tool' ? 'tool-message' : ''}`} key={entryKey} data-history-message={entryKey}>
-      <MessageAuthor name={background || (assistant?assistantName:m.role==='user'?'You':'Tool output')} mark={background?'H':assistant?assistantName.slice(0,1):undefined} timestamp={m.timestamp} speaking={speaking} onSpeak={assistant&&text.trim()?()=>onSpeak(m,page,index):undefined}/>
+      <MessageAuthor name={background || (assistant?assistantName:m.role==='user'?'You':'Tool output')} mark={background?'H':assistant?assistantName.slice(0,1):undefined} timestamp={m.timestamp} speaking={speaking} preparing={preparing} speechError={speechError} onSpeak={assistant&&text.trim()?()=>onSpeak(m,page,index):undefined}/>
 
       {m.role === 'tool' ? <HistoryDisclosure label="View tool output" onInteract={pauseFollowing}><pre>{text || 'No output.'}</pre></HistoryDisclosure> : <div className="markdown">
         <MessageMarkdown text={text} conversationId={conversationId}/>
@@ -134,4 +135,4 @@ const HistoryMessage = memo(function HistoryMessage({ entry: { key: entryKey, me
         {!!m.tool_calls?.length && <HistoryDisclosure label={`${m.tool_calls.length} tool call${m.tool_calls.length === 1 ? '' : 's'}`} onInteract={pauseFollowing}><pre>{JSON.stringify(m.tool_calls, null, 2)}</pre></HistoryDisclosure>}
       </div>}
     </article>;
-}, (a, b) => a.assistantName === b.assistantName && a.conversationId === b.conversationId && a.speaking === b.speaking && a.entry.key === b.entry.key && a.entry.page.offset === b.entry.page.offset && a.entry.page.order === b.entry.page.order && a.entry.index === b.entry.index && JSON.stringify(a.entry.message) === JSON.stringify(b.entry.message));
+}, (a, b) => a.assistantName === b.assistantName && a.conversationId === b.conversationId && a.speaking === b.speaking && a.preparing === b.preparing && a.speechError === b.speechError && a.entry.key === b.entry.key && a.entry.page.offset === b.entry.page.offset && a.entry.page.order === b.entry.page.order && a.entry.index === b.entry.index && JSON.stringify(a.entry.message) === JSON.stringify(b.entry.message));

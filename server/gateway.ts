@@ -55,8 +55,18 @@ export class Gateway extends EventEmitter {
     try { response = await fetch(new URL(path, this.base), { method, redirect: 'error', headers: { 'X-Hermes-Session-Token': this.token, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(body === undefined ? 30_000 : 180_000) }); }
     catch { throw new GatewayError('Hermes is unreachable. Your work is saved in Herts.', body !== undefined); }
     if (!response.ok) {
-      const detail = method === 'PATCH' ? await response.json().catch(() => ({})) : {};
-      throw new GatewayError(typeof detail.detail === 'string' ? detail.detail : `Hermes request failed (${response.status}).`, method !== 'GET' && response.status >= 500, response.status);
+      const speech = path.split('?')[0] === '/api/audio/speak';
+      const detail = method === 'PATCH' || speech ? await response.json().catch(() => ({})) : {};
+      let message = typeof detail?.detail === 'string' ? detail.detail : `Hermes request failed (${response.status}).`;
+      if (speech) {
+        const reason = typeof detail?.detail === 'string' ? detail.detail : '';
+        message = /\bedge\b/i.test(reason) && /\b403\b/.test(reason)
+          ? 'Edge speech is unavailable for this profile. Select another speech provider in Hermes.'
+          : /api.?key|credential/i.test(reason)
+            ? 'Speech credentials are missing or invalid for this profile. Check its speech settings in Hermes.'
+            : `Hermes could not prepare audio for this profile (${response.status}). Check its speech settings in Hermes.`;
+      }
+      throw new GatewayError(message, method !== 'GET' && response.status >= 500, response.status);
     }
     try { return await response.json(); }
     catch { throw new GatewayError('Hermes returned an invalid response.', body !== undefined); }
