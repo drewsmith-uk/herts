@@ -13,6 +13,19 @@ describe('Desktop history and personal conversation projection', () => {
     } finally { fetch.mockRestore(); }
   });
 
+  it('explains speech provider failures without exposing provider URLs or credentials', async () => {
+    const fetch=vi.spyOn(globalThis,'fetch');
+    try {
+      const gateway=new Gateway('https://backend.example.com','fixture-token');
+      fetch.mockResolvedValueOnce(new Response(JSON.stringify({detail:'TTS generation failed (edge): 403, url=wss://provider.example/?token=fixture-secret'}),{status:400}));
+      await expect(gateway.http('/api/audio/speak?profile=frontend-eng',{text:'Fixture'})).rejects.toMatchObject({message:'Edge speech is unavailable for this profile. Select another speech provider in Hermes.',uncertain:false,code:400});
+      fetch.mockResolvedValueOnce(new Response(JSON.stringify({detail:'API key fixture-secret is invalid'}),{status:400}));
+      await expect(gateway.http('/api/audio/speak',{text:'Fixture'})).rejects.toThrow('Speech credentials are missing or invalid for this profile.');
+      fetch.mockResolvedValueOnce(new Response(JSON.stringify({detail:'Unexpected private provider detail'}),{status:500}));
+      await expect(gateway.http('/api/audio/speak',{text:'Fixture'})).rejects.toMatchObject({message:'Hermes could not prepare audio for this profile (500). Check its speech settings in Hermes.',uncertain:true});
+    } finally {fetch.mockRestore();}
+  });
+
   it('filters worker/test sources, hidden rows and explicit lineage exclusions', () => {
     for (const row of [{source:'subagent'}, {source:'cron'}, {source:'desktop',hidden:true}, {source:'telegram',room_plumbing:true}, {source:'desktop',title:'Smoke test'}, {source:'telegram',title:'test'}]) expect(isPersonal(row)).toBe(false);
     expect(isPersonal({source:'desktop',id:'tip',_lineage_root_id:'root'}, ['root'])).toBe(false);

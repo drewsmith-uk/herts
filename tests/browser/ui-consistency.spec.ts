@@ -82,6 +82,13 @@ for (const theme of builtinThemes) {
           await row.dispatchEvent('pointercancel',{pointerId:1});await page.mouse.up();await expect(page.getByRole('dialog')).toHaveCount(0);
         }
         if (path === '/plugins/bots/research/routines') await expect(page.getByRole('heading', { name: 'research briefing', exact: true })).toBeVisible();
+        if (path === '/settings') {
+          const voice=page.getByLabel('Voice on this device');
+          await expect(voice).toHaveValue('device');await voice.focus();await expect(voice).toBeFocused();
+          const bounds=(await voice.boundingBox())!;
+          expect(bounds.x).toBeGreaterThanOrEqual(0);expect(bounds.x+bounds.width).toBeLessThanOrEqual(width+1);
+          await page.screenshot({path:`test-results/speech-settings-${theme.id}-${width}.png`});
+        }
         if (path === '/settings/plugins') await expect(page.getByRole('heading', { name: 'Task spaces', exact: true })).toBeVisible();
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${theme.id} ${path} at ${width}px`).toBe(true);
         const controls = await page.locator('.page-header-actions a, .page-header-actions button, .section-nav>a').evaluateAll(nodes => nodes.map(node => {
@@ -324,3 +331,36 @@ for (const theme of builtinThemes) {
     }
   });
 }
+
+for (const theme of builtinThemes) test(`${theme.name}: speech preparation and errors stay beside the response`, async ({page}) => {
+  await page.addInitScript(()=>localStorage.setItem('herts:speech-provider','hermes'));
+  await page.addInitScript(({key,theme}) => localStorage.setItem(key,JSON.stringify({id:theme.id,theme})),{key:themeStorageKey,theme});
+  for (const width of [320,390,768,1280]) {
+    await page.setViewportSize({width,height:480});
+    let release!:()=>void;
+    const gate=new Promise<void>(resolve=>{release=resolve;});
+    await page.route('**/api/v1/audio/speak',async route=>{await gate;await route.fulfill({status:503,json:{error:'The speech provider is unavailable. Your message is unchanged. Try reading this response again when the connection returns.'}});});
+    try {
+      await page.goto('/#/conversation/existing');
+      const response=page.locator('.message').filter({has:page.locator('button.read-aloud')});
+      const button=response.getByRole('button',{name:'Read response aloud',exact:true});
+      await button.focus();await expect(button).toBeFocused();
+      await page.screenshot({path:`test-results/speech-${theme.id}-${width}-idle.png`});
+      await button.press('Enter');
+      await expect(response.getByRole('status')).toHaveText('Preparing audio…');
+      await expect(response.getByRole('button',{name:'Cancel audio preparation',exact:true})).toBeFocused();
+      await page.screenshot({path:`test-results/speech-${theme.id}-${width}-preparing.png`});
+      release();
+      await expect(response.getByRole('alert')).toContainText('Read aloud failed:');
+      await expect(response.getByRole('alert')).toBeInViewport();
+      await page.getByRole('button',{name:'Refresh conversation history',exact:true}).click();
+      await expect(response.getByRole('alert')).toContainText('The speech provider is unavailable.');
+      for(const element of [response,response.getByRole('alert')]) {
+        const bounds=(await element.boundingBox())!;
+        expect(bounds.x).toBeGreaterThanOrEqual(0);expect(bounds.x+bounds.width).toBeLessThanOrEqual(width+1);
+      }
+      expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+      await page.screenshot({path:`test-results/speech-${theme.id}-${width}-error.png`});
+    } finally {release();await page.unroute('**/api/v1/audio/speak');}
+  }
+});
