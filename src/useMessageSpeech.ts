@@ -39,7 +39,7 @@ export function useMessageSpeech(onError:(message:string)=>void=()=>{}){
    if(readSpeechProvider()==='device'){
     if(!window.speechSynthesis || !window.SpeechSynthesisUtterance)throw new Error('Device speech is unavailable. Select Hermes voice in Settings → Read aloud.');
     const synth=window.speechSynthesis;
-    const chunks=text.match(/[\s\S]{1,200}(?:\s|$)|[\s\S]{1,200}/g)||[];
+    const chunks=text.match(/[\s\S]{1,200}(?:\s|$)|[\s\S]{1,200}/gu)||[];
     if(!chunks.length)throw new Error('This message has no text to read.');
     const language=document.documentElement.lang||navigator.language||'en';
     const voices=synth.getVoices(),matching=voices.filter(voice=>voice.lang.split('-')[0]===language.split('-')[0]);

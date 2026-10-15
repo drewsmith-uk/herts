@@ -158,3 +158,15 @@ it('cancels device speech on navigation',async()=>{
  await act(async()=>root.unmount());expect(synth.cancel).toHaveBeenCalled();
  await act(async()=>u.onend());expect(synth.speak).toHaveBeenCalledOnce();root=createRoot(document.createElement('div'));
 });
+
+it('keeps supplementary Unicode characters intact in every speech chunk',async()=>{
+ const synth=deviceSpeech(),text=('a'.repeat(199)+'😀𐐀'+'b'.repeat(199)+'🚀 ').repeat(3);
+ await act(async()=>result.speak('one','conversation',text,vi.fn()));
+ const chunks:string[]=[];
+ while(result.speaking){
+  const u=synth.speak.mock.calls.at(-1)![0];chunks.push(u.text);
+  expect(u.text).not.toMatch(/[\uD800-\uDFFF]/u);
+  await act(async()=>{u.onstart();u.onend();});
+ }
+ expect(chunks.length).toBeGreaterThan(1);expect(chunks.join('')).toBe(text);
+});

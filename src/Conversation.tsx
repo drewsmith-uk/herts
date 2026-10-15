@@ -99,6 +99,7 @@ export function HistoryView({ conversationId, assistantName = 'Hermes', version 
   const showLive = !replaceReply && liveText && messageText(lastAssistant || { role: 'assistant' }).trim() !== liveText.trim();
   const {speaking,preparing,error:speechError,speak:playSpeech}=useMessageSpeech();
   async function speak(m:any,page:History,index:number){
+    pauseFollowing();
     const text=messageText(m);
     await playSpeech(`${page.sessionId}:${m.id ?? `${page.offset}:${index}`}`,conversationId,text,()=>api('/audio/speak',{conversationId,...(m.id===undefined?{}:{messageId:m.id}),offset:page.offset,order:page.order||'oldest',index,text}));
   }
