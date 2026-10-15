@@ -242,3 +242,45 @@ test('only pins a new conversation after its draft is saved', async ({ page, con
     await expect(page.getByRole('heading', { name: 'Draft unavailable' })).toHaveCount(0);
   } finally { await context.setOffline(false); }
 });
+
+
+test('startup automatically redisplays saved pins offline despite stale browser display state', async ({ page, context }) => {
+  await pinnedReady(page); await seedPin(page, 'Automatically restore this pin');
+  const saved = await savedPins(page);
+  const tag = () => page.evaluate(async () => (await (await navigator.serviceWorker.ready).getNotifications())[0]?.tag);
+  const previous = await tag();
+  await context.setOffline(true);
+  try {
+    await page.reload();
+    await expect.poll(tag).not.toBe(previous);
+    await expect.poll(() => notices(page)).toHaveLength(1);
+    expect(await savedPins(page)).toEqual(saved);
+    const restored = await tag();
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await expect.poll(tag).not.toBe(restored);
+    await expect.poll(() => notices(page)).toHaveLength(1);
+  } finally { await context.setOffline(false); }
+});
+
+test('startup retries notification restoration after an unanswered worker request', async ({ page, context }) => {
+  await pinnedReady(page); await seedPin(page, 'Restore after a startup failure');
+  const saved = await savedPins(page);
+  const previous = await page.evaluate(async () => (await (await navigator.serviceWorker.ready).getNotifications())[0]?.tag);
+  await page.addInitScript(() => {
+    const send = ServiceWorker.prototype.postMessage;
+    let dropped = false;
+    ServiceWorker.prototype.postMessage = function (message: any, ...args: any[]) {
+      if (!dropped && message?.type === 'PLUGIN_NOTIFICATIONS' && message.command === 'reconcile') {
+        dropped = true; return;
+      }
+      return Reflect.apply(send, this, [message, ...args]);
+    };
+  });
+  await context.setOffline(true);
+  try {
+    await page.reload();
+    await expect.poll(() => page.evaluate(async () => (await (await navigator.serviceWorker.ready).getNotifications())[0]?.tag), { timeout: 20_000 }).not.toBe(previous);
+    await expect.poll(() => notices(page)).toHaveLength(1);
+    expect(await savedPins(page)).toEqual(saved);
+  } finally { await context.setOffline(false); }
+});

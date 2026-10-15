@@ -33,5 +33,9 @@ export async function dismissPins(page: Page) {
       scope.dispatchEvent(event);
     }
     await Promise.all(work);
+    const dismissedTags = new Set(notifications.filter((notification: any) => notification.data?.kind === 'device-plugin').map((notification: any) => notification.tag));
+    for (const notification of await scope.registration.getNotifications()) {
+      if (dismissedTags.has(notification.tag)) notification.close();
+    }
   });
 }

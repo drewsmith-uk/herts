@@ -1,9 +1,10 @@
+import { useNavigationTabs } from './navigationLayout';
 import { UndoToasts } from './UndoToast';
 import { PageHeader, SectionNav, SectionLink, SettingsSection, Button } from './ui';
 import { useListPosition } from './listState';
 import { useVisualViewport } from './useVisualViewport';
 import { useRef, useState } from 'react';
-import { MessageSquare, Settings, Check, WifiOff, RefreshCw, LoaderCircle, Plug, Link2 } from 'lucide-react';
+import { MessageSquare, Settings, RefreshCw, LoaderCircle, Plug, Link2 } from 'lucide-react';
 import { useApp, refresh } from './data';
 import { useRoute, decodeRouteParameter } from './useRoute';
 import { PluginLoader, PluginIcon, matchPluginRoute, pluginError, pluginHook, PluginContent, PluginConflicts, PluginUnavailable, usePlugins } from './plugins';
@@ -14,6 +15,8 @@ import { NotificationSettings } from './NotificationSettings';
 import { AppUpdateSettings } from './AppUpdates';
 import { NewConversationDefaults } from './SessionSettings';
 import { SpeechSettings } from './SpeechSettings';
+import { ShellNavigation } from './ShellNavigation';
+import { ConnectionAnnouncement, ConnectionBadge, ConnectionStatusRow } from './ConnectionStatusControls';
 import { AppearanceSettings } from './AppearanceSettings';
 import type { RouteProps } from './pluginContract';
 import type { SharedContent } from '../shared/plugins';
@@ -22,8 +25,7 @@ export function App() { return <><PluginLoader /><Shell /><UndoToasts /></>; }
 function Shell() {
     useVisualViewport();
     const state = useApp(), plugins = usePlugins(), route = useRoute();
-    const tabs = state.plugins.order.flatMap(id => { if (id === 'conversations')
-        return [{ id, title: 'Conversations', path: '/conversations', Icon: MessageSquare }]; const plugin = plugins.find(p => p.id === id), tab = plugin?.definition.tab; return tab ? [{ id, title: tab.title, path: tab.path, Icon: tab.icon || Plug }] : []; });
+    const tabs = useNavigationTabs();
     const path = route.path === '/' ? (tabs[0]?.path || '/conversations') : route.path, parts = path.split('/').filter(Boolean), [screen, id] = parts;
     const conversationId = screen === 'conversation' && parts.length === 2 ? decodeRouteParameter(id) : undefined;
     const plugin = plugins.find(p => matchPluginRoute(p, path)), match = plugin && matchPluginRoute(plugin, path);
@@ -32,7 +34,6 @@ function Shell() {
     newEntry.current.path = path;
     const sidebar = plugin?.definition.Sidebar;
     const props: RouteProps = { path, parts };
-    const pending = state.pluginPending.length + state.visibilityPending.length + (state.settingsPending?.length || 0);
     let page;
     if (!state.loaded || !state.defaultsReady || route.path === '/' && state.plugins.entries.some(e => e.enabled && !plugins.some(p => p.id === e.manifest.id) && !pluginError(e.manifest.id)))
         page = <div className="empty"><LoaderCircle className="spin"/><p>Opening Herts…</p></div>;
@@ -57,15 +58,15 @@ function Shell() {
     useListPosition(path);
     const activeId = plugin?.id || (['conversations', 'conversation', 'draft', 'new'].includes(screen) ? 'conversations' : '');
     const Sidebar = sidebar;
-    const layout = <div className="app-shell"><aside className="sidebar"><a href="#/" className="brand"><span className="brand-mark"><MessageSquare size={22}/></span>Herts</a><nav aria-label="Main navigation">{tabs.map(t => <a key={t.id} href={`#${t.path}`} className={`nav-item ${activeId === t.id ? 'active' : ''}`}><PluginIcon id={t.id} icon={t.Icon} size={19}/><span>{t.title}</span></a>)}</nav>{Sidebar && plugin && <PluginContent plugin={plugin}><div className="sidebar-rule"/><Sidebar {...props}/></PluginContent>}<div className="sidebar-bottom"><span className="private-dot"/> Private workspace</div></aside>
-    <main><div className="topbar"><span className="breadcrumb"><span className="breadcrumb-prefix">Herts<span className="breadcrumb-separator">/</span></span>{screen === 'settings' ? 'Settings' : tabs.find(t => t.id === activeId)?.title || 'Conversations'}</span><div className={`save-state ${!state.online ? 'offline' : ''}`} aria-live="polite">{!state.online ? <WifiOff size={14}/> : pending ? <RefreshCw size={14}/> : <Check size={14}/>} {!state.online ? 'Offline · saved on device' : pending ? `${pending} change${pending === 1 ? '' : 's'} to sync` : 'Changes synced'}</div><a href="#/settings" className="icon-button settings-link" aria-label="Settings"><Settings size={19}/></a></div><div className="page-content">{state.error && <div className="error-banner" role="alert">{state.error}</div>}{state.lifecycleNotice && <div className="error-banner" role="status">{state.lifecycleNotice}</div>}<PluginConflicts />{page}</div></main>
-    <nav className="mobile-nav" aria-label="Main navigation">{tabs.map(t => <a key={t.id} className={activeId === t.id ? 'active' : ''} href={`#${t.path}`}><PluginIcon id={t.id} icon={t.Icon} size={21}/>{t.title}</a>)}</nav></div>;
+    const layout = <div className="app-shell"><aside className="sidebar"><a href="#/" className="brand"><span className="brand-mark"><MessageSquare size={22}/></span>Herts</a><nav aria-label="Main navigation">{tabs.map(t => <a key={t.id} href={`#${t.path}`} className={`nav-item ${activeId === t.id ? 'active' : ''}`}><PluginIcon id={t.id} icon={t.Icon} size={19}/><span>{t.title}</span></a>)}</nav>{Sidebar && plugin && <PluginContent plugin={plugin}><div className="sidebar-rule"/><Sidebar {...props}/></PluginContent>}<div className="sidebar-bottom"><a aria-describedby="connection-status-label" href="#/settings" className={`nav-item ${screen === 'settings' ? 'active' : ''}`} aria-current={screen === 'settings' ? 'page' : undefined}><span className="navigation-icon"><Settings size={19}/><ConnectionBadge/></span><span>Settings</span></a></div></aside>
+    <main><div className="page-content">{state.error && <div className="error-banner" role="alert">{state.error}</div>}{state.lifecycleNotice && <div className="error-banner" role="status">{state.lifecycleNotice}</div>}<PluginConflicts />{page}</div></main>
+    <ConnectionAnnouncement/><ShellNavigation tabs={tabs} activeId={activeId} path={path}/></div>;
     const Provider = plugin?.definition.Provider;
     return Provider && plugin ? <PluginContent plugin={plugin}><Provider>{layout}</Provider></PluginContent> : layout;
 }
 function Preferences({ plugins }: { plugins: boolean }) {
     const state = useApp();
-    return <><PageHeader title="Settings"/>
+    return <><PageHeader title="Settings"/><ConnectionStatusRow/>
       <SectionNav variant="sections" className="settings-tabs" aria-label="Settings sections"><SectionLink active={!plugins} href="#/settings">General</SectionLink><SectionLink active={plugins} href="#/settings/plugins">Plugins</SectionLink></SectionNav>
       {plugins ? <PluginSettings /> : <><AppearanceSettings /><SpeechSettings /><AppUpdateSettings /><NewConversationDefaults /><NotificationSettings />
         <SettingsSection title="Hermes connection" icon={<Link2 size={22}/>} description={state.gateway.promptError || (state.gateway.online ? `Connected to your ${state.gateway.profile || 'default'} profile.` : state.gateway.configured ? 'Hermes is currently unavailable. Saved data remains usable.' : 'The Hermes connection has not been configured yet.')} >{state.gateway.promptWarning && <p role="status">{state.gateway.promptWarning}</p>}</SettingsSection>

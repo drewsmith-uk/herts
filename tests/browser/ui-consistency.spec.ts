@@ -1,3 +1,4 @@
+import { openConnectionDetails } from './navigation-helpers';
 import { test, expect } from '@playwright/test';
 import { pinnedPlugin, pinnedReady, seedPin } from './pinned-helpers';
 import { builtinThemes, themeStorageKey } from '../../shared/themeValues';
@@ -386,5 +387,98 @@ for (const theme of builtinThemes) test(`${theme.name}: file downloads fit conve
     }
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
     await page.screenshot({path:`test-results/media-${theme.id}-${width}-error.png`});
+  }
+});
+
+for (const theme of builtinThemes) test(`${theme.name}: adaptive navigation and connection details fit all viewports`, async ({ page, request }) => {
+  test.setTimeout(120_000);
+  for (const id of ['bots', 'pinned']) {
+    const { catalogue } = await (await request.get('/api/v1/plugins')).json();
+    expect((await request.post(`/api/v1/plugins/${id}/manage`, {headers: {'x-herts-request': '1'}, data: {action: 'enable', revision: catalogue.revision}})).ok()).toBe(true);
+  }
+  await page.addInitScript(({ key, theme }) => {
+    localStorage.setItem(key, JSON.stringify({ id: theme.id, theme }));
+    localStorage.setItem('herts-navigation-more', JSON.stringify(['reading']));
+  }, { key: themeStorageKey, theme });
+  for (const width of [320, 390, 768, 1280]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto('/#/conversations');
+    await expect(page.locator('.page-header h1')).toBeVisible();
+    await expect(page.locator('.topbar')).toHaveCount(0);
+    const status = page.locator('.connection-badge:visible');
+    await expect(status).toBeVisible();
+    if (width < 701) {
+      const nav = page.locator('.mobile-nav');
+      await nav.getByRole('button', { name: 'More', exact: true }).click();
+      const sheet = page.getByRole('dialog');
+      await expect(sheet.getByRole('link', { name: 'Reading', exact: true })).toHaveAttribute('href', '#/reading');
+      await sheet.getByRole('link', { name: 'Reading', exact: true }).evaluate(node => {
+        node.querySelector('.item-row-body')!.textContent = 'Research and reading material with a long plugin title https://example.com/' + 'long-path/'.repeat(12);
+      });
+      await expect(sheet.getByRole('link', { name: 'Settings', exact: true })).toHaveAttribute('href', '#/settings');
+      expect(await sheet.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+      await page.screenshot({ path: `test-results/navigation-more-${theme.id}-${width}.png` });
+      await page.keyboard.press('Escape');
+      await expect(nav.getByRole('button', { name: 'More', exact: true })).toBeFocused();
+      const boxes = await nav.locator('a,button').evaluateAll(nodes => nodes.map(node => {
+        const box = node.getBoundingClientRect(); return { x: box.x, right: box.right, width: box.width, height: box.height };
+      }));
+      for (const box of boxes) { expect(box.x).toBeGreaterThanOrEqual(0); expect(box.right).toBeLessThanOrEqual(width); expect(box.width).toBeGreaterThanOrEqual(44); expect(box.height).toBeGreaterThanOrEqual(44); }
+      expect(await nav.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+    } else {
+      await expect(page.locator('.sidebar').getByRole('link', { name: 'Settings', exact: true })).toBeVisible();
+      await expect(page.locator('.sidebar').getByRole('link', { name: 'Reading', exact: true })).toBeVisible();
+    }
+    const closeDetails = await openConnectionDetails(page);
+    await expect(page.getByRole('dialog', { name: 'Connection and sync', exact: true })).toBeVisible();
+    await page.screenshot({ path: `test-results/navigation-status-${theme.id}-${width}.png` });
+    await closeDetails();
+    await page.goto('/#/settings/plugins');
+    await expect(page.locator('.tab-order-row')).toHaveCount(5);
+    await expect(page.locator('.tab-order select')).toHaveCount(0);
+    await page.locator('.tab-order').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `test-results/tab-order-${theme.id}-${width}.png` });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: `test-results/navigation-settings-${theme.id}-${width}.png`, fullPage: true });
+    await page.goto('/#/conversation/long-history');
+    await expect(page.locator('.conversation-panel')).toBeVisible();
+    await page.setViewportSize({ width, height: 560 });
+    await expect(status).toBeVisible();
+    await page.screenshot({ path: `test-results/navigation-conversation-${theme.id}-${width}.png` });
+    if (width < 701) {
+      await page.evaluate(() => document.body.classList.add('keyboard-open'));
+      await expect(page.locator('.mobile-nav .navigation-end')).toBeVisible();
+      await expect(page.locator('.mobile-nav > a:not(.navigation-end)').first()).toBeHidden();
+      await expect(status).toBeVisible();
+      const button = (await page.locator('.mobile-nav .navigation-end').boundingBox())!, composer = (await page.locator('.composer-wrap').boundingBox())!;
+      expect(composer.y + composer.height).toBeLessThanOrEqual(button.y + 1);
+      await page.evaluate(() => document.body.classList.remove('keyboard-open'));
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
+});
+
+
+test('tab order keeps long names inside collapsible sections in every theme', async ({ page }) => {
+  test.setTimeout(120_000);
+  for (const theme of builtinThemes) {
+    await page.goto('/#/settings/plugins');
+    await page.evaluate(({key, theme}) => localStorage.setItem(key, JSON.stringify({id: theme.id, theme})), {key: themeStorageKey, theme});
+    for (const width of [320, 390, 768, 1280]) {
+      await page.setViewportSize({width, height: 844});
+      await page.goto('/#/settings/plugins');
+      const title = page.locator('.tab-order-name').first();
+      await expect(title).toBeVisible();
+      await title.evaluate(node => { node.textContent = 'Research notes https://example.com/' + 'long-path/'.repeat(10); });
+      expect(await page.locator('.tab-order').evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+      await page.screenshot({path: `test-results/tab-order-long-${theme.id}-${width}.png`});
+      const toggle = page.getByRole('button', {name: 'Tab order', exact: true});
+      await toggle.click();
+      await expect(title).toBeHidden();
+      await expect(toggle).toBeFocused();
+      await page.screenshot({path: `test-results/tab-order-collapsed-${theme.id}-${width}.png`});
+      await toggle.click();
+      await expect(title).toBeVisible();
+    }
   }
 });

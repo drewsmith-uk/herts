@@ -18,7 +18,7 @@
     "test:installer": "python3 -m unittest discover -s tests -p \"test_installer.py\"",
     "build:plugin": "node scripts/build-plugins.mjs",
     "plugin:new": "node scripts/create-plugin.mjs",
-    "test:ui": "playwright test ui-consistency.spec.ts bots-ui.spec.ts bots.spec.ts",
+    "test:ui": "playwright test ui-consistency.spec.ts bots-ui.spec.ts bots.spec.ts /navigation.spec.ts",
     "check:release": "node scripts/check-release.mjs",
     "check:docs": "node scripts/check-docs.mjs",
     "test:docs": "node --test tests/docs-style.test.mjs"

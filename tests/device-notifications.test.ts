@@ -52,6 +52,59 @@ describe('durable plugin notifications', () => {
     expect(f.self.registration.showNotification).toHaveBeenCalledTimes(3);
     expect([...f.visible.values()][0]).toMatchObject({ title: f.input.title, silent: true, renotify: false, requireInteraction: true });
   });
+  it('survives browser cleanup after the close event completes', async () => {
+    const f = await fixture(); await f.pin();
+    for (let i = 0; i < 3; i++) {
+      const dismissed = [...f.visible.values()][0];
+      await f.dismiss();
+      f.visible.delete(dismissed.tag);
+      expect(f.visible.size).toBe(1);
+      expect(f.records.size).toBe(1);
+    }
+    await f.command('remove', { key: f.input.key });
+    expect(f.visible.size).toBe(0);
+  });
+  it('ignores a repeated close event after restoring the same pin', async () => {
+    const f = await fixture(); await f.pin();
+    const dismissed = [...f.visible.values()][0];
+    await f.dismiss();
+    const restored = [...f.visible.values()][0];
+    await f.fire('notificationclose', { notification: dismissed });
+    expect([...f.visible.values()]).toEqual([restored]);
+    expect(f.self.registration.showNotification).toHaveBeenCalledTimes(2);
+    await f.command('reconcile');
+    expect([...f.visible.values()]).toEqual([restored]);
+  });
+  it('retains and removes pins displayed by older workers', async () => {
+    const f = await fixture(); await f.pin();
+    const notification = [...f.visible.values()][0];
+    f.visible.clear();
+    notification.tag = 'herts-plugin:sample:0:conversation';
+    notification.close = vi.fn(() => { f.visible.delete(notification.tag); });
+    f.visible.set(notification.tag, notification);
+    await f.command('reconcile');
+    expect([...f.visible.values()]).toEqual([notification]);
+    await f.command('remove', { key: f.input.key });
+    expect(f.visible.size).toBe(0);
+  });
+  it('explicit retry replaces a stale browser notification without changing the saved pin', async () => {
+    const f = await fixture(); const pin = (await f.pin()).result;
+    const previous = [...f.visible.values()][0];
+    await f.command('retry', { key: f.input.key });
+    expect(f.visible.size).toBe(1);
+    expect([...f.visible.values()][0].tag).not.toBe(previous.tag);
+    expect([...f.records.values()][0]).toEqual(pin);
+    expect(previous.close).toHaveBeenCalledOnce();
+  });
+  it('foreground reconciliation replaces stale display state without changing saved pins', async () => {
+    const f = await fixture(); const pin = (await f.pin()).result;
+    const previous = [...f.visible.values()][0];
+    await f.command('reconcile', { redisplay: true });
+    expect(f.visible.size).toBe(1);
+    expect([...f.visible.values()][0].tag).not.toBe(previous.tag);
+    expect([...f.records.values()][0]).toEqual(pin);
+    expect(previous.close).toHaveBeenCalledOnce();
+  });
   it('saves a record after display failure and permits explicit recovery', async () => {
     const f = await fixture(); f.self.registration.showNotification.mockRejectedValueOnce(new Error('Unavailable'));
     const first = await f.pin(); expect(first.result.displayError).toContain('could not be shown'); expect(f.records.size).toBe(1);

@@ -32,13 +32,6 @@ svg { flex-shrink: 0 }
 .avatar { width: 34px; height: 34px; display: grid; place-items: center; background: var(--color-sidebar-selected); border: var(--border-width, 1px) solid var(--color-sidebar-border); border-radius: 50%; font-size: .85rem; color: var(--color-sidebar-text) }
 .private-dot { margin-left: auto; width: 6px; height: 6px; border-radius: 50%; background: var(--color-success) }
 main { margin-left: 242px; width: calc(100% - 242px); min-width: 0 }
-.topbar { height: 67px; border-bottom: var(--border-width, 1px) solid var(--color-border); display: flex; align-items: center; justify-content: space-between; padding: 0 42px; background: var(--color-surface) }
-.breadcrumb { font-size: .81rem; color: var(--color-text-secondary) }
-.breadcrumb-prefix { display: none }
-.breadcrumb-separator { padding: 0 12px; color: var(--color-text-secondary) }
-.save-state { display: flex; align-items: center; gap: 6px; font-size: .75rem; color: var(--color-text-secondary) }
-.save-state svg { color: var(--color-success) }
-.save-state.offline { color: var(--color-warning) }
 .page-content { max-width: 1040px; margin: 0 auto; padding: 45px 48px 80px }
 .page-heading { display: flex; align-items: center; justify-content: space-between; gap: 22px; margin-bottom: 31px }
 .page-heading p { color: var(--color-text-secondary); margin-top: 10px; font-size: .88rem }
@@ -135,16 +128,10 @@ to { transform: rotate(360deg) }}
 .sidebar { width: 211px; padding-left: 11px; padding-right: 11px }
 main { margin-left: 211px; width: calc(100% - 211px) }
 .page-content { padding: 34px 28px 70px }
-.topbar { padding: 0 28px }
 .brand { margin-bottom: 38px }}
 @media(max-width:700px){
 .sidebar { display: none }
 main { margin: 0; width: 100%; padding-bottom: 70px }
-.topbar { height: 55px; padding: 0 20px }
-.breadcrumb { font-size: .72rem }
-.breadcrumb-prefix { display: inline }
-.breadcrumb-separator { padding: 0 6px }
-.save-state { font-size: .64rem; gap: 4px }
 .page-content { padding: 29px 18px 55px }
 .page-heading { gap: 10px; margin-bottom: 22px; align-items: flex-start }
 .page-heading h1 { font-size: 1.8rem }

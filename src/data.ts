@@ -95,6 +95,9 @@ export interface State {
     visibilityPending: PendingVisibility[];
     settingsPending?: PendingSettings[];
     online: boolean;
+    connectionChecked?: boolean;
+    syncActive?: boolean;
+    syncError?: string;
     connectionVersion: number;
     loaded: boolean;
     defaultsReady: boolean;
@@ -116,7 +119,7 @@ export interface State {
     outgoing: OutgoingMessage[];
 }
 const empty = (): CoreSnapshot => ({ revision: 0, contexts: [], hiddenConversations: [] });
-let state: State = { snapshot: empty(), remote: empty(), actions: [], bindings: {}, plugins: emptyCatalogue(), pluginData: {}, pluginRemote: {}, pluginPending: [], visibilityPending: [], online: false, connectionVersion: 0, loaded: false, defaultsReady: false, gateway: { online: false, configured: false }, error: '', pushKey: '', localSubmissions: [], outgoing: [] };
+let state: State = { snapshot: empty(), remote: empty(), actions: [], bindings: {}, plugins: emptyCatalogue(), pluginData: {}, pluginRemote: {}, pluginPending: [], visibilityPending: [], online: false, connectionChecked: false, connectionVersion: 0, loaded: false, defaultsReady: false, gateway: { online: false, configured: false }, error: '', pushKey: '', localSubmissions: [], outgoing: [] };
 const listeners = new Set<() => void>();
 let refreshing = false, lastOrder = Date.now();
 let refreshAgain = false, recoverAfterRefresh = false, refreshRequest: AbortController | undefined;
@@ -289,7 +292,7 @@ export async function initialise() {
         void refresh().finally(() => publish({ defaultsReady: true }));
         const recover = () => { if (navigator.onLine && !document.hidden) void refresh(true); };
         window.addEventListener('online', recover);
-        window.addEventListener('offline', () => { publish({ online: false }); refreshRequest?.abort(); });
+        window.addEventListener('offline', () => { publish({ online: false, connectionChecked: true }); refreshRequest?.abort(); });
         window.addEventListener('pageshow', recover);
         window.addEventListener('focus', recover);
         document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible')
@@ -325,7 +328,7 @@ export async function refresh(recover = false) {
         await acceptSnapshot(data.snapshot, data.actions);
         await acceptPlugins(data.plugins, data.pluginData);
         const recovered = recover || !state.online || (!state.gateway.online && data.gateway.online);
-        publish({ actions: data.actions, bindings: data.bindings, gateway: data.gateway, online: navigator.onLine, connectionVersion: state.connectionVersion + (recovered ? 1 : 0), pushKey: data.pushKey, error: '' });
+        publish({ actions: data.actions, bindings: data.bindings, gateway: data.gateway, online: navigator.onLine, connectionChecked: true, connectionVersion: state.connectionVersion + (recovered ? 1 : 0), pushKey: data.pushKey, error: '' });
         void flushTranscriptionDiscards();
         for (const s of await db.submissions.toArray())
             if (data.actions.some((a: Action) => a.id === s.id))
@@ -334,7 +337,7 @@ export async function refresh(recover = false) {
         void sync();
     }
     catch (e) {
-        if (!controller.signal.aborted) publish({ online: false, error: e instanceof ApiError && e.status === 403 ? e.message : '' });
+        if (!controller.signal.aborted) publish({ online: false, connectionChecked: true, error: e instanceof ApiError && e.status === 403 ? e.message : '' });
     }
     finally {
         refreshing = false;
@@ -388,6 +391,17 @@ export async function mutatePlugin(pluginId: string, command: string, input: any
     void sync();
     return id;
 }
+let activeSyncRequests = 0;
+async function syncRequest(path: string, input: unknown, timeout?: number) {
+    activeSyncRequests++;
+    publish({ syncActive: true, syncError: '' });
+    try { return await api(path, input, undefined, timeout); }
+    catch (error) {
+        publish({ syncError: error instanceof Error ? error.message : 'Synchronization failed. Try again.' });
+        throw error;
+    }
+    finally { activeSyncRequests--; publish({ syncActive: activeSyncRequests > 0 }); }
+}
 let activeSync: Promise<void> | undefined;
 export function sync(): Promise<void> { if (activeSync)
     return activeSync; activeSync = (async () => { let order; do {
@@ -406,7 +420,7 @@ async function syncNow() {
             continue;
         }
         try {
-            const data = await api(`/plugins/${pending.pluginId}/commands`, pending.operation);
+            const data = await syncRequest(`/plugins/${pending.pluginId}/commands`, pending.operation);
             await db.transaction('rw', db.pluginPending, db.kv, async () => { await db.pluginPending.delete(pending.id); await acceptSnapshot(data.snapshot); });
             await acceptPlugins(state.plugins, { [pending.pluginId]: data.data });
             await definitions.get(pending.pluginId)?.reconcile?.(data.result, pending.operation);
@@ -437,7 +451,7 @@ async function syncNow() {
     if (state.online)
         for (const p of await pendingVisibility()) {
             try {
-                const data = await api('/conversations/visibility', p.op);
+                const data = await syncRequest('/conversations/visibility', p.op);
                 await db.transaction('rw', db.kv, async () => { await acceptSnapshot(data.snapshot); await db.kv.delete(`visibility-op:${p.op.id}`); });
                 await rebuild();
             }
@@ -447,6 +461,7 @@ async function syncNow() {
             }
         }
     await syncSessionSettings();
+    if (state.online && !state.pluginPending.length && !state.visibilityPending.length && !state.settingsPending?.length) publish({ syncError: '' });
 }
 let settingsSync: Promise<void> | undefined;
 export function syncSessionSettings(): Promise<void> {
@@ -457,7 +472,7 @@ export function syncSessionSettings(): Promise<void> {
             const op = row.value as PendingSettings;
             if (op.conflict || (op.contextId && !state.remote.contexts.some(c => c.id === op.contextId))) continue;
             try {
-                const result = await api(op.contextId ? `/contexts/${op.contextId}/settings` : '/session-defaults', op.input, undefined, 15000);
+                const result = await syncRequest(op.contextId ? `/contexts/${op.contextId}/settings` : '/session-defaults', op.input, 15000);
                 await db.transaction('rw', db.kv, async () => {
                     await acceptSnapshot(result.snapshot);
                     if ((await db.kv.get(row.key))?.value.input.id === op.input.id) await db.kv.delete(row.key);

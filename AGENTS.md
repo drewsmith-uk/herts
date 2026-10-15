@@ -18,6 +18,15 @@ Correct failures before you finish the task.
 Review meaning and approved vocabulary separately; the automatic check does not verify full STE compliance.
 Do not disable checks or add exceptions only to make a check pass.
 
+## UI text
+
+Keep UI text short.
+Use labels and current values instead of explanatory paragraphs.
+Add help only when users need it to make a decision or recover from an error.
+Show warnings on the affected screen with a specific recovery action.
+Do not repeat status information or describe internal storage and synchronization rules in normal dialogs.
+Review new UI text for unnecessary explanations before completion.
+
 ## UI completion criteria
 
 Before you implement a screen, inspect the closest existing Herts screen.
