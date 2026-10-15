@@ -386,3 +386,32 @@ test('a reading capture draft survives updating without adding it or sending it 
   await expect((await detailsField(page, 'Reading title'))).toHaveValue('An unfinished reading draft');
   expect(await calls(page)).toEqual(before);
 });
+
+
+test('slow activation completes once and keeps drafts without another update click', async ({ page, context }) => {
+  await oldPage(page, '/#/conversation/existing');
+  const old = await version(page);
+  const draft = page.getByRole('textbox', { name: 'Message Hermes', exact: true });
+  await draft.fill('Keep this draft during slow activation.');
+  const worker = context.serviceWorkers().find(worker => worker.url().endsWith('/sw.js'))!;
+  await worker.evaluate(() => {
+    const scope = self as any, skip = scope.skipWaiting.bind(scope);
+    const held = new Promise<void>(resolve => { scope.releaseActivation = resolve; });
+    scope.skipWaiting = async () => { await held; return skip(); };
+  });
+  await page.evaluate(() => {
+    const listen = ServiceWorker.prototype.addEventListener;
+    ServiceWorker.prototype.addEventListener = function (type: string, ...args: any[]) {
+      if (type !== 'statechange') Reflect.apply(listen, this, [type, ...args]);
+    };
+  });
+  await toast(page).getByRole('button', { name: 'Update now' }).click();
+  try {
+    await page.waitForTimeout(16_000);
+    await expect(toast(page).getByRole('alert')).toHaveCount(0);
+    await expect(toast(page)).toContainText('Updating Herts');
+  } finally { await worker.evaluate(() => (self as any).releaseActivation()); }
+  await expect.poll(() => version(page)).not.toBe(old);
+  await expect(draft).toHaveValue('Keep this draft during slow activation.');
+  await expect(toast(page)).toHaveCount(0);
+});

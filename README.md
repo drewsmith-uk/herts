@@ -189,9 +189,20 @@ See the [Bots guide](docs/bots.md) for profile creation and routine settings.
 ### Change settings
 
 - **Settings → Plugins:** Enable features and change the tab order.
+  Drag tabs to change their order on this device. Tabs below the **More** line appear in **More**.
+  Select a section heading to hide or show its settings.
 - **Settings → General → Appearance:** Choose a theme.
 - **Settings → General → New conversation defaults:** Set defaults for new conversations.
 - **Settings → General → Notifications on this device:** Enable notifications on each device and send a test notification.
+
+On mobile, tabs that cannot fit appear in **More**.
+If no plugin tabs need **More**, a direct **Settings** tab appears.
+On desktop, **Settings** is at the bottom of the sidebar.
+
+The badge on **More** or **Settings** shows connection and synchronization status.
+Select the status row in **More** or **Settings** for details.
+The icon uses symbols and colours to show disconnected, waiting, syncing, synced, and warning states.
+Drafts remain on this device, including when the icon shows synced.
 
 ### Work offline and update the app
 

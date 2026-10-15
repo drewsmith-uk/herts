@@ -34,12 +34,20 @@ async function workerVersion(worker: ServiceWorker): Promise<string | undefined>
 
 async function activate(worker: ServiceWorker) {
   await new Promise<void>((resolve, reject) => {
-    const finish = (error?: Error) => { clearTimeout(timer); worker.removeEventListener('statechange', changed); error ? reject(error) : resolve(); };
+    const finish = (error?: Error) => {
+      clearTimeout(timer); clearInterval(poll);
+      worker.removeEventListener('statechange', changed);
+      error ? reject(error) : resolve();
+    };
     const changed = () => {
       if (worker.state === 'activated') finish();
       else if (worker.state === 'redundant') finish(new Error('A newer update replaced this one. Please try again.'));
     };
-    const timer = setTimeout(() => finish(new Error('The update could not finish. Please try again.')), 15_000);
+    const timer = setTimeout(() => {
+      if (worker.state === 'activated') finish();
+      else finish(new Error('Activation is taking longer than expected. Please try again.'));
+    }, 60_000);
+    const poll = setInterval(changed, 500);
     worker.addEventListener('statechange', changed);
     try { worker.postMessage({ type: 'ACTIVATE_UPDATE' }); changed(); } catch { finish(new Error('The update is no longer available. Please try again.')); }
   });

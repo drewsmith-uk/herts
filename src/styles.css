@@ -18,7 +18,7 @@ code, pre { font-family: var(--font-mono); }
 .appearance-settings .theme-refresh { margin-top: 12px; min-height: 44px; }
 .theme-errors { color: var(--color-warning); overflow-wrap: anywhere; }
 .theme-errors summary { cursor: pointer; }
-:root { --topbar-height: 65px; }
+:root { --topbar-height: 0px; }
 .update-toast { position: fixed; z-index: 60; right: 24px; bottom: 24px; width: min(380px, calc(100vw - 32px)); padding: 18px; border: var(--border-width, 1px) solid var(--color-border); border-radius: var(--radius-panel); background: var(--color-surface); color: var(--color-text); box-shadow: var(--shadow-floating); }
 .update-toast-message { display: flex; align-items: flex-start; gap: 12px; }
 .update-toast-message>svg { flex-shrink: 0; margin-top: 2px; color: var(--color-link); }
@@ -31,9 +31,6 @@ code, pre { font-family: var(--font-mono); }
 .update-toast { right: 16px; bottom: calc(82px + env(safe-area-inset-bottom)); } }
 @media (prefers-reduced-motion: reduce) {
 .update-toast .spin { animation: none; } }
-.topbar { position: sticky; top: 0; z-index: 12; height: var(--topbar-height); gap: 12px; background: var(--color-surface); }
-.topbar .save-state { margin-left: auto; }
-.settings-link { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 38px; height: 44px; color: var(--color-text-secondary); }
 .conversation-page-header { top: var(--topbar-height); }
 .reading-toolbar, .reading-tabs, .reading-detail-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .reading-toolbar { justify-content: space-between; margin-bottom: 22px; }
@@ -59,9 +56,6 @@ code, pre { font-family: var(--font-mono); }
 .reader-article { font-size: 1.05rem; line-height: 1.85; max-width: 680px; margin: 28px auto; }
 .reading-setting { display: flex; align-items: center; gap: 9px; font-size: .87rem; margin: 10px 0 15px; }
 @media(max-width:700px) {
-:root { --topbar-height: 55px; }
-.topbar { padding-inline: 14px; gap: 6px; }
-.topbar .save-state { max-width: 170px; }
 .reading-detail-controls { gap: 7px; }
 .reading-detail-controls button, .reading-detail-controls a { font-size: .74rem; padding: 8px 10px; min-height: 44px; }
 .reading-capture { padding: 18px; }
@@ -80,8 +74,6 @@ code, pre { font-family: var(--font-mono); }
 .new-space-form label { display: block; font-size: .85rem; }
 .new-space-form input { display: block; margin: 6px 0 10px; }
 .conflict-banner label { display: block; margin: 10px 0; }
-.topbar .breadcrumb { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.topbar .save-state { flex-shrink: 0; }
 .detail-controls select[aria-label="Task space"] { max-width: 220px; }
 @media(max-width:700px) {
 .space-switcher select { background: var(--color-sidebar); color: var(--color-sidebar-text); border-color: var(--color-border); }
@@ -138,9 +130,6 @@ code, pre { font-family: var(--font-mono); }
 .space-dialog .inline-error { color: var(--color-danger); }
 .space-scroll-surface { position: absolute; width: 1px; height: 1px; pointer-events: none; }
 
-/* Plugin navigation uses the same order on every device. */
-.mobile-nav { overflow-x: auto; justify-content: stretch; scrollbar-width: thin }
-.mobile-nav>a { flex: 1 0 88px; min-width: 88px; white-space: nowrap }
 .tab-order-row { display: flex; align-items: center; gap: 8px; padding: 10px 0 }
 .tab-order-row>span { flex: 1 }
 .danger-button { color: var(--color-danger) }

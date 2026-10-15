@@ -218,7 +218,7 @@ test('Press keeps task, reading and conversation controls usable and its treatme
   await page.getByRole('button', { name: 'Finish editing', exact: true }).click();
   for (const width of [390, 320]) {
     await page.setViewportSize({ width, height: 844 });
-    await expect(page.locator('.mobile-nav a.active')).toHaveCSS('background-color', 'rgb(255, 230, 0)');
+    await expect(page.locator('.mobile-nav [aria-current="page"]')).toHaveCSS('background-color', 'rgb(255, 230, 0)');
     await expect(page.getByRole('link', { name: 'Add link', exact: true })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   }
@@ -241,7 +241,7 @@ test('Press keeps task, reading and conversation controls usable and its treatme
   await page.getByLabel('Theme on this device', { exact: true }).selectOption('fieldwork');
   await page.goto('/#/tasks/inbox');
   await expect(page.locator('.composer')).toHaveCSS('border-top-width', '1px');
-  await expect(page.locator('.mobile-nav a.active')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await expect(page.locator('.mobile-nav [aria-current="page"]')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
   await page.getByRole('textbox', { name: 'Message Hermes', exact: true }).fill('Check original styling');
   await expect(page.getByRole('button', { name: 'Save to Inbox', exact: true })).toHaveCSS('box-shadow', 'none');
   await context.setOffline(false);

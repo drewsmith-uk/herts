@@ -20,7 +20,7 @@ for (const theme of builtinThemes.filter(theme => ['fieldwork', 'press'].include
       await expect(title).toBeAttached();
       await page.evaluate(() => document.fonts.ready);
       await expect(header).toHaveClass(/is-compact/);
-      const gap = () => header.evaluate(el => el.getBoundingClientRect().top - document.querySelector('.topbar')!.getBoundingClientRect().bottom);
+      const gap = () => header.evaluate(el => el.getBoundingClientRect().top - document.querySelector('main')!.getBoundingClientRect().top);
       await expect.poll(gap).toBe(0);
       const compact = (await header.boundingBox())!.height;
       expect(compact).toBeLessThanOrEqual(66);

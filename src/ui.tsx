@@ -1,5 +1,5 @@
-import { createContext, useContext, useId, useLayoutEffect, useRef, type ComponentProps, type ReactNode } from 'react';
-import { Search, X } from 'lucide-react';
+import { createContext, useContext, useState, useId, useLayoutEffect, useRef, type ComponentProps, type ReactNode } from 'react';
+import { Search, X, ChevronDown } from 'lucide-react';
 
 const classes = (...values: (string | false | undefined)[]) => values.filter(Boolean).join(' ');
 
@@ -67,13 +67,14 @@ export function ItemMeta({ className, ...props }: ComponentProps<'div'>) {
 }
 
 const SettingsDepth = createContext(0);
-export function SettingsSection({ title, icon, description, actions, headingId, className, children, ...props }: Omit<ComponentProps<'section'>, 'title'> & {
-  title: ReactNode; icon?: ReactNode; description?: ReactNode; actions?: ReactNode; headingId?: string;
+export function SettingsSection({ title, icon, description, actions, headingId, className, children, collapsible = false, ...props }: Omit<ComponentProps<'section'>, 'title'> & {
+  title: ReactNode; icon?: ReactNode; description?: ReactNode; actions?: ReactNode; headingId?: string; collapsible?: boolean;
 }) {
   const depth = useContext(SettingsDepth), generatedId = useId(), id = headingId || generatedId;
+  const [expanded, setExpanded] = useState(true);
   return <section {...props} aria-labelledby={id} className={classes('settings-card', 'settings-section', depth > 0 && 'settings-subsection', className)}>
-    <div className="settings-section-heading">{icon && <div className="settings-icon" aria-hidden="true">{icon}</div>}<h2 id={id}>{title}</h2>{actions && <div className="settings-section-actions">{actions}</div>}</div>
-    <div className="settings-section-body">{description && <p>{description}</p>}<SettingsDepth.Provider value={depth + 1}>{children}</SettingsDepth.Provider></div>
+    <div className="settings-section-heading">{icon && <div className="settings-icon" aria-hidden="true">{icon}</div>}<h2 id={id}>{collapsible ? <button type="button" className="settings-section-toggle" aria-expanded={expanded} aria-controls={`${id}-body`} onClick={() => setExpanded(!expanded)}>{title}<ChevronDown size={18} aria-hidden="true"/></button> : title}</h2>{actions && <div className="settings-section-actions">{actions}</div>}</div>
+    <div id={`${id}-body`} hidden={collapsible && !expanded} className="settings-section-body">{description && <p>{description}</p>}<SettingsDepth.Provider value={depth + 1}>{children}</SettingsDepth.Provider></div>
   </section>;
 }
 export function SettingRow({ label, htmlFor, description, control }: { label: ReactNode; htmlFor: string; description?: ReactNode; control: ReactNode }) {
@@ -97,7 +98,7 @@ export function DialogFrame({ close, busy = false, dismissOnBackdrop = false, si
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useLayoutEffect(() => { const node = dialog.current!; node.showModal(); return () => { if (node.open) node.close(); }; }, []);
-  return <dialog {...props} ref={dialog} className={classes('dialog-frame', `dialog-frame--${size}`, className)} onCancel={event => { event.preventDefault(); if (!busy) close(); }} onClick={event => {
+  return <dialog {...props} ref={dialog} className={classes('dialog-frame', `dialog-frame--${size}`, className)} onCancel={event => { event.preventDefault(); event.stopPropagation(); if (!busy) close(); }} onClick={event => {
     if (!dismissOnBackdrop || busy || event.target !== event.currentTarget) return;
     const bounds = event.currentTarget.getBoundingClientRect();
     if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) close();

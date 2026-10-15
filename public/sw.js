@@ -160,8 +160,15 @@ async function readPluginNotification(data) {
   return store.get(pluginNotificationKey(data));
  });
 }
+async function matchingPluginNotifications(data) {
+ return (await self.registration.getNotifications()).filter(notification => {
+  const saved = notification.data;
+  return saved?.kind === 'device-plugin' && saved.pluginId === data.pluginId
+   && saved.generation === data.generation && saved.key === data.key;
+ });
+}
 async function closePluginNotification(data, revision) {
- const notifications = await self.registration.getNotifications({ tag: pluginNotificationTag(data) });
+ const notifications = await matchingPluginNotifications(data);
  for (const notification of notifications) if (!revision || notification.data?.revision === revision) notification.close();
 }
 async function pluginNotificationsChanged() {
@@ -169,18 +176,22 @@ async function pluginNotificationsChanged() {
   if (new URL(client.url).origin === self.location.origin) client.postMessage({ type: 'PLUGIN_NOTIFICATIONS_CHANGED' });
  }
 }
-async function displayPluginNotification(data, record, onlyMissing = false) {
+async function displayPluginNotification(data, record, onlyMissing = false, dismissedTag, replace = false) {
  let error;
  try {
   const current = await readPluginNotification(data);
   if (!current || current.revision !== record.revision) return;
-  const present = await self.registration.getNotifications({ tag: pluginNotificationTag(data) });
+  const all = await matchingPluginNotifications(data);
+  const present = all.filter(notification => notification.tag !== dismissedTag);
   if (!onlyMissing || !present.some(notification => notification.data?.revision === record.revision)) {
+   // Browser cleanup can delete the dismissed tag after this handler completes.
+   const tag = (!replace && present[0]?.tag) || `${pluginNotificationTag(data)}:${crypto.randomUUID()}`;
    await self.registration.showNotification(record.title, {
-    body: record.body || '', icon: '/icon-192.png', tag: pluginNotificationTag(data),
+    body: record.body || '', icon: '/icon-192.png', tag,
     silent: true, renotify: false, requireInteraction: true,
     data: { kind: 'device-plugin', pluginId: data.pluginId, generation: data.generation, key: data.key, revision: record.revision },
    });
+   for (const notification of all) if (notification.tag !== tag) notification.close();
   }
  } catch {
   error = typeof Notification !== 'undefined' && Notification.permission !== 'granted'
@@ -197,7 +208,7 @@ async function displayPluginNotification(data, record, onlyMissing = false) {
  if (!retained) await closePluginNotification(data, record.revision);
  await pluginNotificationsChanged();
 }
-async function reconcilePluginNotifications() {
+async function reconcilePluginNotifications(redisplay = false) {
  const records = await pluginNotificationStorage('readonly', async store => {
   const catalogue = await store.catalogue();
   const rows = (await Promise.all((catalogue?.entries || []).filter(entry => entry.enabled && entry.available)
@@ -211,13 +222,13 @@ async function reconcilePluginNotifications() {
  });
  const desired = new Set(records.map(({ data }) => pluginNotificationTag(data)));
  for (const notification of await self.registration.getNotifications()) {
-  if (notification.data?.kind === 'device-plugin' && !desired.has(notification.tag)) notification.close();
+  if (notification.data?.kind === 'device-plugin' && !desired.has(pluginNotificationTag(notification.data))) notification.close();
  }
- for (const { data, record } of records) if (record.restoreOnDismiss) await displayPluginNotification(data, record, true);
+ for (const { data, record } of records) if (record.restoreOnDismiss) await displayPluginNotification(data, record, !redisplay, undefined, redisplay);
 }
 async function handlePluginNotification(data) {
  if (data.version !== 1) throw new Error('Update Herts to use device notifications.');
- if (data.command === 'reconcile') return reconcilePluginNotifications();
+ if (data.command === 'reconcile') return reconcilePluginNotifications(data.redisplay === true);
  if (!/^[a-z][a-z0-9-]{0,63}$/.test(data.pluginId) || !Number.isSafeInteger(data.generation)) throw new Error('Invalid plugin identity.');
  const result = await pluginNotificationStorage('readwrite', async store => {
   if (!notificationPlugin(await store.catalogue(), data, true)) throw new Error('This plugin changed. Reload before changing notifications.');
@@ -242,7 +253,7 @@ async function handlePluginNotification(data) {
   throw new Error('Unknown notification operation.');
  });
  if (data.command === 'remove') await closePluginNotification(data);
- if (result) await displayPluginNotification(data, result);
+ if (result) await displayPluginNotification(data, result, false, undefined, data.command === 'retry');
  await pluginNotificationsChanged();
  return result ? readPluginNotification(data) : undefined;
 }
@@ -259,6 +270,6 @@ self.addEventListener('notificationclose', event => {
  if (data?.kind !== 'device-plugin') return;
  event.waitUntil(pluginNotificationQueue(async () => {
   const record = await readPluginNotification(data);
-  if (record?.restoreOnDismiss) await displayPluginNotification(data, record);
+  if (record?.restoreOnDismiss) await displayPluginNotification(data, record, true, event.notification.tag);
  }).catch(() => {}));
 });

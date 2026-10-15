@@ -74,19 +74,35 @@ function workerMessage(event: MessageEvent) {
 
 export function startDeviceNotifications() {
   if (!('serviceWorker' in navigator)) return;
-  let running = false, again = false;
-  const refresh = async () => {
+  let running = false, again = false, redisplay = false, started = false;
+  let retryTimer: ReturnType<typeof setTimeout> | undefined, retryDelay = 1000;
+  const refresh = async (force = false) => {
+    redisplay ||= force || !started;
     if (document.visibilityState !== 'visible' || !getState().loaded) return;
     if (running) { again = true; return; }
     running = true;
     do {
       again = false;
-      try { await request('reconcile'); } catch { /* Plugin controls report worker compatibility and operation failures. */ }
+      const replace = redisplay; redisplay = false;
+      try {
+        await request('reconcile', { redisplay: replace });
+        started = true; retryDelay = 1000; clearTimeout(retryTimer);
+      } catch {
+        redisplay ||= replace;
+        clearTimeout(retryTimer);
+        retryTimer = setTimeout(() => { void refresh(); }, retryDelay);
+        retryDelay = Math.min(retryDelay * 2, 30_000);
+        break;
+      }
     } while (again);
     running = false;
   };
-  window.addEventListener('herts-plugin-catalogue', refresh);
-  window.addEventListener('focus', refresh);
-  document.addEventListener('visibilitychange', refresh);
-  navigator.serviceWorker.addEventListener('controllerchange', refresh);
+  const catalogue = () => { void refresh(); };
+  const foreground = () => { void refresh(true); };
+  window.addEventListener('herts-plugin-catalogue', catalogue);
+  window.addEventListener('focus', foreground);
+  document.addEventListener('visibilitychange', foreground);
+  navigator.serviceWorker.addEventListener('controllerchange', foreground);
+  void navigator.serviceWorker.ready.then(catalogue).catch(() => {});
+  catalogue();
 }

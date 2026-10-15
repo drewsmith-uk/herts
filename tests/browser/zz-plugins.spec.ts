@@ -20,7 +20,11 @@ test('core conversations work with every plugin disabled; Settings controls tabs
     await page.getByRole('checkbox',{name:'Enable Tasks',exact:true}).click();
     await expect(page.getByRole('checkbox',{name:'Enable Reading',exact:true})).toBeEnabled();
     await page.getByRole('checkbox',{name:'Enable Reading',exact:true}).click();
-    await expect(page.getByRole('navigation',{name:'Main navigation'}).getByRole('link')).toHaveCount(1);
+    const navigation = page.getByRole('navigation',{name:'Main navigation'});
+    await expect(navigation.getByRole('link')).toHaveText(['Conversations', 'Settings']);
+    await expect(navigation.getByRole('link',{name:'Conversations',exact:true})).toHaveAttribute('href','#/conversations');
+    await expect(navigation.getByRole('link',{name:'Settings',exact:true})).toHaveAttribute('href','#/settings');
+    await expect(navigation.getByRole('button',{name:'More',exact:true})).toHaveCount(0);
     await page.goto('/');await expect(page.getByRole('heading',{name:'Conversations',exact:true})).toBeVisible();
     await page.goto('/#/conversation/reading-links');await expect(page.getByLabel('Message Hermes')).toBeEnabled();
     await expect(page.getByRole('button',{name:'Make a task',exact:true})).toHaveCount(0);
