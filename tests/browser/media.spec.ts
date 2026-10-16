@@ -21,10 +21,12 @@ test('one press downloads bytes and cached files remain available offline', asyn
   expect(downloaded.suggestedFilename()).toBe('report.html');
   expect(await readFile((await downloaded.path())!, 'utf8')).toBe('<h1>Report</h1>');
   await expect(button).toBeEnabled();
+  await page.unroute('**/api/v1/media');
   await context.setOffline(true);
   const second = page.waitForEvent('download');
   await button.click();
   expect((await second).suggestedFilename()).toBe('report.html');
+  await expect(page.locator('.message-file [role="alert"]')).toHaveText('Saved copy. Reconnect and download again for the latest file.');
   expect(reads).toBe(1);
 });
 
@@ -59,4 +61,68 @@ test('navigation ignores a delayed file response', async ({ page }) => {
   await (await response).finished();
   await expect(page.locator('.page-header')).toBeVisible();
   expect(downloads).toBe(0);
+});
+
+for (const reload of [false, true]) test(`downloads changed bytes at the same path after reload=${reload}`, async ({ page }) => {
+  let reads = 0;
+  await page.route('**/api/v1/media', route => route.fulfill({ json: {
+    dataUrl: `data:text/html;base64,${Buffer.from(++reads === 1 ? 'Original' : 'Updated').toString('base64')}`,
+  } }));
+  let button = await attachment(page);
+  const first = page.waitForEvent('download');
+  await button.click();
+  expect(await readFile((await (await first).path())!, 'utf8')).toBe('Original');
+  await expect(button).toBeEnabled();
+  if (reload) { await page.reload(); button = page.getByRole('button', { name: 'Download file', exact: true }); }
+  const second = page.waitForEvent('download');
+  await button.click();
+  expect(await readFile((await (await second).path())!, 'utf8')).toBe('Updated');
+  expect(reads).toBe(2);
+});
+
+test('image downloads refresh a previously displayed image', async ({ page }) => {
+  const original = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';
+  let reads = 0;
+  await page.route('**/api/v1/media', route => route.fulfill({ json: { dataUrl: ++reads === 1 ? original : dataUrl } }));
+  await page.route('**/api/v1/conversations/*/history*', route => route.fulfill({ json: {
+    sessionId: 'existing', offset: 0, order: 'latest', hasMore: false, fetchedAt: Date.now(),
+    messages: [{ role: 'assistant', content: 'MEDIA:/tmp/image.png' }],
+  } }));
+  await page.goto('/#/conversation/existing');
+  await page.getByRole('button', { name: 'View image', exact: true }).click();
+  const download = page.waitForEvent('download');
+  await page.getByRole('link', { name: 'Download image' }).click();
+  expect(await readFile((await (await download).path())!, 'utf8')).toBe('<h1>Report</h1>');
+  expect(reads).toBe(2);
+});
+
+for (const failure of [
+  { status: 404, error: 'Hermes request failed (404).', warning: 'Saved copy. The current file is unavailable. Ask Hermes to provide it again.' },
+  { status: 409, error: 'This file is not referenced in the selected conversation message.', warning: 'Saved copy. The file reference has changed. Refresh the conversation and download again.' },
+  { status: 503, error: 'Hermes is unavailable.', warning: 'Saved copy. Hermes is unavailable. Try downloading again.' },
+]) test(`saved downloads retain recovery guidance after HTTP ${failure.status}`, async ({ page }) => {
+  let reads = 0;
+  const updated = `data:text/html;base64,${Buffer.from('Updated').toString('base64')}`;
+  await page.route('**/api/v1/media', route => ++reads === 2
+    ? route.fulfill({ status: failure.status, json: { error: failure.error } })
+    : route.fulfill({ json: { dataUrl: reads === 1 ? dataUrl : updated } }));
+  const button = await attachment(page);
+  const draft = page.getByRole('textbox', { name: 'Message Hermes', exact: true });
+  await draft.fill('Keep my draft through file recovery.');
+  const first = page.waitForEvent('download');
+  await button.click(); await first;
+  await expect(button).toBeEnabled();
+  const saved = page.waitForEvent('download');
+  await button.click();
+  expect(await readFile((await (await saved).path())!, 'utf8')).toBe('<h1>Report</h1>');
+  await expect(page.locator('.message-file [role="alert"]')).toHaveText(failure.warning);
+  await expect(draft).toHaveValue('Keep my draft through file recovery.');
+  expect(reads).toBe(2);
+  await expect(button).toBeEnabled();
+  const retry = page.waitForEvent('download');
+  await button.click();
+  expect(await readFile((await (await retry).path())!, 'utf8')).toBe('Updated');
+  await expect(page.locator('.message-file [role="alert"]')).toHaveCount(0);
+  await expect(draft).toHaveValue('Keep my draft through file recovery.');
+  expect(reads).toBe(3);
 });
