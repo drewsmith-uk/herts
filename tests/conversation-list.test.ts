@@ -96,7 +96,7 @@ it('keeps displayed rows on failed refresh and retries successfully', async () =
   mocks.api.mockResolvedValueOnce(page([conversation('saved')])); await render(); await request();
   mocks.read.mockRejectedValue(new Error('Storage unavailable')); mocks.api.mockRejectedValueOnce(new Error('Offline'));
   version = '2'; await render(); expect(result.rows[0].key).toBe('saved'); await request();
-  expect(result).toMatchObject({ busy: false, cached: true, more: false, error: '' }); expect(result.rows[0].key).toBe('saved');
+  expect(result).toMatchObject({ busy: false, cached: true, more: false, error: 'Offline' }); expect(result.rows[0].key).toBe('saved');
   mocks.api.mockResolvedValueOnce(page([conversation('recovered')]));
   await act(async () => { await vi.advanceTimersByTimeAsync(8000); });
   await request();
@@ -124,7 +124,7 @@ it('keeps displayed metadata on timestamp ties after failure and accepts recover
   mocks.api.mockRejectedValueOnce(new Error('Offline')); version = '2';
   await render(); await request();
   expect(result.rows).toEqual([displayed, conversation('cached-only', 2)]);
-  expect(result).toMatchObject({ busy: false, cached: true, error: '' });
+  expect(result).toMatchObject({ busy: false, cached: true, error: 'Offline' });
   const recovered = { ...displayed, title: 'Server rename', extensions: { tasks: { title: 'Server task' } } };
   mocks.api.mockResolvedValueOnce(page([recovered]));
   await act(async () => { await vi.advanceTimersByTimeAsync(8000); });

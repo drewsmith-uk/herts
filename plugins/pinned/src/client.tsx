@@ -75,7 +75,7 @@ function PinAction({ store, ...props }: ConversationActionProps & { store: PinSt
   const pinRevision = pin?.revision;
   useEffect(() => {
     if (!pin || pin.route !== route || pin.title === title || busy || error || state.compatibility) return;
-    if (pin.metadata.contextId && sdk.getConversationTitle(pin.metadata.contextId, pin.route)) return;
+    if (pin.metadata.contextId) return;
     let alive = true;
     void work(store.service.set({ ...pin, title, metadata: { identities: [...new Set([...pin.metadata.identities, ...ids])], contextId: props.context?.id || pin.metadata.contextId } }, pin.revision))
       .catch(reason => { if (alive) setError(message(reason)); });
@@ -99,10 +99,10 @@ function PinAction({ store, ...props }: ConversationActionProps & { store: PinSt
     finally { await store.reload(); operating.current = false; setBusy(false); }
   }
   const problem = error || state.error || state.compatibility || pin?.displayError;
-  return <><sdk.IconButton aria-pressed={!!pin} aria-label={pin ? 'Unpin notification' : 'Pin notification'}
+  return <><sdk.ActionRow icon={pin ? <PinOff size={20}/> : <Pin size={20}/>} aria-pressed={!!pin} aria-label={pin ? 'Unpin notification' : 'Pin notification'}
     title={pin ? 'Unpin notification' : 'Pin notification'} disabled={(!pin && !savedDestination) || busy || state.loading || state.checking || !!state.compatibility || !!state.error}
-    onClick={() => void toggle()}>{pin ? <PinOff size={16}/> : <Pin size={16}/>}</sdk.IconButton>
-    {problem && <ButtonLink className="icon-button" aria-label={`Open Pinned: ${problem}`} title={problem} href={`#${path}`}><AlertTriangle size={16}/></ButtonLink>}
+    onClick={() => void toggle()}>{pin ? 'Unpin notification' : 'Pin notification'}</sdk.ActionRow>
+    {problem && <sdk.ActionRowLink icon={<AlertTriangle size={20}/>} aria-label={`Open Pinned: ${problem}`} title={problem} href={`#${path}`}>Open Pinned</sdk.ActionRowLink>}
   </>;
 }
 
@@ -133,13 +133,13 @@ function PinnedScreen({ store }: { store: PinStore }) {
     }><a href={`#${row.route}`} className="draft-open" title={row.title}><h2 className="item-title item-title--clamped">{row.title}</h2></a>
       {row.displayError && <StatusMessage>{row.displayError} <Button disabled={!!working || !!state.compatibility} onClick={() => void run(row, false)}>Retry</Button></StatusMessage>}
     </ItemRow>)}</ItemList>
-    {!state.loading && !state.error && !rows.length && <EmptyState icon={<Pin size={30}/>} title={query ? 'No pins match this search' : 'No pinned notifications'}
-      description={query ? undefined : 'Pin a conversation or task.'}><ButtonLink href="#/conversations">Open Conversations</ButtonLink></EmptyState>}
+    {!state.loading && !state.error && !state.compatibility && !rows.length && <EmptyState icon={<Pin size={30}/>} title={query ? 'No pins match this search' : 'No pinned notifications'}
+      description={query ? undefined : 'Pin a conversation or task.'}>{query ? <Button onClick={() => setQuery('')}>Clear search</Button> : <ButtonLink href="#/conversations">Open Conversations</ButtonLink>}</EmptyState>}
   </>;
 }
 
 export default function activate(): ClientPlugin {
-  if (!sdk.pluginNotifications || !sdk.SearchField || !sdk.getConversationTitle || !sdk.subscribeCore) return { tab: { title: 'Pinned', path, icon: Pin }, routes: [{ match: route => route === path, component: () => <p>Update Herts through Settings → App updates to use Pinned.</p> }] };
+  if (!sdk.ActionRow || !sdk.ActionRowLink || !sdk.pluginNotifications || !sdk.SearchField || !sdk.getConversationTitle || !sdk.subscribeCore) return { tab: { title: 'Pinned', path, icon: Pin }, routes: [{ match: route => route === path, component: () => <p>Update Herts through Settings → App updates to use Pinned.</p> }] };
   const store = createStore();
   return { tab: { title: 'Pinned', path, icon: Pin }, routes: [{ match: route => route === path, component: () => <PinnedScreen store={store}/> }],
     ConversationActions: props => <PinAction {...props} store={store}/>, start: store.start };

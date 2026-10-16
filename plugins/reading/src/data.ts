@@ -5,6 +5,7 @@ const copies: Record<string, Article> = {}, errors: Record<string, {
     version: number;
     message: string;
 }> = {};
+const fetching = new Map<string, Promise<Article>>();
 let generation = -1;
 function adapt(core: CoreState) {
     const nextGeneration = core.plugins.entries.find(e => e.manifest.id === 'reading')?.generation ?? 0;
@@ -23,7 +24,7 @@ function adapt(core: CoreState) {
             void pluginLocal('reading').articles.delete(id);
         }
     }
-    return { ...core, snapshot: { ...core.snapshot, reading }, remote: { ...core.remote, reading: (core.pluginRemote.reading?.records.state || emptyReading()) as ReadingState }, readingPending: core.pluginPending.filter(p => p.pluginId === 'reading').map(p => ({ op: p.operation.input as ReadingOp, order: p.order, conflict: p.conflict })), articleCopies: { ...copies }, articleErrors: { ...errors } };
+    return { ...core, snapshot: { ...core.snapshot, reading }, remote: { ...core.remote, reading: (core.pluginRemote.reading?.records.state || emptyReading()) as ReadingState }, readingPending: core.pluginPending.filter(p => p.pluginId === 'reading').map(p => ({ op: p.operation.input as ReadingOp, order: p.order, conflict: p.conflict })), articleCopies: { ...copies }, articleDownloads: [...fetching.keys()], articleErrors: { ...errors } };
 }
 const current = () => adapt(getCore());
 export function useApp() { return adapt(useCore()); }
@@ -56,16 +57,28 @@ export async function addReading(raw: string, title = '', conversationId?: strin
 export async function readingChange(itemId: string, change: Partial<ReadingOp> & Pick<ReadingOp, 'kind'>) { const state = current(), item = state.snapshot.reading.items.find(i => i.id === itemId); return mutateReading({ id: crypto.randomUUID(), itemId, at: Date.now(), ...change, ...(change.kind === 'title' ? { baseTitle: change.baseTitle ?? item?.title } : {}), ...(change.kind === 'read' ? { baseReadAt: item?.readAt ?? null } : {}), ...(change.kind === 'reorder' ? { listVersion: state.snapshot.reading.unread.version } : {}) }); }
 export async function resolveReadingConflict(id: string, keep: boolean) { const state = current(), pending = state.readingPending.find(p => p.op.id === id); if (!pending)
     return; const item = state.remote.reading.items.find(i => i.id === pending.op.itemId); return resolvePluginOperation(id, keep ? { ...pending.op, baseReadAt: item?.readAt ?? null, listVersion: state.remote.reading.unread.version, ...(pending.op.kind === 'title' ? { baseTitle: item?.title } : {}) } : undefined); }
-export async function getArticle(id: string): Promise<Article> {
+export function getArticle(id: string): Promise<Article> {
+    const version = current().snapshot.reading.items.find(item => item.id === id)?.downloadVersion;
+    const key = `${generation}:${id}:${version}`;
+    const previous = fetching.get(key); if (previous) return previous;
+    const request = readArticle(id).catch(error => {
+        const latest = current();
+        if (`${generation}:${id}:${latest.snapshot.reading.items.find(item => item.id === id)?.downloadVersion}` === key) errors[id] = { version: version!, message: error.message };
+        throw error;
+    }).finally(() => { fetching.delete(key); publish(); });
+    fetching.set(key, request); publish(); return request;
+}
+async function readArticle(id: string): Promise<Article> {
     const local = pluginLocal('reading'), startGeneration = current().plugins.entries.find(e => e.manifest.id === 'reading')?.generation;
     const cached = await local.articles.get(id);
-    if (cached) {
+    const requestedItem = current().snapshot.reading.items.find(item => item.id === id);
+    if (cached && cached.version === requestedItem?.downloadVersion && current().plugins.entries.find(e => e.manifest.id === 'reading')?.generation === startGeneration) {
         copies[id] = cached;
         return cached;
     }
     const article = await pluginQuery('reading', 'article', { id }) as Article;
     const state = current(), item = state.snapshot.reading.items.find(i => i.id === id);
-    if (state.plugins.entries.find(e => e.manifest.id === 'reading')?.generation !== startGeneration)
+    if (state.plugins.entries.find(e => e.manifest.id === 'reading')?.generation !== startGeneration || item?.downloadVersion !== article.version)
         throw new Error('Reading data was reset.');
     if (item && retainsArticle(item, state.snapshot.reading) && item.downloadVersion === article.version && !state.readingPending.some(p => p.op.itemId === id || p.op.kind === 'settings')) {
         try {

@@ -24,7 +24,7 @@ test('an older state rebuild cannot remove the draft being edited', async ({ pag
     };
   });
   await page.goto('/#/new');
-  const editor = page.getByLabel('Message Hermes');
+  const editor = page.getByLabel(/^(Message Hermes|Add a task)$/);
   await expect(editor).toBeEditable();
   await expect(page.locator('.save-state')).toContainText('Changes synced');
   await page.evaluate(() => { (window as any).holdContextRead = true; dispatchEvent(new Event('online')); });

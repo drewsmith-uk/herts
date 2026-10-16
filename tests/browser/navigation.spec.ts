@@ -44,7 +44,7 @@ test('device placement switches More to direct Settings and preserves offline dr
   await page.setViewportSize({ width: 650, height: 844 });
   await expect(nav.getByRole('link', { name: 'Settings', exact: true })).toBeVisible();
   await page.evaluate(() => { location.hash = '/new'; });
-  const editor = page.getByLabel('Message Hermes', { exact: true });
+  const editor = page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true });
   await editor.fill('Keep this local draft through connection checks and navigation changes.');
   await expect(page).toHaveURL(/#\/draft\//);
   const closeDetails = await openConnectionDetails(page);

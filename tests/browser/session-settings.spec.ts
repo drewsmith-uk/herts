@@ -1,3 +1,4 @@
+import { pageAction } from './composer-helpers';
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 const state = async (request: APIRequestContext) => (await request.get('/api/v1/state', { headers: { 'x-herts-plugin-api': '1' } })).json();
 // A reused fixture socket can reset; retry only this read-only observation.
@@ -5,7 +6,7 @@ const writes = async (request: APIRequestContext): Promise<{ method: string; par
 const model = (id: string) => JSON.stringify({ id, provider: 'configured' });
 const settingsButton = (page: Page) => page.getByRole('button', { name: /^Conversation settings:/, includeHidden: true });
 // Click waits for the saved draft to load and enable the editor; focus() does not.
-async function open(page: Page) { await page.getByLabel('Message Hermes').click(); await settingsButton(page).click(); await expect(page.getByRole('dialog')).toBeVisible(); }
+async function open(page: Page) { await page.getByLabel(/^(Message Hermes|Add a task)$/).click(); await settingsButton(page).click(); await expect(page.getByRole('dialog')).toBeVisible(); }
 async function setDefaults(request: APIRequestContext, values = {}) { const revision = (await state(request)).snapshot.sessionSettings.defaults.revision; expect((await request.post('/api/v1/session-defaults', { headers: { 'x-herts-request': '1' }, data: { id: crypto.randomUUID(), revision, values } })).ok()).toBe(true); }
 test.afterEach(async ({ request }) => { await setDefaults(request); });
 
@@ -17,7 +18,7 @@ for (const width of [390, 1280]) test(`stages actual conversation settings witho
   await expect(settingsButton(page)).toContainText('existing-model');
   await expect(settingsButton(page)).toContainText('High');
   await expect(page.locator('.session-settings-controls button')).toHaveCount(1);
-  await page.getByLabel('Message Hermes').focus();
+  await page.getByLabel(/^(Message Hermes|Add a task)$/).focus();
   expect((await settingsButton(page).boundingBox())!.height).toBeGreaterThanOrEqual(44);
   await page.screenshot({ path: `test-results/session-settings-button-${width}.png`, fullPage: true });
   await open(page);
@@ -43,8 +44,8 @@ for (const width of [390, 1280]) test(`stages actual conversation settings witho
   await expect(settingsButton(page)).toContainText('chosen-model');
   await expect(settingsButton(page)).toContainText('Ultra');
   expect(await writes(request)).toEqual(before);
-  await page.getByLabel('Message Hermes').fill(`Send using selected settings ${width}`);
-  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByLabel(/^(Message Hermes|Add a task)$/).fill(`Send using selected settings ${width}`);
+  await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
   await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
   const sent = (await writes(request)).slice(before.length);
   expect(sent.at(-1)?.method).toBe('prompt.submit');
@@ -57,7 +58,7 @@ for (const width of [390, 1280]) test(`stages actual conversation settings witho
   await expect(page.getByLabel('Reasoning effort', { exact: true }).locator('option:checked')).toHaveText('Keep current session setting (Ultra)');
   await expect(page.getByLabel('Fast mode', { exact: true }).locator('option:checked')).toHaveText('Keep current session setting (On)');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await page.getByLabel('Message Hermes').fill(`Another message ${width}`); await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByLabel(/^(Message Hermes|Add a task)$/).fill(`Another message ${width}`); await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
   await expect.poll(async () => (await writes(request)).slice(before.length + sent.length).map(c => c.method)).toEqual(['prompt.submit']);
   await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -73,11 +74,11 @@ test('General Settings defaults apply to new conversations with a per-conversati
   await page.getByRole('button', { name: 'Save defaults', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   expect(await writes(request)).toEqual(before);
-  await page.reload(); await expect(page.locator('.settings-card').filter({ has: page.getByRole('heading', { name: 'New conversation defaults' }) })).toContainText('chosen-model');
+  await page.reload(); await expect(page.locator('.settings-card').filter({ has: page.getByRole('button', { name: 'Edit conversation defaults' }) })).toContainText('chosen-model');
   await page.goto('/#/new');
   await expect(settingsButton(page)).toContainText('chosen-model');
   await open(page); await page.getByLabel('Reasoning effort', { exact: true }).selectOption('low'); await page.getByRole('button', { name: 'Apply', exact: true }).click(); await expect(page.getByRole('dialog')).toHaveCount(0);
-  await page.getByLabel('Message Hermes').fill('Use my new conversation defaults'); await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByLabel(/^(Message Hermes|Add a task)$/).fill('Use my new conversation defaults'); await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
   await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
   const sent = (await writes(request)).slice(before.length); expect(sent.find(c => c.method === 'session.create')?.params).toMatchObject({ model: 'chosen-model', provider: 'configured', reasoning_effort: 'low', cwd: '/projects/work' });
 });
@@ -108,7 +109,7 @@ test('pending choices follow the same conversation through Reading and Tasks', a
   await page.getByRole('button', { name: 'Save to reading list: https://example.com/settings-shared', exact: true }).click();
   await page.getByRole('button', { name: 'Open reading item: https://example.com/settings-shared', exact: true }).click();
   await expect(settingsButton(page)).toContainText('Low');
-  await page.goto('/#/conversation/settings-shared'); await page.getByRole('button', { name: 'Make a task', exact: true }).click();
+  await page.goto('/#/conversation/settings-shared'); await (await pageAction(page, 'button', 'Make a task')).click();
   await page.getByRole('button', { name: 'Create task', exact: true }).click();
   await expect(page).toHaveURL(/#\/task\//);
   await expect(settingsButton(page)).toContainText('Low');
@@ -124,8 +125,8 @@ test('offline choices survive reload and sync before the deliberate Send', async
   await context.setOffline(true); await open(page); await page.getByLabel('Reasoning effort', { exact: true }).selectOption('low');
   await page.getByRole('button', { name: 'Apply', exact: true }).click(); await expect(page.getByRole('dialog')).toHaveCount(0); await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.reload(); await expect(settingsButton(page)).toContainText('Low');
-  await context.setOffline(false); await page.getByLabel('Message Hermes').fill('Use settings saved offline'); await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
-  expect(await writes(request)).toEqual(before); await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await context.setOffline(false); await page.getByLabel(/^(Message Hermes|Add a task)$/).fill('Use settings saved offline'); await expect(page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true })).toBeEnabled();
+  expect(await writes(request)).toEqual(before); await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
   await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
   expect((await writes(request)).slice(before.length).filter(c => c.method === 'config.set').map(c => c.params.value)).toEqual(['low']);
 });
@@ -135,7 +136,7 @@ test('Hermes model confirmation retains the message and requires explicit accept
   const before = await writes(request);
   await page.goto('/#/conversation/settings-confirm'); await open(page);
   await page.getByLabel('Conversation model', { exact: true }).selectOption(model('confirm-model')); await page.getByRole('button', { name: 'Apply', exact: true }).click(); await expect(page.getByRole('dialog')).toHaveCount(0);
-  await page.getByLabel('Message Hermes').fill('Wait for model confirmation'); await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByLabel(/^(Message Hermes|Add a task)$/).fill('Wait for model confirmation'); await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
   await expect(page.getByRole('button', { name: 'Switch and send saved message', exact: true })).toBeInViewport();
   expect((await writes(request)).slice(before.length).filter(c => c.method === 'prompt.submit')).toEqual([]);
   await page.reload(); await page.getByRole('button', { name: 'Switch and send saved message', exact: true }).click();
@@ -170,10 +171,10 @@ test('a late dictation transcript never starts an automatic send while choosing 
   await page.getByRole('button', { name: 'Dictate', exact: true }).click(); await page.waitForTimeout(1200);
   await page.getByRole('button', { name: 'Stop recording and transcribe', exact: true }).click();
   await open(page); release();
-  await expect(page.getByLabel('Message Hermes')).toHaveValue('Please draft a packing list.');
+  await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toHaveValue('Please draft a packing list.');
   await expect(page.locator('.countdown')).toHaveCount(0);
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.waitForTimeout(5500);
   expect(await writes(request)).toEqual(before);
-  await expect(page.getByLabel('Message Hermes')).toHaveValue('Please draft a packing list.');
+  await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toHaveValue('Please draft a packing list.');
 });

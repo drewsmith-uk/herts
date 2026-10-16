@@ -118,7 +118,15 @@ Plugin capture drafts must be JSON-serializable. The host keeps a synchronous br
 
 Use `<ConversationPanel context={context}/>` for the shared conversation interface. Use the canonical context returned by the server; an unsent local item can supply `{id, title, link: null, aliases: []}`. Do not build a separate send loop or automatically resume on mount. The panel preserves unconfirmed submissions and reuses the same Hermes context across every view. It also includes shared session settings (model/provider, effort, fast mode and server folder); edits remain staged until the next Send. New conversations inherit core Herts defaults automatically. Plugins do not need their own settings API or Hermes access.
 
-For detail pages, use `<ConversationHeader title={title} backHref="#/your-list" backLabel="Your list" context={context}>…</ConversationHeader>` above the panel. Its children hold editable titles and page controls; they start collapsed and expand with the details toggle. Back, the title and plugin conversation actions remain accessible. Set `showActions={false}` on the accompanying `ConversationPanel` to avoid duplicating those actions. The panel owns the single activity/Stop row and pending requests beside the composer. This row stays outside the history viewport while the user reads. Keep plugin action forms in `DialogFrame` so they do not expand the persistent toolbar.
+For detail pages, put `ConversationHeader` above the shared panel.
+Supply `title`, `backHref`, and `backLabel` for navigation.
+Its children contain editable titles and additional controls inside **More**.
+The `actions` property supplies controls that must remain visible, such as **Routines**.
+The fixed header shows a compact title. Scrolling content contains the full title.
+Plugin conversation actions and history refresh are available through **More**.
+Set `showActions={false}` on the accompanying `ConversationPanel` to prevent duplicate actions.
+The panel keeps Stop, approvals, and recovery controls beside the composer.
+Use `DialogFrame` for plugin action forms.
 
 The panel defaults to showing its Conversation section heading and the first-send explanation for an unlinked item. Use `showHeading={false}` when the entire page is already a conversation. Use `showEmptyNotice={false}` only when the parent supplies the same first-send explanation. These options affect presentation; the composer, history and execution/recovery controls remain available.
 
@@ -138,7 +146,7 @@ Use `MessageComposer` for text, attachments and dictation. Transcription appends
 
 `useEntryDraft({ key, pluginId, route, ... })` supplies a stable draft/context ID, metadata fields, scoped attachment owner, persistence and completion callbacks for capture adapters. Optional `initialText`/`initialFields` prefill shared content; `legacy` can adopt old plugin drafts and recordings before clearing their old location. A context is retained only after meaningful content, metadata or a recording exists. Pass an explicit `id` to resume a saved capture. Call `complete()` after successfully saving or sending to release the capture slot. Existing core drafts remain available to the saved item's conversation. `entryDraftStatus(pluginId, key)` reports whether that capture slot still contains a draft or recording; check it before deleting its destination.
 
-`ConversationPanel` accepts an optional `refreshVersion` when a plugin observes new backend messages; changing it refreshes history without restarting the composer. It owns a scrollable history viewport. Outside built-in detail screens, wrap it in a flex column that can shrink (`min-height: 0`). `ConversationHeader` keeps the title, back link and contributed actions visible; metadata expands explicitly. Do not add independent window scrolling in conversation contributions.
+`ConversationPanel` accepts an optional `refreshVersion` when a plugin observes new backend messages; changing it refreshes history without restarting the composer. It owns a scrollable history viewport. Outside built-in detail screens, wrap it in a flex column that can shrink (`min-height: 0`). `ConversationHeader` keeps the title and back link visible. Open **More** for metadata and contributed actions. Do not add independent window scrolling in conversation contributions.
 
 Lists reached through multiple route aliases can declare a stable `data-list-position` value on a containing element. The shell uses it to restore the same reading position when returning from details.
 
@@ -154,7 +162,7 @@ Conversation links and contexts may carry `profile` and `botChat`. Treat convers
 
 Plugins use the same UI standard as core screens. `SearchField`, `DialogHeading`, `MessageMarkdown`, `useListState` and the existing shared components are available from the client SDK. Check a new export before using it when supporting older browser hosts.
 
-Follow the UI completion criteria in [AGENTS.md](../AGENTS.md). Add each new screen to the shared theme and viewport suite. Test delayed requests and offline drafts. Inspect screenshots with long content before you consider the screen complete. Run `npm run test:ui` for focused checks and `npm run check:release` for the full release gate. Release checks stage the browser build instead of replacing the live `dist` directory.
+Follow the UI completion criteria in [AGENTS.md](../AGENTS.md). Add each new screen to the shared theme and viewport suite. Test delayed requests and offline drafts. Inspect screenshots with long content before you consider the screen complete. Select focused checks or the full suite with the [test selection policy](testing.md#test-selection-policy). Release checks stage the browser build instead of replacing the live `dist` directory.
 
 ### Shared form and transcript controls
 
@@ -203,3 +211,33 @@ A plugin can supply the optional `conversationTitle(contextId, route)` contribut
 Return `undefined` when the destination is unknown.
 This contribution must not submit work or change records.
 Use `ConversationHeader.savedTitle` when the displayed title includes an unsaved edit.
+
+## Capture and preview options
+
+Check `composerCapabilities?.taskCapture` before using the new task capture options on an older host.
+Set `primaryAction="save"`, `saveLabel`, and `onSaved` to make saving the primary action.
+This setting also makes Ctrl/Cmd+Enter save the draft.
+Enter inserts a newline. The default primary action remains Send.
+Use `inputLabel`, `sendLabel`, and `destination` for capture labels.
+Set `agentOptions` to put conversation settings inside **Agent options**.
+These options do not change receipt handling or automatically submit messages.
+
+Use `messagePreview(text, attachmentCount)` for plain-text list previews.
+It removes Markdown presentation and summarizes recognized attachment references without changing the stored text.
+Use `compactDate(timestamp)` for list dates. Supply an accessible exact timestamp separately.
+Use `readingTitle(title, url)` to show the host name and path when no article title exists.
+
+Use `ActionMenu` for additional page controls. Its native dialog supports Escape and restores focus.
+Use `ListPlaceholder` during the first list load. Keep cached rows visible during refresh.
+
+Use `ActionRow` and `ActionRowLink` for labelled page actions.
+Supply an `icon` and the visible action label as children.
+`ActionRow.value` shows a current value, such as a task destination.
+Put visibility controls in `ConversationHeader.visibilityActions` to add one divider without extra spacing.
+Use `RenameAction` for an explicit title editor.
+A `DialogFrame` editor closes Page actions before it opens.
+Closing the editor returns focus to **More**.
+The `RenameAction.save(title, baseTitle)` callback must reject failures and resolve only after the required save acknowledgement.
+The editor retains failed changes and prevents dismissal during saving.
+Pass `ConversationPanel.fullTitle` to show the full title inside the scrolling content.
+Use `SettingsGroup` for expandable preference groups.

@@ -129,7 +129,7 @@ to { transform: rotate(360deg) }}
 main { margin-left: 211px; width: calc(100% - 211px) }
 .page-content { padding: 34px 28px 70px }
 .brand { margin-bottom: 38px }}
-@media(max-width:700px){
+@media(max-width:1000px){
 .sidebar { display: none }
 main { margin: 0; width: 100%; padding-bottom: 70px }
 .page-content { padding: 29px 18px 55px }
@@ -172,7 +172,7 @@ main { margin: 0; width: 100%; padding-bottom: 70px }
 .message-file span { overflow-wrap: anywhere }
 .message-file button { margin-left: auto }
 .composer textarea { font-size: 1rem }
-@media(max-width:700px){
+@media(max-width:1000px){
 .drag-handle { min-width: 44px; min-height: 44px }}
 .activity-group { margin: 0 0 30px; border: var(--border-width, 1px) solid var(--color-border); border-radius: var(--radius-panel); background: var(--color-surface-muted); }
 .history-disclosure-toggle { display: flex; align-items: center; gap: 7px; min-height: 40px; border: 0; background: transparent; color: var(--color-text-secondary); text-align: left; font-size: .78rem; }
@@ -219,7 +219,7 @@ main { margin: 0; width: 100%; padding-bottom: 70px }
 .conversation-page-header .detail-controls { flex-wrap: wrap; margin-top: 8px; }
 .conversation-page-header .page-heading { margin-bottom: 0; }
 .conversation-page-header .create-from-chat { margin: 16px 0 0; }
-@media (max-width: 700px) {
+@media (max-width: 1000px) {
 .conversation-page-header { margin-inline: -18px; padding-inline: 18px; }
 .conversation-page-header .detail-title { font-size: 1.2rem; }
 .conversation-page-header .detail-controls select, .conversation-page-header .detail-controls button { min-height: 44px; }

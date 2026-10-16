@@ -7,8 +7,8 @@ async function protocol(request: APIRequestContext, modern: boolean) {
   await expect.poll(async () => { const s = await state(request); return s.gateway.online && s.gateway.promptProtocol; }).toBe(modern ? 'requests' : 'legacy');
 }
 async function send(page: Page, text: string) {
-  await page.getByLabel('Message Hermes').fill(text);
-  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByLabel(/^(Message Hermes|Add a task)$/).fill(text);
+  await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
 }
 test.beforeEach(async ({ request }) => { await protocol(request, true); });
 test.afterEach(async ({ request }) => { await protocol(request, false); });
@@ -85,7 +85,7 @@ test('unavailable preview reads return a tool explanation without an approval wa
   expect(replies).toHaveLength(1);
   expect(JSON.parse(replies[0].params.result.value)).toMatchObject({ success: false, error: expect.stringContaining('Herts does not support reading the Hermes Desktop browser preview') });
   await page.reload();
-  await expect(page.getByLabel('Message Hermes')).toBeEditable();
+  await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toBeEditable();
   await expect(page.getByRole('alert')).toHaveCount(0);
   expect((await calls(request)).slice(before).filter((c: any) => ['request.answer', 'approval.respond', 'session.resume'].includes(c.method))).toEqual([]);
 });

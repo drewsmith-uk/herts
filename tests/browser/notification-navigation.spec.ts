@@ -1,4 +1,5 @@
-import { detailsField, detailsControl } from './composer-helpers';
+import { openSettingsGroups } from './composer-helpers';
+import { detailsField, detailsControl, closePageActions } from './composer-helpers';
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 
 const headers = { 'x-tasks-request': '1' };
@@ -11,7 +12,7 @@ async function reminder(request: APIRequestContext, title: string) {
   return { taskId, id: result.notices.find((n: any) => n.task_id === taskId).id as string };
 }
 async function ready(page: Page) {
-  await page.goto('/#/settings');
+  await page.goto('/#/settings'); await openSettingsGroups(page);
   await expect(page.getByRole('heading', { name: 'Push notifications on this device' })).toBeVisible();
   await page.evaluate(() => navigator.serviceWorker.ready.then(() => true));
   await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
@@ -84,6 +85,8 @@ test('a warm notification switches to its task and test Settings without a docum
   await expect(page).toHaveURL(new RegExp(`#/task/${second.taskId}$`));
   await expect((await detailsField(page, 'Task title'))).toHaveValue('In-place reminder two');
   await deliver(page, { kind: 'test' });
+  await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
+  await openSettingsGroups(page);
   await expect(page.getByRole('heading', { name: 'Push notifications on this device' })).toBeVisible();
   expect(await page.evaluate(() => performance.timeOrigin)).toBe(documentStarted); expect(documents).toEqual([]);
   expect(await agentCalls(request)).toEqual(before);
@@ -122,7 +125,7 @@ test('notification intent survives offline reload and cold launches wait for the
   try {
     await page.goto(`/?notice=${encodeURIComponent(notice.id)}`);
     await expect(page.getByText('Opening notification…', { exact: true })).toBeVisible();
-    await expect(page.getByLabel('Message Hermes', { exact: true })).toHaveCount(0);
+    await expect(page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Push notifications on this device' })).toHaveCount(0);
     await reply.release(); await expect((await detailsField(page, 'Task title'))).toHaveValue('Recovered reminder');
     expect(new URL(page.url()).search).toBe('');

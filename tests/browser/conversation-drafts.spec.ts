@@ -1,4 +1,4 @@
-import { detailsField, detailsControl } from './composer-helpers';
+import { saveTitle, detailsField, detailsControl, closePageActions } from './composer-helpers';
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 
 const agentCalls = async (request: APIRequestContext) => ((await (await request.get('http://127.0.0.1:8791/calls')).json()) as string[])
@@ -6,10 +6,10 @@ const agentCalls = async (request: APIRequestContext) => ((await (await request.
 
 async function createDraft(page: Page, title: string, text: string) {
   await page.goto('/#/new');
-  await page.getByLabel('Message Hermes').fill(text);
+  await closePageActions(page); await page.getByLabel(/^(Message Hermes|Add a task)$/).fill(text);
   await expect(page).toHaveURL(/#\/draft\//);
-  await (await detailsField(page, 'Conversation title')).fill(title);
-  await page.getByLabel('Message Hermes').fill(text);
+  await (await detailsField(page, 'Conversation title')).fill(title); await saveTitle(page);
+  await closePageActions(page); await page.getByLabel(/^(Message Hermes|Add a task)$/).fill(text);
   const id = page.url().split('/').at(-1)!;
   await expect.poll(() => page.evaluate(async ({ id, text, title }) => {
     const database = await new Promise<IDBDatabase>((resolve, reject) => { const request = indexedDB.open('hermes-tasks'); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
@@ -60,9 +60,9 @@ for (const width of [320, 1280]) test(`drafts stay above slow Hermes results and
     await expect(link).toBeVisible();
     await link.click();
     await expect(page).toHaveURL(new RegExp(`#/draft/${id}$`));
-    await expect(page.getByLabel('Message Hermes')).toHaveValue(text);
+    await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toHaveValue(text);
     await expect(page.getByRole('button', { name: 'Remove itinerary.txt' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+    await expect(page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true })).toBeDisabled();
     expect(await agentCalls(request)).toEqual(before);
   } finally { release(); await context.setOffline(false); }
 });
@@ -99,7 +99,7 @@ test('draft search and show-all reach every saved draft without linked-item filt
   await expect(drafts.getByRole('link')).toHaveCount(3);
   await page.getByLabel('Search conversations').fill(`Unsent idea ${hiddenIndex + 1}`);
   await found.getByRole('link').click();
-  await expect(page.getByLabel('Message Hermes')).toHaveValue(`Draft detail number ${hiddenIndex + 1}`);
+  await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toHaveValue(`Draft detail number ${hiddenIndex + 1}`);
   expect(await agentCalls(request)).toEqual(before);
 });
 
@@ -108,7 +108,7 @@ for (const [theme, width] of [['press', 320], ['nocturne', 390]] as const) test(
   const before = await agentCalls(request);
   const id = await createDraft(page, 'Local research notes', 'Start with the outline.');
   await page.goto('/#/settings');
-  await page.getByLabel('Theme on this device', { exact: true }).selectOption(theme);
+  await page.locator(`input[name="appearance-theme"][value="${theme}"]`).check();
   await page.route('**/api/v1/conversations?**', route => route.fulfill({ status: 503, json: { error: 'Hermes is unavailable for this test.' } }));
   await page.goto('/#/conversations');
   const draft = page.getByRole('region', { name: 'Drafts 1' }).getByRole('link');
@@ -119,13 +119,13 @@ for (const [theme, width] of [['press', 320], ['nocturne', 390]] as const) test(
 
   const editor = await context.newPage();
   await editor.goto(`/#/draft/${id}`);
-  await editor.getByLabel('Message Hermes').fill('Revised outline with the budget included.');
+  await editor.getByLabel(/^(Message Hermes|Add a task)$/).fill('Revised outline with the budget included.');
   await expect(draft).toContainText('Revised outline with the budget included.');
   await editor.close();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: `output/conversation-drafts/${theme}-${width}.png` });
   await draft.click();
-  await expect(page.getByLabel('Message Hermes')).toHaveValue('Revised outline with the budget included.');
+  await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toHaveValue('Revised outline with the budget included.');
   expect(await agentCalls(request)).toEqual(before);
 });
 
@@ -135,7 +135,7 @@ test('a draft leaves the drafts section only after explicitly sending it to Herm
   await page.goto('/#/conversations');
   await page.getByRole('region', { name: 'Drafts 1' }).getByRole('link').click();
   expect(await agentCalls(request)).toEqual(before);
-  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
   await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase', 'complete');
   await page.goto('/#/conversations');
   await expect(page.getByRole('link', { name: /Ready for Hermes/ })).toBeVisible();
@@ -213,12 +213,12 @@ for (const width of [320, 1280]) test(`deletes a chosen draft with confirmation 
   await page.reload();
   await expect(remove).toHaveCount(0);
   await page.getByRole('region', { name: 'Drafts 1' }).getByRole('link').click();
-  await expect(page.getByLabel('Message Hermes')).toHaveValue('Keep this message.');
+  await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toHaveValue('Keep this message.');
   await expect(page.getByRole('button', { name: 'Remove shared-note.txt' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Remove keep.txt' })).toBeVisible();
   await page.goto(`/#/draft/${id}`);
   await expect(page.getByRole('heading', { name: 'Draft unavailable' })).toBeVisible();
-  await expect(page.getByLabel('Message Hermes')).toHaveCount(0);
+  await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toHaveCount(0);
   await context.setOffline(false); await page.reload();
   await expect(page.getByRole('heading', { name: 'Draft unavailable' })).toBeVisible();
   expect((await localDraftState(page, id)).draft).toBeNull();
@@ -230,14 +230,14 @@ test('deleting the last draft closes its editor in another tab and stale links s
   const id = await createDraft(page, 'Draft open elsewhere', 'A message that should stay deleted.');
   const editor = await context.newPage();
   await editor.goto(`/#/draft/${id}`);
-  await expect(editor.getByLabel('Message Hermes')).toHaveValue('A message that should stay deleted.');
+  await expect(editor.getByLabel(/^(Message Hermes|Add a task)$/)).toHaveValue('A message that should stay deleted.');
   await page.goto('/#/conversations');
   await page.getByLabel('Search conversations').fill('Draft open elsewhere');
   await page.getByRole('button', { name: 'Delete draft: Draft open elsewhere', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Delete draft', exact: true }).click();
   await expect(page.locator('.conversation-drafts')).toHaveCount(0);
   await expect(editor.getByRole('heading', { name: 'Draft unavailable' })).toBeVisible();
-  await expect(editor.getByLabel('Message Hermes')).toHaveCount(0);
+  await expect(editor.getByLabel(/^(Message Hermes|Add a task)$/)).toHaveCount(0);
   await editor.reload();
   await expect(editor.getByRole('heading', { name: 'Draft unavailable' })).toBeVisible();
   await editor.close();
@@ -246,7 +246,7 @@ test('deleting the last draft closes its editor in another tab and stale links s
   await expect(page.locator('.conversation-row').first()).toBeVisible();
   await expect(page.locator('.conversation-drafts')).toHaveCount(0);
   await page.getByRole('link', { name: 'New conversation', exact: true }).click();
-  await expect(page.getByLabel('Message Hermes')).toBeEditable();
+  await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toBeEditable();
   expect(page.url()).not.toContain(id);
   expect(await agentCalls(request)).toEqual(before);
 });
@@ -307,7 +307,7 @@ test('a stale deletion confirmation protects a conversation sent from another ta
   await page.getByRole('button', { name: 'Delete draft: Send before deleting' }).click();
   const editor = await context.newPage();
   await editor.goto(`/#/draft/${id}`);
-  await editor.getByRole('button', { name: 'Send', exact: true }).click();
+  await editor.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
   await expect(editor.locator('.conversation-panel')).toHaveAttribute('data-phase', 'complete');
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('button', { name: 'Delete draft', exact: true }).click();

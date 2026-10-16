@@ -36,7 +36,7 @@ test('failed reads allow a manual retry and preserve the draft', async ({ page }
     ? route.fulfill({ status: 503, json: { error: 'Hermes is unavailable. Try again.' } })
     : route.fulfill({ json: { dataUrl } }));
   const button = await attachment(page);
-  const draft = page.getByRole('textbox', { name: 'Message Hermes', exact: true });
+  const draft = page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/, exact: true });
   await draft.fill('Keep this draft while downloading.');
   await button.click();
   await expect(page.getByRole('alert').filter({ hasText: 'Hermes is unavailable' })).toBeVisible();
@@ -107,7 +107,7 @@ for (const failure of [
     ? route.fulfill({ status: failure.status, json: { error: failure.error } })
     : route.fulfill({ json: { dataUrl: reads === 1 ? dataUrl : updated } }));
   const button = await attachment(page);
-  const draft = page.getByRole('textbox', { name: 'Message Hermes', exact: true });
+  const draft = page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/, exact: true });
   await draft.fill('Keep my draft through file recovery.');
   const first = page.waitForEvent('download');
   await button.click(); await first;

@@ -26,6 +26,7 @@ it('preserves a wheel scroll arriving before the automatic scroll frame finishes
   });
   const container = document.createElement('div'); document.body.append(container);
   const view = document.createElement('div'); view.className = 'conversation-scroll'; container.append(view);
+  view.getClientRects = () => [new DOMRect(0, 0, 800, 500)] as unknown as DOMRectList;
   Object.defineProperties(view, { scrollHeight: { value: 3000 }, clientHeight: { value: 500 } });
   const root = createRoot(view);
   function History() {
@@ -55,6 +56,7 @@ it('keeps the reader position when scrolling after a history response but before
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
   const view = document.createElement('div'); view.className = 'conversation-scroll'; document.body.append(view);
+  view.getClientRects = () => [new DOMRect(0, 0, 800, 500)] as unknown as DOMRectList;
   Object.defineProperties(view, { scrollHeight: { value: 3000 }, clientHeight: { value: 500 } });
   const root = createRoot(view);
   let history!: ReturnType<typeof useConversationHistory>;
@@ -87,4 +89,23 @@ it('keeps the reader position when scrolling after a history response but before
     await act(async () => { await history.latest(); });
     expect(view.scrollTop).toBe(2500);
   } finally { await act(async () => root.unmount()); }
+});
+
+it('does not move hidden discussion history during a refresh', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
+  const view=document.createElement('div');view.className='conversation-scroll';document.body.append(view);
+  let visible=true;
+  view.getClientRects=()=> (visible ? [new DOMRect(0,0,800,500)] : []) as unknown as DOMRectList;
+  Object.defineProperties(view,{scrollHeight:{value:3000},clientHeight:{value:500}});
+  const root=createRoot(view);let history!:ReturnType<typeof useConversationHistory>;
+  function History(){history=useConversationHistory('hidden-discussion',0);return createElement('div',{ref:history.root},'Discussion');}
+  try {
+    await act(async()=>root.render(createElement(History)));
+    expect(view.scrollTop).toBe(2500);
+    view.dispatchEvent(new WheelEvent('wheel',{deltaY:-1000}));view.scrollTop=1500;view.dispatchEvent(new Event('scroll'));
+    visible=false;
+    await act(async()=>{await history.refresh();await history.latest();});
+    expect(view.scrollTop).toBe(1500);
+  } finally {await act(async()=>root.unmount());}
 });

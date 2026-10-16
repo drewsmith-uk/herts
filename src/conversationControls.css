@@ -5,7 +5,7 @@
 .conversation-compact-title { display: none; }
 .conversation-toolbar .conversation-plugin-actions { margin: 0; flex-shrink: 0; }
 .conversation-details-toggle { flex-shrink: 0; }
-.conversation-toolbar .conversation-plugin-actions > button { white-space: nowrap; }
+.conversation-toolbar .conversation-plugin-actions > button:not(.action-row) { white-space: nowrap; }
 .conversation-toolbar .conversation-plugin-actions:empty { display: none; }
 .conversation-header-details { padding: 10px 0 6px; }
 .conversation-header-details[hidden] { display: none; }
@@ -38,8 +38,8 @@
 .clarify-form [aria-pressed="true"] { background: var(--color-primary-action); color: var(--color-primary-action-text); }
 @media(max-width:700px) {
   .conversation-toolbar { gap: 4px; }
-  .conversation-toolbar .conversation-plugin-actions > button { padding-inline: 8px; font-size: .78rem; }
-  .conversation-toolbar .conversation-plugin-actions > button svg { width: 15px; }
+  .conversation-toolbar .conversation-plugin-actions > button:not(.action-row) { padding-inline: 8px; font-size: .78rem; }
+  .conversation-toolbar .conversation-plugin-actions > button:not(.action-row) svg { width: 15px; }
   .conversation-status-link, .conversation-stop { font-size: .8rem; }
 }
 @media(max-width:420px) {

@@ -16,9 +16,9 @@ for (const width of [390, 1280]) test(`malformed links and file references leave
   await page.goto('/#/conversation/' + id);
   await expect(page.getByText('After the damaged attachment.', { exact: true })).toBeVisible();
   await expect(page.locator('.message-file').getByText('report one.pdf', { exact: true })).toBeVisible();
-  await page.getByLabel('Message Hermes', { exact: true }).fill('An unsent draft remains editable.');
+  await page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true }).fill('An unsent draft remains editable.');
   await page.reload();
-  await expect(page.getByLabel('Message Hermes', { exact: true })).toHaveValue('An unsent draft remains editable.');
+  await expect(page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true })).toHaveValue('An unsent draft remains editable.');
   await expect(page.getByText('Before the damaged attachment.', { exact: true })).toBeVisible();
   expect(errors).toEqual([]);
   const after = await (await request.get('http://127.0.0.1:8791/calls')).json();

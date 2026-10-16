@@ -1,3 +1,4 @@
+import { messagePreview, compactDate } from '../shared/messagePreview';
 import { SwipeRow } from './SwipeRow';
 import { type ReactNode } from 'react';
 import { ArrowRight, Eye, EyeOff, LoaderCircle, Plus } from 'lucide-react';
@@ -14,7 +15,7 @@ export function ConversationRow({ conversation: c, updatedAt, online, busy, onAc
     right={canAct?{label:actionLabel!,icon:<Plus size={20}/>,run:()=>void onAction('plugin')}:undefined}>
       <ItemRow variant="preview" className="conversation-row" draggable={false} onDragStart={e => e.preventDefault()} href={`#/conversation/${encodeURIComponent(c.key)}`}
         trailing={busy ? <LoaderCircle size={17} className="spin"/> : <ArrowRight size={17}/>}>
-        <h2 className="item-title">{c.title}</h2>{c.preview?.trim() && <p className="item-preview">{c.preview}</p>}<ItemMeta><span>{c.source}</span><span>{updatedAt}</span>{badges}{c.hidden && <span className="hidden-item-badge"><EyeOff size={12}/>Hidden</span>}</ItemMeta>
+        <h2 className="item-title">{c.title}</h2>{c.preview?.trim() && <p className="item-preview">{messagePreview(c.preview)}</p>}<ItemMeta><span>{c.source}</span><time dateTime={new Date(c.updatedAt).toISOString()} title={updatedAt} aria-label={updatedAt}>{compactDate(c.updatedAt)}</time>{badges}{c.hidden && <span className="hidden-item-badge"><EyeOff size={12}/>Hidden</span>}</ItemMeta>
       </ItemRow>
   </SwipeRow>;
 }

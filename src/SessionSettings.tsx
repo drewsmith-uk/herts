@@ -1,7 +1,7 @@
 import {ModelPicker} from './ModelPicker';
 import { SettingsSection, DialogFrame, FormField } from './ui';
 import { useEffect, useRef, useState } from 'react';
-import { Folder, RefreshCw, SlidersHorizontal, X } from 'lucide-react';
+import { ChevronRight, Folder, RefreshCw, SlidersHorizontal, X } from 'lucide-react';
 import type { ConversationContext } from '../shared/conversations';
 import { effectiveSettings, emptySettings, efforts, hasSettings, type Effort, type SessionValues, type SettingsView } from '../shared/sessionSettings';
 import { api, db, saveSessionChoices, useApp, useSyncedSessionChoices } from './data';
@@ -58,10 +58,7 @@ export function SessionSettingsControls({ context, onOpen, onClose }: { context:
 export function NewConversationDefaults() {
   const state = useApp(), { view, error, loading, refresh } = useSettingsView(), [editing, setEditing] = useState(false);
   const defaults = state.snapshot.sessionSettings?.defaults.values || {}, local = state.settingsPending?.find(p => !p.contextId);
-  return <SettingsSection title="New conversation defaults" icon={<SlidersHorizontal size={22}/>}>
-    <p>Model: {defaults.model?.id || 'Hermes default'} · Effort: {defaults.effort ? labels[defaults.effort] : 'Hermes default'}{defaults.fast !== undefined ? ` · Fast mode ${defaults.fast ? 'on' : 'off'}` : ''}</p>
-    {defaults.cwd && <p className="settings-path">{defaults.cwd}</p>}
-    <button disabled={!view} onClick={() => setEditing(true)}>Edit conversation defaults</button>
+  return <SettingsSection className="conversation-defaults" title={<button className="settings-defaults-trigger" aria-label="Edit conversation defaults" disabled={!view} onClick={() => setEditing(true)}><span>Conversation defaults<span className="settings-defaults-value">{defaults.model?.id || 'Hermes default'} · {defaults.effort ? labels[defaults.effort] : 'Default effort'}{defaults.fast !== undefined ? ` · Fast mode ${defaults.fast ? 'on' : 'off'}` : ''}</span></span><ChevronRight size={18}/></button>}>
     {local && <p className="subtle-note">Saved on this device until synced.</p>}
     {local?.conflict && <p role="alert" className="inline-error">{local.conflict} <button className="text-button" onClick={() => void useSyncedSessionChoices()}>Use synced defaults</button></p>}
     {error && <p className="inline-error">{error} <button className="text-button" disabled={loading} onClick={() => void refresh(true)}>Refresh settings</button></p>}

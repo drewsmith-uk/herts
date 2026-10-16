@@ -12,6 +12,8 @@ import { SessionSettingsControls } from './SessionSettings';
 import { Voice } from './Voice';
 import { useDraftPersistence, useUpdatePreparation } from './updateSafety';
 
+export const composerCapabilities = { taskCapture: true } as const;
+
 export interface MessageComposerProps {
   context: ConversationContext;
   initialText?: string;
@@ -21,6 +23,11 @@ export interface MessageComposerProps {
   persist?: (draft: Draft) => Promise<unknown>;
   prepare?: (draft: Draft) => Promise<void>;
   saveLabel?: string;
+  primaryAction?: 'send' | 'save';
+  inputLabel?: string;
+  sendLabel?: string;
+  destination?: string;
+  agentOptions?: boolean;
   allowSaveEmpty?: boolean;
   onSaved?: () => void | Promise<void>;
   onSending?: () => void;
@@ -30,7 +37,7 @@ export interface MessageComposerProps {
   recordRequest?: string;
   savedMessagesHost?: HTMLElement | null;
 }
-export function MessageComposer({ context, initialText = '', canSend = true, docked = false, fields, persist, prepare, saveLabel, allowSaveEmpty = false, onSaved, onSending, onSent, owner, voiceOwner, recordRequest, savedMessagesHost }: MessageComposerProps) {
+export function MessageComposer({ context, initialText = '', canSend = true, docked = false, fields, persist, prepare, saveLabel, primaryAction = 'send', inputLabel, sendLabel = 'Send', destination, agentOptions = false, allowSaveEmpty = false, onSaved, onSending, onSent, owner, voiceOwner, recordRequest, savedMessagesHost }: MessageComposerProps) {
   const state = useApp(), [draft, setDraft] = useState<Draft>({ id: context.id, text: initialText, files: [] });
   const [files, setFiles] = useState<LocalFile[]>([]), [loaded, setLoaded] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState(''), [dirty, setDirty] = useState(false);
   const [recording, setRecording] = useState(false), [expanded, setExpanded] = useState(!docked), [settingsOpen, setSettingsOpen] = useState(false);
@@ -78,9 +85,11 @@ export function MessageComposer({ context, initialText = '', canSend = true, doc
   const uncertain = state.localSubmissions.some(s => s.taskId === context.id);
   const currentRun = state.actions.find(a => !a.cancelled && a.taskId === context.id && ['send', 'continue'].includes(a.kind));
   const running = currentRun && !state.bindings[context.id]?.unavailable && !['finished', 'failed', 'ready', 'unknown'].includes(currentRun.state);
+  const savingAllowed = loaded && !recording && !busy && !uncertain && !settingsOpen;
+  const primarySend = primaryAction !== 'save' || !saveLabel;
   const allowed = !running && loaded && !recording && !busy && !uncertain && canSend && state.online && state.gateway.online;
   async function commit(send: boolean) {
-    if (working.current || attaching.current || voiceBusy.current || settingsOpen || !loaded || (send && (!allowed || document.hidden))) return;
+    if (working.current || attaching.current || voiceBusy.current || settingsOpen || !savingAllowed || (send && (!allowed || document.hidden))) return;
     const current = draftRef.current; if (!current.text.trim() && !current.files.length && (send || !allowSaveEmpty)) return;
     working.current = true; setBusy(true); setError('');
     try {
@@ -123,16 +132,16 @@ export function MessageComposer({ context, initialText = '', canSend = true, doc
   }
   const hasDraft = !!draft.text.trim() || !!draft.files.length;
   const draftStatus = dirty ? 'Saving draft…' : !state.online ? 'Offline. Your draft stays on this device.' : !state.gateway.online ? 'Hermes is unavailable. Your draft is saved.' : hasDraft ? 'Draft saved on this device · Not sent' : '';
-  return <div ref={root} className={`composer-wrap ${docked ? 'composer-docked' : 'composer-entry'} ${expanded ? 'is-expanded' : 'is-collapsed'}`}>
+  return <div ref={root} className={`composer-wrap ${docked ? 'composer-docked' : 'composer-entry'} ${primaryAction === 'save' ? 'composer-capture' : ''} ${expanded ? 'is-expanded' : 'is-collapsed'}`}>
     <div className="composer-expanded">
-      <div className="composer-settings-row"><SessionSettingsControls context={context} onOpen={() => { void ensure(); setSettingsOpen(true); }} onClose={() => setSettingsOpen(false)}/>{docked && <button className="icon-button composer-collapse" aria-label="Collapse message box" onClick={() => { textarea.current?.blur(); setExpanded(false); }}><ChevronDown size={20}/></button>}</div>
-      {typeof fields === 'function' ? fields(draft) : fields}
+      <div className="composer-settings-row">{agentOptions ? <details className="agent-options"><summary>Agent options</summary><SessionSettingsControls context={context} onOpen={() => { void ensure(); setSettingsOpen(true); }} onClose={() => setSettingsOpen(false)}/></details> : <SessionSettingsControls context={context} onOpen={() => { void ensure(); setSettingsOpen(true); }} onClose={() => setSettingsOpen(false)}/>}{docked && <button className="icon-button composer-collapse" aria-label="Collapse message box" onClick={() => { textarea.current?.blur(); setExpanded(false); }}><ChevronDown size={20}/></button>}</div>
+      {destination && <p className="capture-destination">{destination}</p>}<fieldset className="composer-fields" disabled={busy || uncertain}>{typeof fields === 'function' ? fields(draft) : fields}</fieldset>
     </div>
-    <form className="composer" onSubmit={event => { event.preventDefault(); void commit(true); }}>
-      <textarea ref={textarea} onFocus={() => setExpanded(true)} aria-label={`Message ${context.botChat ? context.title : 'Hermes'}`} placeholder={`Message ${context.botChat ? context.title : 'Hermes'}…`} value={draft.text} disabled={!loaded || busy} onChange={event => { void update({ ...draftRef.current, text: event.target.value, submissionId: undefined }).catch(() => {}); }} rows={3} onKeyDown={event => { if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); void commit(true); } }}/>
+    <form className="composer" onSubmit={event => { event.preventDefault(); void commit(primarySend); }}>
+      <textarea ref={textarea} onFocus={() => setExpanded(true)} aria-label={inputLabel || `Message ${context.botChat ? context.title : 'Hermes'}`} placeholder={inputLabel ? `${inputLabel}…` : `Message ${context.botChat ? context.title : 'Hermes'}…`} value={draft.text} disabled={!loaded || busy} onChange={event => { void update({ ...draftRef.current, text: event.target.value, submissionId: undefined }).catch(() => {}); }} rows={3} onKeyDown={event => { if (!event.nativeEvent.isComposing && (event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); void commit(primarySend); } }}/>
       {files.length > 0 && <div className="attachment-list">{files.map(file => <span className="attachment" key={file.id}><Paperclip size={13}/>{file.name}<small>{Math.ceil(file.blob.size / 1024)} KB</small><button type="button" className="icon-button" aria-label={`Remove ${file.name}`} disabled={busy} onClick={() => void update({ ...draftRef.current, files: draftRef.current.files.filter(id => id !== file.id), submissionId: undefined }).catch(() => {})}><X size={14}/></button></span>)}</div>}
       <div className="composer-tools"><div className="button-row"><button type="button" className="icon-button" aria-label="Attach files" disabled={busy} onClick={() => { open(false); input.current?.click(); }}><Paperclip size={20}/></button><input type="file" ref={input} hidden multiple onChange={event => void attach(event.target.files)}/><Voice owner={voiceOwner || `chat:${context.id}`} disabled={busy || !loaded} startRequest={recordRequest} onModeChange={mode => { voiceBusy.current = mode !== 'idle'; setRecording(mode !== 'idle'); if (mode !== 'idle') open(false); }} onRecording={() => persistDraft(draftRef.current)} onTranscript={text => update({ ...draftRef.current, text: [draftRef.current.text, text].filter(Boolean).join('\n'), submissionId: undefined }).then(() => { open(false); })}/></div>
-        <div className="composer-submit"><button type="submit" className="primary-button send-button" disabled={!allowed || !hasDraft}>{busy ? <LoaderCircle size={16} className="spin"/> : <Send size={16}/>} Send</button>{saveLabel && <button type="button" disabled={!loaded || recording || busy || uncertain || (!hasDraft && !allowSaveEmpty)} onClick={() => void commit(false)}>{saveLabel}</button>}</div>
+        <div className="composer-submit">{!primarySend && <button type="submit" className="primary-button" disabled={!savingAllowed || (!hasDraft && !allowSaveEmpty)}>{saveLabel}</button>}<button type={primarySend ? 'submit' : 'button'} className={primarySend ? 'primary-button send-button' : 'send-button'} disabled={!allowed || !hasDraft} onClick={primarySend ? undefined : () => void commit(true)}>{busy ? <LoaderCircle size={16} className="spin"/> : <Send size={16}/>} {sendLabel}</button>{saveLabel && primarySend && <button type="button" disabled={!savingAllowed || (!hasDraft && !allowSaveEmpty)} onClick={() => void commit(false)}>{saveLabel}</button>}</div>
       </div>
     </form>
     {(error || notice || uncertain || draftStatus) && <div className="composer-expanded">

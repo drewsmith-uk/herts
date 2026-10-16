@@ -1,6 +1,6 @@
 import { test, expect, type Locator } from '@playwright/test';
 import { builtinThemes, themeStorageKey } from '../../shared/themeValues';
-import { detailsField } from './composer-helpers';
+import { detailsField, closePageActions } from './composer-helpers';
 
 async function expectFocusFits(control: Locator) {
   await control.page().keyboard.press('Tab');
@@ -47,8 +47,9 @@ for (const theme of builtinThemes) test(`${theme.name}: title and scrollable con
       await field.focus();
       if (theme.id === 'press' && width === 390 && label === 'Task title') await page.screenshot({ path: 'test-results/title-focus.png' });
       await expectFocusFits(field);
-      await expect(page.getByLabel('Message Hermes', { exact: true })).toBeEditable();
-      await page.getByLabel('Message Hermes', { exact: true }).focus();
+      await closePageActions(page);
+      await expect(page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true })).toBeEditable();
+      await page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true }).focus();
       await expectFocusFits(page.getByRole('button', { name: /^Conversation settings:/ }));
       if (await page.getByRole('button', { name: 'Collapse message box', exact: true }).isVisible()) await expectFocusFits(page.getByRole('button', { name: 'Collapse message box', exact: true }));
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -57,8 +58,8 @@ for (const theme of builtinThemes) test(`${theme.name}: title and scrollable con
       await page.goto('/#' + path);
       // focus() does not wait for the draft to load. A disabled editor ignores
       // focus and leaves the phone's optional fields inside a closed composer.
-      await expect(page.getByLabel('Message Hermes', { exact: true })).toBeEditable();
-      await page.getByLabel('Message Hermes', { exact: true }).focus();
+      await expect(page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true })).toBeEditable();
+      await page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true }).focus();
       await expectFocusFits(await detailsField(page, label));
     }
     await page.goto('/#/settings');
@@ -85,7 +86,7 @@ test('focus checks wait for delayed conversation settings', async ({ page }) => 
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     await page.goto('/#/conversation/existing');
-    await page.getByLabel('Message Hermes', { exact: true }).click();
+    await page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true }).click();
     const control = page.getByRole('button', { name: /^Conversation settings:/ });
     await expect(control).toBeVisible();
     await expect(control).toBeDisabled();

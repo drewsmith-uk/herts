@@ -1,3 +1,4 @@
+import { pageAction, closePageActions } from './composer-helpers';
 import { detailsField, detailsControl } from './composer-helpers';
 import { test, expect } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
@@ -17,10 +18,10 @@ for (const width of [390, 1280]) test(`filters linked conversations, search and 
   await filter.uncheck(); await expect(row).toBeVisible();
   await page.evaluate(() => navigator.serviceWorker.ready);
   await row.click();
-  await page.getByRole('button', { name: 'Make a task' }).click();
+  await (await pageAction(page, 'button', 'Make a task')).click();
   await page.getByRole('button', { name: 'Create task', exact: true }).click();
   await expect((await detailsField(page, 'Task title'))).toHaveValue(`Filter conversation ${width}`);
-  await (await detailsField(page, 'Task list')).selectOption('done');
+  await (await detailsField(page, 'Task list')).selectOption('done');await page.getByRole('button', { name: 'Move', exact: true }).click();
   await expect(page.locator('.save-state')).toContainText('Changes synced');
   await context.setOffline(true);
   await page.goto('/#/conversations'); await page.reload();
@@ -31,7 +32,8 @@ for (const width of [390, 1280]) test(`filters linked conversations, search and 
   await page.getByRole('textbox', { name: 'Search conversations' }).fill(`conversation ${width}`);
   await expect(row).toBeVisible(); await expect(page.locator('.conversation-row')).toHaveCount(1);
   await filter.uncheck(); await expect(row).toHaveCount(0);
-  await expect(page.getByText('Turn on “Show all” to include linked and hidden conversations.')).toBeVisible();
+  await expect(page.getByText('Offline results cover conversations previously viewed on this device.')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'No conversations found' })).toHaveCount(0);
   await context.setOffline(false); await page.reload();
   await expect(page.getByRole('heading', { name: 'Conversations', exact: true })).toBeVisible(); await expect(row).toHaveCount(0);
   await page.getByRole('textbox', { name: 'Search conversations' }).fill(`Saved filter response ${width}`);
@@ -39,7 +41,7 @@ for (const width of [390, 1280]) test(`filters linked conversations, search and 
   await filter.check(); await expect(row).toContainText('Task created');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: `test-results/conversation-filter-${width}.png` });
-  await row.click(); await page.getByRole('button', { name: 'Open task', exact: true }).click();
+  await row.click(); await (await pageAction(page, 'button', 'Open task')).click();
   await expect((await detailsField(page, 'Task list'))).toHaveValue('done');
   const after: string[] = await (await request.get('http://127.0.0.1:8791/calls')).json();
   expect(after.slice(before.length).filter(method => ['session.create', 'session.resume', 'prompt.submit'].includes(method))).toEqual([]);
@@ -97,7 +99,8 @@ test('Show all includes hidden, reading-linked and task-linked conversations onl
   await filter.uncheck();
   for (const row of [readingRow, bothRow, hiddenRow]) await expect(row).toHaveCount(0);
   await page.getByLabel('Search conversations').fill('Conversation retry');
-  await expect(page.getByText('Turn on “Show all” to include linked and hidden conversations.')).toBeVisible();
+  await expect(page.getByText('Offline results cover conversations previously viewed on this device.')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'No conversations found' })).toHaveCount(0);
   await filter.check(); await expect(readingRow).toContainText('Reading · 2 items');
   await context.setOffline(false);
   for (const key of ['filter-390', 'hidden-offline']) {

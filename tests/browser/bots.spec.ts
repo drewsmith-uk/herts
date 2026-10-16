@@ -1,3 +1,4 @@
+import { closePageActions } from './composer-helpers';
 import { test, expect, type APIRequestContext } from '@playwright/test';
 const headers = { 'x-herts-request': '1' };
 async function manage(request: APIRequestContext, action: string) {
@@ -13,14 +14,13 @@ for (const width of [390, 1280]) test(`Bots preserve profile chats, drafts and r
   await page.getByRole('link', { name: /Researcher/ }).click();
   await expect(page.getByText('Hello from research.', { exact: true })).toBeVisible();
   await page.getByLabel('Message Researcher').fill(`Draft for researcher ${width}`);
-  await page.getByRole('link', { name: 'Back to Bots' }).click();
+  await closePageActions(page); await page.getByRole('link', { name: 'Back to Bots' }).click();
   await page.getByRole('link', { name: /^Hermes/ }).click();
   await expect(page.getByText('Hello from default.', { exact: true })).toBeVisible();
-  await expect(page.getByLabel('Message Hermes')).toHaveValue('');
-  await page.getByRole('link', { name: 'Back to Bots' }).click();
+  await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toHaveValue('');
+  await closePageActions(page); await page.getByRole('link', { name: 'Back to Bots' }).click();
   await page.getByRole('link', { name: /Researcher/ }).click();
   await expect(page.getByLabel('Message Researcher')).toHaveValue(`Draft for researcher ${width}`);
-  await page.getByRole('button', { name: 'Show page details' }).click();
   await page.getByRole('link', { name: 'Routines', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'research briefing' })).toBeVisible();
   await page.getByRole('link', { name: 'Results', exact: true }).first().click();
@@ -36,7 +36,7 @@ for (const width of [390, 1280]) test(`Bots preserve profile chats, drafts and r
   await context.setOffline(true); await page.reload();
   await expect(page.getByLabel('Message Researcher')).toHaveValue(`Draft for researcher ${width}`);
   await page.getByLabel('Message Researcher').click();
-  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true })).toBeDisabled();
   await context.setOffline(false);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
@@ -64,11 +64,11 @@ test('bot forms retain drafts, shared hiding is reversible, and a lost routine r
   await manage(request, 'enable'); await page.goto('/#/plugins/bots');
   await page.getByRole('link', { name: /Researcher/ }).click();
   await expect(page.getByText('Hello from research.', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Show page details' }).click();
-  await page.getByRole('button', { name: 'Edit bot', exact: true }).click();
+  await page.locator('.conversation-page-header').getByRole('button', { name: 'More', exact: true }).click();
+  if (!await page.getByRole('button', {name:'Edit bot',exact:true}).isVisible()) await page.locator('.conversation-page-header').getByRole('button',{name:'More',exact:true}).click(); await page.getByRole('button', { name: 'Edit bot', exact: true }).click();
   await page.getByRole('textbox', { name: 'Description', exact: true }).fill('Browser-edited researcher');
   await page.getByRole('button', { name: 'Close', exact: true }).click();
-  await page.getByRole('button', { name: 'Edit bot', exact: true }).click();
+  if (!await page.getByRole('button', {name:'Edit bot',exact:true}).isVisible()) await page.locator('.conversation-page-header').getByRole('button',{name:'More',exact:true}).click(); await page.getByRole('button', { name: 'Edit bot', exact: true }).click();
   await expect(page.getByRole('textbox', { name: 'Description', exact: true })).toHaveValue('Browser-edited researcher');
   const { catalogue } = await (await request.get('/api/v1/plugins')).json();
   const detail = await (await request.post('/api/v1/plugins/bots/queries/describe', { headers, data: { name: 'research' } })).json();
@@ -84,8 +84,8 @@ test('bot forms retain drafts, shared hiding is reversible, and a lost routine r
   await expect(page.getByRole('textbox', { name: 'Description', exact: true })).toHaveValue('Edited on another device');
   await page.getByRole('textbox', { name: 'Description', exact: true }).fill('Browser-edited researcher');
   await page.getByRole('button', { name: 'Save bot', exact: true }).click();
-  await expect(page.getByRole('dialog')).toHaveCount(0);
-  await page.getByRole('link', { name: 'Back to Bots' }).click();
+  await expect(page.locator('dialog:not(.detail-action-menu):visible')).toHaveCount(0);
+  await closePageActions(page); await page.getByRole('link', { name: 'Back to Bots' }).click();
   const row = page.locator('.conversation-item').filter({ has: page.getByRole('link', { name: /Researcher/ }) });
   const hide=row.getByRole('button',{name:'Hide Researcher',exact:true});await hide.focus();await hide.press('Enter');
   await expect(page.getByRole('link', { name: /Researcher/ })).toHaveCount(0);
@@ -93,7 +93,6 @@ test('bot forms retain drafts, shared hiding is reversible, and a lost routine r
   const unhide=row.getByRole('button',{name:'Unhide Researcher',exact:true});await expect(unhide).toBeEnabled();await unhide.focus();await unhide.press('Enter');
   await expect(row.getByRole('button',{name:'Hide Researcher',exact:true})).toBeEnabled();
   await page.getByRole('link', { name: /Researcher/ }).click();
-  await page.getByRole('button', { name: 'Show page details' }).click();
   await page.getByRole('link', { name: 'Routines', exact: true }).click();
   const routine = page.locator('.item-row').filter({ has: page.getByRole('heading', { name: 'research briefing', exact: true }) });
   await routine.locator('summary').click();

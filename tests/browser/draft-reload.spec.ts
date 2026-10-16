@@ -1,4 +1,4 @@
-import { detailsField, detailsControl } from './composer-helpers';
+import { detailsField, detailsControl, closePageActions } from './composer-helpers';
 import { test, expect, type BrowserContext } from '@playwright/test';
 
 async function holdStorage(context: BrowserContext) {
@@ -30,7 +30,7 @@ async function holdStorage(context: BrowserContext) {
 }
 
 for (const capture of [
-  { name: 'task', path: '/', fields: { 'Message Hermes': 'Keep this idea through a reload' } },
+  { name: 'task', path: '/', fields: { 'Add a task': 'Keep this idea through a reload' } },
   { name: 'reading', path: '/#/reading/add', fields: { 'Message Hermes': 'https://example.com/read-later', 'Reading title': 'Keep this article title' } },
 ]) {
   test(`${capture.name} capture survives reload while its IndexedDB write is pending`, async ({ page, context }) => {
@@ -52,14 +52,14 @@ test('the newest capture edit in another window survives interrupted older write
   const newer = await context.newPage();
   for (const window of [page, newer]) {
     await window.goto('/');
-    await expect(window.getByRole('textbox', { name: 'Message Hermes' })).toBeEditable();
+    await expect(window.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ })).toBeEditable();
   }
   const release = await holdStorage(context);
   try {
-    await page.getByRole('textbox', { name: 'Message Hermes' }).fill('Older window edit');
-    await newer.getByRole('textbox', { name: 'Message Hermes' }).fill('Newest window edit');
+    await page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ }).fill('Older window edit');
+    await newer.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ }).fill('Newest window edit');
     await newer.reload({ waitUntil: 'domcontentloaded' });
     await page.reload({ waitUntil: 'domcontentloaded' });
   } finally { await release(); }
-  for (const window of [page, newer]) await expect(window.getByRole('textbox', { name: 'Message Hermes' })).toHaveValue('Newest window edit');
+  for (const window of [page, newer]) await expect(window.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ })).toHaveValue('Newest window edit');
 });
