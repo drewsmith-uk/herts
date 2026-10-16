@@ -345,6 +345,7 @@ for (const theme of builtinThemes) test(`${theme.name}: speech preparation and e
     await page.route('**/api/v1/audio/speak',async route=>{await gate;await route.fulfill({status:503,json:{error:'The speech provider is unavailable. Your message is unchanged. Try reading this response again when the connection returns.'}});});
     try {
       await page.goto('/#/conversation/existing');
+      await expect(page.getByRole('textbox', {name: 'Message Hermes', exact: true})).toBeEditable();
       const response=page.locator('.message').filter({has:page.locator('button.read-aloud')});
       const button=response.getByRole('button',{name:'Read response aloud',exact:true});
       await button.focus();await expect(button).toBeFocused();
@@ -380,6 +381,7 @@ for (const theme of builtinThemes) for (const width of [320,390,768,1280]) test(
     : {error:'Hermes is unavailable. Try again when the connection returns.'}}));
   await page.setViewportSize({width,height:480});
   await page.goto('/#/conversation/existing');
+  await expect(page.getByRole('textbox', {name: 'Message Hermes', exact: true})).toBeEditable();
   const button = page.getByRole('button',{name:'Download file',exact:true});
   await button.focus(); await expect(button).toBeFocused();
   await page.screenshot({path:`test-results/media-${theme.id}-${width}-idle.png`});
