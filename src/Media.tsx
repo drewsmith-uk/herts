@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Paperclip, Download } from 'lucide-react';
 import { mediaRefs, type MediaRef } from '../shared/media';
 import type { ChatMessage, HistoryOrder } from '../shared/core';
-import { api, cacheRead, db } from './data';
+import { api, ApiError, cacheRead, db } from './data';
 import { Button, StatusMessage } from './ui';
 
 export function MessageMedia({ message, conversationId, offset, index, order = 'oldest' }: { message: ChatMessage; conversationId: string; offset: number; index: number; order?: HistoryOrder }) {
@@ -20,7 +20,14 @@ function Media({ media, conversationId, offset, index, order = 'oldest' }: { med
       const dataUrl = result.value.dataUrl;
       if (!active.current) return;
       setUrl(dataUrl);
-      if (result.cached) setError('Saved copy. Reconnect and download again for the latest file.');
+      if (result.cached) {
+        const status = result.error instanceof ApiError ? result.error.status : undefined;
+        const recovery = status === 404 ? 'The current file is unavailable. Ask Hermes to provide it again.'
+          : status === 409 ? 'The file reference has changed. Refresh the conversation and download again.'
+          : status === 0 ? 'Reconnect and download again for the latest file.'
+          : `${result.error instanceof Error ? result.error.message : 'The current file could not be fetched.'} Try downloading again.`;
+        setError(`Saved copy. ${recovery}`);
+      }
       if (download) {
         const link = document.createElement('a');
         link.href = dataUrl; link.download = media.name;

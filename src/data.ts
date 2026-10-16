@@ -706,7 +706,7 @@ export async function resolveSubmission(id: string) {
     await refresh();
     await rebuild();
 }
-export async function cacheRead<T = any>(key: string, fetcher: () => Promise<unknown>, read: (value: unknown) => T = value => value as T) {
+export async function cacheRead<T = any>(key: string, fetcher: () => Promise<unknown>, read: (value: unknown) => T = value => value as T): Promise<{ value: T; cached: boolean; error?: unknown }> {
     try {
         const value = read(await fetcher());
         await db.kv.put({ key, value });
@@ -715,7 +715,7 @@ export async function cacheRead<T = any>(key: string, fetcher: () => Promise<unk
     catch (error) {
         const saved = await db.kv.get(key);
         if (saved) {
-            try { return { value: read(saved.value), cached: true }; }
+            try { return { value: read(saved.value), cached: true, error }; }
             catch { /* Invalid cached data cannot replace the last displayed value. */ }
         }
         throw error;
