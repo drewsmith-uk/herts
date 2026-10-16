@@ -103,8 +103,22 @@ test('unknown capture outcomes block saving through both the button and shortcut
   await page.evaluate(async () => {
     const sdk=(window as any).__HERTS_PLUGIN_RUNTIME__.sdk;
     const draft=(await sdk.conversationDrafts.toArray()).find((value:any)=>value.text==='Uncertain capture remains available');
-    sdk.publish({localSubmissions:[{id:crypto.randomUUID(),taskId:draft.id,text:draft.text,uploadIds:[],at:Date.now()}]});
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('hermes-tasks');
+      request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error);
+    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const transaction = database.transaction('submissions', 'readwrite');
+        transaction.oncomplete = () => resolve(); transaction.onerror = () => reject(transaction.error);
+        const id = crypto.randomUUID();
+        transaction.objectStore('submissions').put({id, input: {id, contextId:draft.id, kind:'send', text:draft.text, uploadIds:[]}, at:Date.now(), confirmed:false});
+      });
+    } finally { database.close(); }
+    await sdk.rebuild();
   });
+  await expect(page.getByRole('button',{name:'Save to Inbox',exact:true})).toBeDisabled();
+  await page.evaluate(async () => { await (window as any).__HERTS_PLUGIN_RUNTIME__.sdk.rebuild(); });
   await expect(page.getByRole('button',{name:'Save to Inbox',exact:true})).toBeDisabled();
   await input.press('Control+Enter');
   await expect(input).toHaveValue('Uncertain capture remains available');
