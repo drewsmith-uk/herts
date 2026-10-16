@@ -10,13 +10,13 @@ for(const width of [390,1280])test(`Stop retires a missing completed session wit
   const before=await workCalls(request);
   await page.goto(`/#/conversation/${id}`);
   await expect(page.getByRole('alert').filter({hasText:'session not found'})).toHaveCount(1);
-  await page.getByLabel('Message Hermes').fill('My next question');
+  await page.getByLabel(/^(Message Hermes|Add a task)$/).fill('My next question');
   await page.getByRole('button',{name:'Stop',exact:true}).click();
   await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
   await expect(page.getByRole('button',{name:'Stop',exact:true})).toHaveCount(0);
   await expect(page.locator('.conversation-attention')).toHaveCount(0);
-  await expect(page.getByLabel('Message Hermes')).toHaveValue('My next question');
-  await expect(page.getByRole('button',{name:'Send',exact:true})).toBeEnabled();
+  await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toHaveValue('My next question');
+  await expect(page.getByRole('button',{name:/^(Send|Send to Hermes)$/,exact:true})).toBeEnabled();
   expect(await workCalls(request)).toEqual(before);
   // An older client cannot keep creating failed Stop receipts.
   const repeat=await request.post('/api/v1/actions',{headers,data:{id:crypto.randomUUID(),contextId:fixture.contextId,targetId:fixture.mainId,generation:fixture.generation,kind:'stop'}});
@@ -26,9 +26,9 @@ for(const width of [390,1280])test(`Stop retires a missing completed session wit
   expect(state.actions.find((a:any)=>a.id===fixture.mainId)).toMatchObject({state:'finished',receipt:'accepted',terminal:'complete'});
   await page.reload();
   await expect(page.getByRole('button',{name:'Stop',exact:true})).toHaveCount(0);
-  await expect(page.getByLabel('Message Hermes')).toHaveValue('My next question');
+  await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toHaveValue('My next question');
   expect(await workCalls(request)).toEqual(before);
-  await page.getByLabel('Message Hermes').focus(); await page.getByRole('button',{name:'Send',exact:true}).click();
+  await page.getByLabel(/^(Message Hermes|Add a task)$/).focus(); await page.getByRole('button',{name:/^(Send|Send to Hermes)$/,exact:true}).click();
   await expect.poll(async()=>(await workCalls(request)).slice(before.length)).toEqual(['session.resume','prompt.submit']);
   await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
   expect((await workCalls(request)).slice(before.length)).toEqual(['session.resume','prompt.submit']);

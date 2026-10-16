@@ -1,3 +1,4 @@
+import { pageAction, closePageActions } from './composer-helpers';
 import { detailsField, detailsControl } from './composer-helpers';
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 
@@ -17,13 +18,13 @@ for (const width of [390, 1280]) test(`continues a conversation directly with ap
   await page.goto('/#/conversations');
   await page.getByLabel('Search conversations').fill(`Direct conversation ${id}`);
   await page.getByRole('link', { name: new RegExp(`Direct conversation ${id}`) }).click();
-  await expect(page.getByLabel('Message Hermes')).toBeEditable();
+  await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toBeEditable();
   await expect((await detailsField(page, 'Conversation title'))).toHaveValue(`Direct conversation ${id}`);
   await expect((await detailsField(page, 'Conversation title'))).toBeInViewport();
   await expect(page.getByRole('button', { name: 'Continue', exact: true })).toHaveCount(0);
   expect(await calls(request)).toEqual(beforeCalls);
-  await page.getByLabel('Message Hermes').fill(`Please ask approval from ${width}.`);
-  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await closePageActions(page); await page.getByLabel(/^(Message Hermes|Add a task)$/).fill(`Please ask approval from ${width}.`);
+  await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
   await expect(page.locator('.conversation-status')).toContainText('Needs your input');
   await expect(page.locator('.history .message.from-user')).toContainText(`Please ask approval from ${width}.`);
   await expect(page.getByRole('button', { name: 'Approve once', exact: true })).toBeEnabled();
@@ -32,8 +33,8 @@ for (const width of [390, 1280]) test(`continues a conversation directly with ap
   await page.getByRole('button', { name: width === 390 ? 'Deny' : 'Approve once', exact: true }).click();
   await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
   expect((await calls(request)).slice(beforeCalls.length)).toEqual(['session.resume', 'prompt.submit', 'approval.respond']);
-  await page.getByLabel('Message Hermes').fill('Standalone wait for stop');
-  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await closePageActions(page); await page.getByLabel(/^(Message Hermes|Add a task)$/).fill('Standalone wait for stop');
+  await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
   await expect(page.locator('.conversation-status')).toContainText('Working');
   await page.getByRole('button', { name: 'Stop', exact: true }).click();
   await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','stopped');
@@ -50,39 +51,39 @@ for (const width of [390, 1280]) test(`continues a conversation directly with ap
 
 test('shares an offline draft, attachment and active work with later reading and task views', async ({ page, context, request }) => {
   const id = 'standalone-shared', before = await calls(request);
-  await page.goto(`/#/conversation/${id}`); await expect(page.getByLabel('Message Hermes')).toBeEditable();
+  await page.goto(`/#/conversation/${id}`); await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toBeEditable();
   const reference = (await state(request)).snapshot.contexts.find((c: any) => c.aliases.includes(id));
   await page.evaluate(() => navigator.serviceWorker.ready); await page.reload();
   await context.setOffline(true);
-  await page.getByLabel('Message Hermes').fill('Saved standalone draft');
+  await closePageActions(page); await page.getByLabel(/^(Message Hermes|Add a task)$/).fill('Saved standalone draft');
   await page.locator('input[type=file]').setInputFiles({ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('Saved attachment') });
   await expect(page.getByRole('button', { name: 'Remove notes.txt' })).toBeVisible();
   await savedDraft(page, reference.id, 'Saved standalone draft'); await page.reload();
-  await expect(page.getByLabel('Message Hermes')).toHaveValue('Saved standalone draft');
+  await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toHaveValue('Saved standalone draft');
   await expect(page.getByRole('button', { name: 'Remove notes.txt' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
-  await context.setOffline(false); await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true })).toBeDisabled();
+  await context.setOffline(false); await expect(page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true })).toBeEnabled();
   expect(await calls(request)).toEqual(before);
   await page.getByRole('button', { name: `Save to reading list: https://example.com/${id}`, exact: true }).click();
   await page.getByRole('button', { name: `Open reading item: https://example.com/${id}`, exact: true }).click();
   const readingUrl = page.url();
-  await expect(page.getByLabel('Message Hermes')).toHaveValue('Saved standalone draft');
+  await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toHaveValue('Saved standalone draft');
   await expect(page.getByRole('button', { name: 'Remove notes.txt' })).toBeVisible();
-  await page.getByLabel('Message Hermes').fill('Please ask approval for this shared conversation.');
-  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await closePageActions(page); await page.getByLabel(/^(Message Hermes|Add a task)$/).fill('Please ask approval for this shared conversation.');
+  await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
   await expect(page.getByRole('button', { name: 'Approve once', exact: true })).toBeVisible();
   await page.goto(`/#/conversation/${id}`);
   await expect(page.getByRole('button', { name: 'Approve once', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Make a task', exact: true }).click();
+  await (await pageAction(page, 'button', 'Make a task')).click();
   await page.getByRole('button', { name: 'Create task', exact: true }).click();
   const taskUrl = page.url();
   await expect(page.getByRole('button', { name: 'Approve once', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Approve once', exact: true }).click();
   await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
-  await page.getByLabel('Message Hermes').fill('Same draft in all three views');
+  await closePageActions(page); await page.getByLabel(/^(Message Hermes|Add a task)$/).fill('Same draft in all three views');
   await savedDraft(page, reference.id, 'Same draft in all three views');
   for (const url of [readingUrl, `/#/conversation/${id}`, taskUrl]) {
-    await page.goto(url); await expect(page.getByLabel('Message Hermes')).toHaveValue('Same draft in all three views');
+    await page.goto(url); await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toHaveValue('Same draft in all three views');
     await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
   }
   const after = await state(request);
@@ -98,16 +99,16 @@ test('recovers a lost conversation-reference response and opens its notification
   await page.goto(`/#/conversation/${id}`);
   // The ordinary state refresh recovers the idempotent reference even though
   // its HTTP acknowledgement was lost; nothing is sent to Hermes.
-  await expect(page.getByLabel('Message Hermes')).toBeEditable();
+  await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toBeEditable();
   const otherContext = await browser.newContext(), other = await otherContext.newPage();
   try {
-    await other.goto(`/#/conversation/${id}`); await expect(other.getByLabel('Message Hermes')).toBeEditable();
+    await other.goto(`/#/conversation/${id}`); await expect(other.getByLabel(/^(Message Hermes|Add a task)$/)).toBeEditable();
     const snapshot = (await state(request)).snapshot;
     expect(snapshot.contexts.filter((c: any) => c.aliases.includes(id))).toHaveLength(1);
     expect(snapshot.tasks.some((t: any) => t.link?.key === id)).toBe(false);
     expect(await calls(request)).toEqual(before);
-    await other.getByLabel('Message Hermes').fill('Finish this standalone notification check.');
-    await other.getByRole('button', { name: 'Send', exact: true }).click();
+    await other.getByLabel(/^(Message Hermes|Add a task)$/).fill('Finish this standalone notification check.');
+    await other.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
     await expect(other.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
     const result = await state(request), ref = result.snapshot.contexts.find((c: any) => c.aliases.includes(id));
     const action = result.actions.find((a: any) => a.contextId === ref.id && a.kind === 'send');
@@ -133,10 +134,10 @@ test('shows saved history and a retry when a new conversation reference is unava
   await page.goto(`/#/conversation/${id}`);
   await expect(page.getByText('Hermes is temporarily unavailable.', { exact: true })).toBeVisible();
   await expect(page.locator('.message').last()).toContainText(text);
-  await expect(page.getByLabel('Message Hermes')).toHaveCount(0);
+  await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toHaveCount(0);
   const retry = page.getByRole('button', { name: 'Try again', exact: true });
   await retry.evaluate(button => button.addEventListener('click', () => { (window as any).allowContextRetry = true; }, { once: true }));
   await retry.click();
-  await expect(page.getByLabel('Message Hermes')).toBeEditable();
+  await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toBeEditable();
   expect(await calls(request)).toEqual(before);
 });

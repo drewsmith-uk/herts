@@ -1,5 +1,7 @@
+import { openSettingsGroups } from './composer-helpers';
+import { pageAction, closePageActions } from './composer-helpers';
 import { test, expect } from '@playwright/test';
-import { detailsField } from './composer-helpers';
+import { saveTitle, detailsField } from './composer-helpers';
 import { pinnedPlugin, pinnedReady, seedPin, savedPins, notices, dismissPins } from './pinned-helpers';
 
 test.beforeEach(async ({ request, context }) => { await pinnedPlugin(request, 'enable'); await context.grantPermissions(['notifications']); });
@@ -9,9 +11,9 @@ test('pins from a conversation, survives offline dismissal, and preserves an uns
   await pinnedReady(page); await page.goto('/#/conversation/existing');
   const draft = page.getByRole('textbox', { name: /^Message / });
   await expect(draft).toBeVisible(); await draft.fill('Keep these synthetic notes until I send them.');
-  await expect(page.getByRole('button', { name: 'Pin notification', exact: true })).toBeEnabled();
-  await page.getByRole('button', { name: 'Pin notification', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Unpin notification', exact: true })).toBeEnabled();
+  await expect(await pageAction(page, 'button', 'Pin notification')).toBeEnabled();
+  await (await pageAction(page, 'button', 'Pin notification')).click();
+  await expect(await pageAction(page, 'button', 'Unpin notification')).toBeEnabled();
   expect(await savedPins(page)).toHaveLength(1); expect(await notices(page)).toHaveLength(1);
   const before = await (await request.get('http://127.0.0.1:8791/calls')).json();
   await context.setOffline(true);
@@ -20,8 +22,8 @@ test('pins from a conversation, survives offline dismissal, and preserves an uns
     await page.goto('/#/plugins/pinned'); await expect(page.locator('.pinned-list .item-title')).toHaveText('Plan the autumn trip');
     await page.reload(); await expect(page.locator('.pinned-list .item-title')).toHaveText('Plan the autumn trip');
     await page.locator('.pinned-list a').click(); await expect(draft).toHaveValue('Keep these synthetic notes until I send them.');
-    await page.getByRole('button', { name: 'Unpin notification', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'Pin notification', exact: true })).toBeEnabled();
+    await (await pageAction(page, 'button', 'Unpin notification')).click();
+    await expect(await pageAction(page, 'button', 'Pin notification')).toBeEnabled();
     expect(await savedPins(page)).toHaveLength(0); expect(await notices(page)).toHaveLength(0);
   } finally { await context.setOffline(false); }
   const calls = await (await request.get('http://127.0.0.1:8791/calls')).json();
@@ -60,11 +62,11 @@ test('pins task titles and retains them after completion', async ({ page, reques
   const id = crypto.randomUUID(), title = 'Synthetic task notification';
   expect((await request.post('/api/v1/sync', { headers: { 'x-herts-request': '1' }, data: { id: crypto.randomUUID(), taskId: id, kind: 'create', title, at: Date.now() } })).ok()).toBe(true);
   await pinnedReady(page); await page.goto(`/#/task/${id}`);
-  await page.getByRole('button', { name: 'Pin notification', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Unpin notification', exact: true })).toBeEnabled();
-  const field = await detailsField(page, 'Task title'); await field.fill('Edited synthetic task notification'); await field.blur();
+  await (await pageAction(page, 'button', 'Pin notification')).click();
+  await expect(await pageAction(page, 'button', 'Unpin notification')).toBeEnabled();
+  const field = await detailsField(page, 'Task title'); await field.fill('Edited synthetic task notification'); await saveTitle(page);
   await expect.poll(async () => (await savedPins(page))[0]?.title).toBe('Edited synthetic task notification');
-  await page.getByRole('button', { name: 'Complete task', exact: true }).click();
+  await (await pageAction(page, 'button', 'Complete task')).click();
   await page.goto('/#/plugins/pinned'); await expect(page.locator('.pinned-list a')).toHaveAttribute('href', `#/task/${id}`);
   expect(await savedPins(page)).toHaveLength(1);
 });
@@ -73,9 +75,9 @@ test('updates task titles while Pinned is open and recognises the same conversat
   const id = crypto.randomUUID();
   const change = async (kind: string, title: string, baseTitle?: string) => expect((await request.post('/api/v1/sync', { headers: { 'x-herts-request': '1' }, data: { id: crypto.randomUUID(), taskId: id, kind, title, ...(baseTitle ? { baseTitle } : {}), at: Date.now() } })).ok()).toBe(true);
   await change('create', 'Initial synthetic title'); await pinnedReady(page); await page.goto(`/#/task/${id}`);
-  await page.getByRole('button', { name: 'Pin notification', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Unpin notification', exact: true })).toBeEnabled();
-  await page.goto(`/#/draft/${id}`); await expect(page.getByRole('button', { name: 'Unpin notification', exact: true })).toBeEnabled();
+  await (await pageAction(page, 'button', 'Pin notification')).click();
+  await expect(await pageAction(page, 'button', 'Unpin notification')).toBeEnabled();
+  await page.goto(`/#/draft/${id}`); await expect(await pageAction(page, 'button', 'Unpin notification')).toBeEnabled();
   expect(await savedPins(page)).toHaveLength(1);
   await page.goto('/#/plugins/pinned'); await change('title', 'Updated from another synthetic client', 'Initial synthetic title');
   await page.evaluate(() => (globalThis as any).__HERTS_PLUGIN_RUNTIME__.sdk.refresh());
@@ -85,7 +87,7 @@ test('updates task titles while Pinned is open and recognises the same conversat
 
 test('a delayed display cannot restore a pin after unpinning from another tab', async ({ page, context }) => {
   await pinnedReady(page); await page.goto('/#/conversation/existing');
-  await expect(page.getByRole('button', { name: 'Pin notification', exact: true })).toBeEnabled();
+  await expect(await pageAction(page, 'button', 'Pin notification')).toBeEnabled();
   const worker = context.serviceWorkers().find(worker => worker.url().endsWith('/sw.js'))!;
   await worker.evaluate(() => {
     const scope = self as any, original = scope.registration.showNotification.bind(scope.registration);
@@ -96,8 +98,9 @@ test('a delayed display cannot restore a pin after unpinning from another tab', 
       return original(...args);
     };
   });
-  await page.getByRole('button', { name: 'Pin notification', exact: true }).click();
+  await (await pageAction(page, 'button', 'Pin notification')).click();
   await expect.poll(() => worker.evaluate(() => !!(self as any).displayStarted)).toBe(true);
+  await closePageActions(page);
   const draft = page.getByRole('textbox', { name: /^Message / }); await draft.fill('Draft written during notification acknowledgement.');
   const second = await context.newPage();
   try {
@@ -105,7 +108,7 @@ test('a delayed display cannot restore a pin after unpinning from another tab', 
     await second.locator('.pinned-list').getByRole('button', { name: /^Unpin:/ }).click();
     await worker.evaluate(() => (self as any).releaseDisplay());
     await expect(second.getByRole('heading', { name: 'No pinned notifications' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Pin notification', exact: true })).toBeEnabled();
+    await expect(await pageAction(page, 'button', 'Pin notification')).toBeEnabled();
     expect(await notices(page)).toHaveLength(0); expect(await savedPins(page)).toHaveLength(0);
     await expect(draft).toHaveValue('Draft written during notification acknowledgement.');
   } finally { await worker.evaluate(() => (self as any).releaseDisplay?.()); await second.close(); }
@@ -114,7 +117,7 @@ test('a delayed display cannot restore a pin after unpinning from another tab', 
 test('a lost acknowledgement leaves one saved pin and never submits another notification operation', async ({ page, context }) => {
   await pinnedReady(page); await page.goto('/#/conversation/existing');
   await expect(page.locator('.conversation-compact-title')).toHaveText('Plan the autumn trip');
-  await expect(page.getByRole('button', { name: 'Pin notification', exact: true })).toBeEnabled();
+  await expect(await pageAction(page, 'button', 'Pin notification')).toBeEnabled();
   const worker = context.serviceWorkers().find(worker => worker.url().endsWith('/sw.js'))!;
   await worker.evaluate(() => {
     (self as any).pinWrites = 0;
@@ -125,10 +128,10 @@ test('a lost acknowledgement leaves one saved pin and never submits another noti
       }
     }) as EventListener);
   });
-  await page.getByRole('button', { name: 'Pin notification', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Unpin notification', exact: true })).toBeEnabled({ timeout: 20_000 });
+  await (await pageAction(page, 'button', 'Pin notification')).click();
+  await expect(await pageAction(page, 'button', 'Unpin notification')).toBeEnabled({ timeout: 20_000 });
   await expect(page.getByRole('link', { name: /Open Pinned: The notification operation was not confirmed/ })).toBeVisible();
-  await page.reload(); await expect(page.getByRole('button', { name: 'Unpin notification', exact: true })).toBeEnabled();
+  await page.reload(); await expect(await pageAction(page, 'button', 'Unpin notification')).toBeEnabled();
   expect(await savedPins(page)).toHaveLength(1); expect(await worker.evaluate(() => (self as any).pinWrites)).toBe(1);
 });
 
@@ -141,6 +144,7 @@ test('an older host keeps plugin settings and app updates reachable', async ({ p
   await page.goto('/#/plugins/pinned');
   await expect(page.getByText('Update Herts through Settings → App updates to use Pinned.', { exact: true })).toBeVisible();
   await page.getByRole('link', { name: 'Settings', exact: true }).click();
+  await openSettingsGroups(page);
   await expect(page.getByRole('button', { name: 'Check for updates', exact: true })).toBeVisible();
 });
 
@@ -219,17 +223,19 @@ test('only pins a new conversation after its draft is saved', async ({ page, con
   const draft = page.getByRole('textbox', { name: /^Message / });
   const pin = page.getByRole('button', { name: 'Pin notification', exact: true });
   await expect(draft).toBeVisible();
-  await expect(pin).toBeDisabled();
+  await expect(await pageAction(page, 'button', 'Pin notification')).toBeDisabled();
+  await closePageActions(page);
   expect(await savedPins(page)).toHaveLength(0);
   await page.goto('/#/conversations');
   await page.goto('/#/new');
   await expect(draft).toBeVisible();
-  await expect(pin).toBeDisabled();
+  await expect(await pageAction(page, 'button', 'Pin notification')).toBeDisabled();
+  await closePageActions(page);
   await draft.fill('Keep this synthetic draft available from its notification.');
   await expect(page).toHaveURL(/#\/draft\//);
-  await expect(pin).toBeEnabled();
+  await expect(await pageAction(page, 'button', 'Pin notification')).toBeEnabled();
   await pin.click();
-  await expect(page.getByRole('button', { name: 'Unpin notification', exact: true })).toBeEnabled();
+  await expect(await pageAction(page, 'button', 'Unpin notification')).toBeEnabled();
   const rows = await savedPins(page);
   expect(rows).toHaveLength(1);
   expect(rows[0].route).toBe(new URL(page.url()).hash.slice(1));

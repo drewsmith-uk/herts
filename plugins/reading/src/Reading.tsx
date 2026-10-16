@@ -1,8 +1,8 @@
-import { MessageComposer, useEntryDraft, type Draft } from '@herts/plugin-api/client';
-import { PageHeader, Button, ButtonLink, IconButton, SectionNav, SectionLink, ItemList, ItemRow, ItemMeta, EmptyState, StatusMessage, SettingsSection, SettingRow, FormField } from '@herts/plugin-api/client';
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { readingTitle, MessageComposer, useEntryDraft, type Draft } from '@herts/plugin-api/client';
+import { ActionRow, ActionRowLink, RenameAction, PageHeader, Button, ButtonLink, IconButton, SectionNav, SectionLink, ItemList, ItemRow, ItemMeta, EmptyState, StatusMessage, SettingsSection, SettingRow, FormField } from '@herts/plugin-api/client';
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { BookOpen, Bookmark, BookmarkCheck, Plus, Check, Circle, ArrowUp, ArrowDown, Pencil, ChevronLeft, ExternalLink, Download, Trash2, LoaderCircle, Send } from 'lucide-react';
-import { DndContext, closestCenter, type DragEndEvent } from '@dnd-kit/core';
+import { DndContext, DragOverlay, closestCenter, type DragEndEvent } from '@dnd-kit/core';
 import { useHoldSensors, holdListeners, useDragClickGuard } from '@herts/plugin-api/client';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -18,15 +18,20 @@ function useReadingAction() {
     const run = (action: () => Promise<unknown>) => { setError(''); void action().catch(e => setError(e.message)); };
     return { run, error };
 }
+function readingEntry(item: ReadingItem, available: boolean) {
+    try { const mode = sessionStorage.getItem(`herts:reading-mode:${item.id}`); if (mode) return `#/${mode === 'article' ? 'reader' : 'reading-item'}/${item.id}`; } catch {}
+    return `#/${available ? 'reader' : 'reading-item'}/${item.id}`;
+}
 export function ReadingList({ read }: {
     read: boolean;
 }) {
     const state = useApp(), reading = state.snapshot.reading || emptyReading();
+    const [activeId, setActiveId] = useState<string>();
     const [edit, setEdit] = useState(false), { run, error } = useReadingAction();
     const items = read ? reading.items.filter(i => i.readAt !== null).sort((a, b) => b.readAt! - a.readAt! || a.id.localeCompare(b.id)) : reading.unread.ids.map(id => reading.items.find(i => i.id === id)!).filter(Boolean);
     const sensors = useHoldSensors(), clickGuard = useDragClickGuard();
     function drag({ active, over }: DragEndEvent) {
-        clickGuard.end();
+        clickGuard.end(); setActiveId(undefined);
         if (read || !over || active.id === over.id)
             return;
         const from = items.findIndex(i => i.id === active.id), to = items.findIndex(i => i.id === over.id);
@@ -35,7 +40,7 @@ export function ReadingList({ read }: {
     return <><PageHeader title="Reading list" count={items.length} actions={(items.length > 0 || edit) && <Button variant="quiet" className={edit ? 'selected' : ''} onClick={() => setEdit(!edit)}><Pencil size={15}/>{edit ? 'Finish editing' : 'Edit list'}</Button>}/>
     <div className="reading-toolbar"><SectionNav className="reading-tabs" aria-label="Reading lists"><SectionLink href="#/reading" active={!read}>Unread <small>{reading.unread.ids.length}</small></SectionLink><SectionLink href="#/reading/read" active={read}>Read <small>{reading.items.length - reading.unread.ids.length}</small></SectionLink></SectionNav><ButtonLink variant="primary" className="reading-add" href="#/reading/add"><Plus size={17}/> Add link</ButtonLink></div>
     {error && <StatusMessage>{error}</StatusMessage>}
-    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={drag} onDragStart={clickGuard.start} onDragCancel={clickGuard.end}><SortableContext items={items.map(i => i.id)} strategy={verticalListSortingStrategy}><ItemList className="task-list">{items.map((item, index) => <ReadingRow key={item.id} item={item} index={index} items={items} edit={edit}/>)}</ItemList></SortableContext></DndContext>
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={drag} onDragStart={({active}) => { clickGuard.start(); setActiveId(String(active.id)); }} onDragCancel={() => { clickGuard.end(); setActiveId(undefined); }}><SortableContext items={items.map(i => i.id)} strategy={verticalListSortingStrategy}><ItemList className="task-list">{items.map((item, index) => <ReadingRow key={item.id} item={item} index={index} items={items} edit={edit}/>)}</ItemList></SortableContext><DragOverlay dropAnimation={null}>{activeId && <div className="task-drag-overlay">{items.find(item => item.id === activeId)?.title}</div>}</DragOverlay></DndContext>
     {!items.length && <EmptyState icon={<BookOpen size={30}/>} title={read ? 'Nothing marked read yet' : 'Your next good read'} description={read ? 'Finished articles will appear here.' : 'Add a link, share one from another app, or bookmark a link in a conversation.'}/>}
   </>;
 }
@@ -46,13 +51,12 @@ function ReadingRow({ item, index, items, edit }: {
     edit: boolean;
 }) {
     const state = useApp(), { run, error } = useReadingAction(), title = useReadingTitle(item);
-    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id, disabled: item.readAt !== null });
+    const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver, activeIndex, overIndex } = useSortable({ id: item.id, disabled: item.readAt !== null });
     const article = state.articleCopies[item.id], pending = state.readingPending.some(p => p.op.itemId === item.id);
-    return <div><ItemRow ref={setNodeRef} className={`task-row reading-row ${isDragging ? 'dragging' : ''}`} style={{ transform: CSS.Transform.toString(transform), transition }} {...(item.readAt === null ? attributes : {})} {...holdListeners(listeners)} role="group" aria-label={item.title} aria-roledescription={item.readAt === null ? 'sortable reading item' : undefined} onContextMenu={e => { if (!(e.target as Element).closest('input,textarea'))
-        e.preventDefault(); }} onDragStart={e => e.preventDefault()} leading={<IconButton className="completion-button" aria-label={`${item.readAt === null ? 'Mark read' : 'Mark unread'}: ${item.title}`} onClick={() => void changeReadingWithUndo(item, items[index + 1]?.id || null)}>{item.readAt === null ? <Circle size={21}/> : <Check size={18}/>}</IconButton>} trailing={edit && item.readAt === null && <div className="reorder-controls"><IconButton aria-label={`Move ${item.title} up`} disabled={!index} onClick={() => run(() => readingChange(item.id, { kind: 'reorder', beforeId: items[index - 1].id }))}><ArrowUp size={16}/></IconButton><IconButton aria-label={`Move ${item.title} down`} disabled={index === items.length - 1} onClick={() => run(() => readingChange(item.id, { kind: 'reorder', beforeId: items[index + 2]?.id || null }))}><ArrowDown size={16}/></IconButton></div>}>
+    return <div><ItemRow ref={setNodeRef} className={`task-row reading-row ${isDragging ? 'dragging' : ''} ${isOver && !isDragging ? activeIndex < overIndex ? 'task-insertion-after' : 'task-insertion-before' : ''}`} style={{ transform: CSS.Transform.toString(transform), transition }} {...(item.readAt === null ? attributes : {})} {...holdListeners(listeners)} role="group" aria-label={item.title} aria-roledescription={item.readAt === null ? 'sortable reading item' : undefined} onDragStart={e => e.preventDefault()} leading={<IconButton className="completion-button" aria-label={`${item.readAt === null ? 'Mark read' : 'Mark unread'}: ${item.title}`} onClick={() => void changeReadingWithUndo(item, items[index + 1]?.id || null)}>{item.readAt === null ? <Circle size={21}/> : <Check size={18}/>}</IconButton>} trailing={edit && item.readAt === null && <div className="reorder-controls"><IconButton aria-label={`Move ${item.title} up`} disabled={!index} onClick={() => run(() => readingChange(item.id, { kind: 'reorder', beforeId: items[index - 1].id }))}><ArrowUp size={16}/></IconButton><IconButton aria-label={`Move ${item.title} down`} disabled={index === items.length - 1} onClick={() => run(() => readingChange(item.id, { kind: 'reorder', beforeId: items[index + 2]?.id || null }))}><ArrowDown size={16}/></IconButton></div>}>
 
     {edit ? <input className="inline-title" aria-label="Edit reading title" value={title.text} maxLength={2000} onChange={e => title.setText(e.target.value)} onBlur={() => void title.save()} onKeyDown={e => { if (e.key === 'Enter')
-        e.currentTarget.blur(); }}/> : <a className="task-title" draggable={false} href={`#/reading-item/${item.id}`}>{item.title}</a>}<ItemMeta><span>{new URL(item.url).hostname}</span>{pending && <span>Saved on device</span>}{item.readAt !== null ? <span>{date(item.readAt)}</span> : article?.html ? <span><Download size={11}/> Available offline{article.status === 'excerpt' ? ' · excerpt' : ''}</span> : null}</ItemMeta>
+        e.currentTarget.blur(); }}/> : <a className="task-title" title={item.title || item.url} aria-label={item.title || item.url} draggable={false} href={readingEntry(item, !!article?.html)}>{readingTitle(item.title, item.url)}</a>}<ItemMeta><span>{new URL(item.url).hostname}</span>{pending && <span>Saved on device</span>}{item.readAt !== null ? <span>{date(item.readAt)}</span> : article?.html ? <span><Download size={11}/> Available offline{article.status === 'excerpt' ? ' · excerpt' : ''}</span> : null}</ItemMeta>
 
   </ItemRow>{(error || title.error) && <StatusMessage>{error || title.error}</StatusMessage>}</div>;
 }
@@ -74,32 +78,43 @@ export function ReadingCapture({ sharedContent, id }: { sharedContent?: import('
       {entry.id ? <MessageComposer context={entry.context} persist={entry.persist} prepare={prepare} owner={entry.owner} saveLabel="Save link" onSaved={() => leave(false)} onSent={() => leave(true)} fields={draft => {
         const urls = sharedUrls(draft.text);
         return <>{urls.length > 1 && <fieldset className="entry-links"><legend>Which link belongs in Reading?</legend>{urls.map(url => <label className="share-choice" key={url}><input type="radio" name="reading-link" checked={entry.fields.url === url} onChange={() => void entry.updateFields({ url })}/><span>{url}</span></label>)}</fieldset>}
-          <details className="entry-details"><summary>Reading details</summary><FormField label="Title (optional)"><input aria-label="Reading title" maxLength={2000} value={entry.fields.title || ''} placeholder="A name for this link" onChange={event => void entry.updateFields({ title: event.target.value })}/></FormField></details></>;
+          <div className="entry-details"><FormField label="Title (optional)"><input aria-label="Reading title" maxLength={2000} value={entry.fields.title || ''} placeholder="A name for this link" onChange={event => void entry.updateFields({ title: event.target.value })}/></FormField></div></>;
       }}/> : <p role="status">Opening draft…</p>}{entry.error && <StatusMessage>{entry.error}</StatusMessage>}
     </>;
 }
-export function ReadingDetail({ id }: {
-    id: string;
-}) {
-    const state = useApp(), item = state.snapshot.reading?.items.find(i => i.id === id), { run, error } = useReadingAction();
-    const [busy, setBusy] = useState(false);
-    useUpdatePreparation({ blocked: () => busy ? 'Wait for the link to finish saving.' : undefined });
-    useEffect(() => { if (!item)
-        void db.kv.get(`reading-alias:${id}`).then(row => { if (row)
-            navigate(`/reading-item/${row.value}`); }); }, [id, item, state.snapshot.revision]);
+type ReadingMode = 'discussion' | 'article';
+function savedSplit(id: string) { try { return sessionStorage.getItem(`herts:reading-split:${id}`) === 'true'; } catch { return false; } }
+const articlePositions = new Map<string, number>();
+export function ReadingDetail({ id, initialMode = 'discussion' }: { id: string; initialMode?: ReadingMode }) {
+    const state = useApp(), item = state.snapshot.reading?.items.find(i => i.id === id);
+    const { run, error } = useReadingAction();
+    const [mode, setMode] = useState<ReadingMode>(initialMode), [split, setSplit] = useState(() => savedSplit(id));
+    const [wide, setWide] = useState(() => matchMedia('(min-width:1280px)').matches);
+    useEffect(() => { setMode(initialMode); }, [initialMode]);
+    useEffect(() => { const query = matchMedia('(min-width:1280px)'); const update = () => setWide(query.matches); query.addEventListener('change', update); return () => query.removeEventListener('change', update); }, []);
+    useEffect(() => { let current = true; if (!item) void db.kv.get(`reading-alias:${id}`).then(row => { if (current && row) navigate(`/reading-item/${row.value}`); }); return () => { current = false; }; }, [id, item, state.snapshot.revision]);
     const context = state.snapshot.contexts?.find(c => c.id === item?.contextId) || (item ? { id: item.contextId, title: item.title, link: null, aliases: [] } : undefined);
-    if (!item)
-        return <div className="empty"><p>This reading item is not available on this device yet.</p><a href="#/reading">Reading list</a></div>;
-    const article = state.articleCopies[id];
+    if (!item) return <EmptyState icon={<BookOpen/>} title={state.online ? 'Reading item unavailable' : 'Reading item not saved on this device'} description={state.online ? 'Refresh to check this item.' : 'Reconnect to check this item.'}><ButtonLink href="#/reading">Reading list</ButtonLink><Button disabled={!state.online} onClick={() => void sync()}>Refresh</Button></EmptyState>;
+    const alongside = wide && split;
+    const showArticle = alongside || mode === 'article', showDiscussion = alongside || mode === 'discussion';
     const hasSubmission = state.actions.some(a => a.taskId === item.contextId && !a.cancelled) || state.localSubmissions.some(s => s.taskId === item.contextId);
-    const needsInitialMessage = !!context && !context.link && !hasSubmission;
-    return <div className="reading-detail"><ConversationHeader title={item.title} backHref={item.readAt === null ? '#/reading' : '#/reading/read'} backLabel="Reading list" context={context}><ReadingTitle item={item}/><div className="reading-detail-controls">
-    <a className="primary-button" href={item.url} target="_blank" rel="noopener noreferrer"><BookOpen size={16}/> Open original</a>
-    <a className="quiet-button" href={`#/reader/${id}`}>Read in Herts</a><button onClick={() => run(() => readingChange(id, { kind: 'read', read: item.readAt === null }))}><Check size={16}/>{item.readAt === null ? 'Mark read' : 'Mark unread'}</button>
-  </div>{error && <StatusMessage>{error}</StatusMessage>}</ConversationHeader>
-    <div className="article-status"><a href={item.url} target="_blank" rel="noopener noreferrer"><ExternalLink size={14}/> {new URL(item.url).hostname}</a><OfflineControls item={item}/></div>
-    {context && <ConversationPanel key={context.id} context={context} initialText={needsInitialMessage ? item.url : ''} showActions={false}/>}
-  </div>;
+    function chooseMode(next: ReadingMode) { setMode(next); try { sessionStorage.setItem(`herts:reading-mode:${id}`, next); } catch {} }
+    function toggleSplit() { const next = !split; setSplit(next); try { sessionStorage.setItem(`herts:reading-split:${id}`, String(next)); } catch {} }
+    return <div className={`reading-detail reading-workspace ${alongside ? 'reading-split' : ''}`}>
+      <ConversationHeader title={item.title} backHref={item.readAt === null ? '#/reading' : '#/reading/read'} backLabel="Reading list" context={context}>
+        <ReadingTitle item={item}/><ActionRowLink icon={<ExternalLink size={20}/>} href={item.url} target="_blank" rel="noopener noreferrer">Open original</ActionRowLink><ActionRow icon={<Check size={20}/>} onClick={() => run(() => readingChange(id, { kind: 'read', read: item.readAt === null }))}>{item.readAt === null ? 'Mark read' : 'Mark unread'}</ActionRow>
+        <OfflineControls item={item}/>{error && <StatusMessage>{error}</StatusMessage>}
+      </ConversationHeader>
+      <div className="reading-mode-bar"><SectionNav aria-label="Reading mode"><SectionLink href={`#/reading-item/${id}`} active={mode === 'discussion'} onClick={() => chooseMode('discussion')}>Discussion</SectionLink><SectionLink href={`#/reader/${id}`} active={mode === 'article'} onClick={() => chooseMode('article')}>Article</SectionLink></SectionNav>{wide && <Button aria-pressed={split} onClick={toggleSplit}>{split ? 'Show one pane' : 'Show alongside'}</Button>}</div>
+      <div className="reading-panes">
+        <section className="reading-article-pane" aria-label="Article pane" hidden={!showArticle} onFocusCapture={() => { if (alongside) setMode('article'); }} onPointerDown={() => { if (alongside) setMode('article'); }}>
+          <ArticleContent key={id} item={item} active={showArticle}/>
+        </section>
+        <section className="reading-discussion-pane" aria-label="Discussion pane" hidden={!showDiscussion} onFocusCapture={() => { if (alongside) setMode('discussion'); }} onPointerDown={() => { if (alongside) setMode('discussion'); }}>
+          {context && <ConversationPanel fullTitle={item.title} key={context.id} context={context} initialText={!context.link && !hasSubmission ? item.url : ''} showActions={false}/>}
+        </section>
+      </div>
+    </div>;
 }
 function useReadingTitle(item: ReadingItem) {
     const [draft, setDraft] = useState<{
@@ -130,35 +145,59 @@ function useReadingTitle(item: ReadingItem) {
 function ReadingTitle({ item }: {
     item: ReadingItem;
 }) {
-    const title = useReadingTitle(item);
-    return <><textarea className="detail-title" aria-label="Reading title" rows={2} maxLength={2000} value={title.text} onChange={e => title.setText(e.target.value)} onBlur={() => void title.save()}/>{title.error && <p className="inline-error" role="alert">{title.error}</p>}</>;
+    return <RenameAction title={item.title} label="Rename article" fieldLabel="Reading title" save={(title, baseTitle) => readingChange(item.id, { kind: 'title', title, baseTitle })}/>;
 }
-function OfflineControls({ item }: {
-    item: ReadingItem;
-}) {
+function OfflineControls({ item }: { item: ReadingItem }) {
     const state = useApp(), article = state.articleCopies[item.id], { run, error } = useReadingAction();
     const storageError = state.articleErrors[item.id]?.version === item.downloadVersion ? state.articleErrors[item.id]?.message : undefined;
     const enabled = item.offline === 'keep' || (item.offline === 'auto' && (state.snapshot.reading?.autoDownload ?? true));
-    return <div className="offline-controls"><span role="status">{article?.html ? `Available offline${article.status === 'excerpt' ? ' · saved excerpt' : ''}` : article ? 'Unavailable offline' : item.readAt !== null ? 'Download removed after reading' : storageError ? 'Unavailable offline' : enabled ? 'Waiting for offline copy' : 'No offline download'}</span>
-    {article?.warning && article.status !== 'saved' && <p>{article.warning}</p>}{storageError && <p role="alert">{storageError}</p>}
-    {item.readAt === null && <div className="button-row">{(!article?.html || !enabled) && <button onClick={() => run(() => readingChange(item.id, { kind: 'offline', offline: 'keep' }))}><Download size={14}/>{article || storageError ? 'Retry download' : 'Make available offline'}</button>}{(enabled || article) && <button onClick={() => run(() => readingChange(item.id, { kind: 'offline', offline: 'remove' }))}><Trash2 size={14}/> Remove download</button>}</div>}
-    {error && <p role="alert" className="inline-error">{error}</p>}
-  </div>;
+    const pending = state.readingPending.some(p => p.op.itemId === item.id);
+    const downloading = state.articleDownloads.some(key => key.endsWith(`:${item.id}:${item.downloadVersion}`));
+    const label = article?.html ? 'Available offline' : item.readAt !== null ? 'Download removed after reading' : downloading && state.online ? 'Downloading…' : storageError ? 'Download failed' : !state.online ? 'Unavailable offline' : article ? 'Article unavailable' : enabled ? 'Waiting for offline copy' : 'No offline download';
+    return <div className="offline-controls"><p role="status">{label}</p><div className="offline-actions">
+      {storageError && <StatusMessage>{storageError}</StatusMessage>}
+      {!state.online && item.readAt === null && <p>Reconnect to download this article.</p>}
+      {item.readAt !== null && <ActionRow icon={<Download size={20}/>} disabled={pending} onClick={() => run(() => readingChange(item.id, { kind: 'read', read: false }))}>Mark unread to download</ActionRow>}
+      {item.readAt === null && <>{(!enabled || storageError || article && !article.html) ? <ActionRow icon={<Download size={20}/>} disabled={!state.online || pending} onClick={() => run(() => readingChange(item.id, { kind: 'offline', offline: 'keep' }))}>{storageError || article ? 'Retry download' : 'Make available offline'}</ActionRow> : <ActionRow icon={<Trash2 size={20}/>} disabled={pending} onClick={() => run(() => readingChange(item.id, { kind: 'offline', offline: 'remove' }))}>{article?.html ? 'Remove download' : 'Cancel download'}</ActionRow>}</>}
+      {error && <StatusMessage>{error}</StatusMessage>}
+    </div></div>;
 }
-export function Reader({ id }: {
-    id: string;
-}) {
-    const state = useApp(), item = state.snapshot.reading?.items.find(i => i.id === id);
-    const [article, setArticle] = useState<Article>(), [error, setError] = useState(''), [busy, setBusy] = useState(true);
-    useEffect(() => { let current = true; setBusy(true); void getArticle(id).then(a => { if (current)
-        setArticle(a); }).catch(e => { if (current)
-        setError(e.message); }).finally(() => { if (current)
-        setBusy(false); }); return () => { current = false; }; }, [id]);
-    return <><ConversationHeader><a className="back-link" href={`#/reading-item/${id}`}><ChevronLeft size={17}/> Conversation</a><div className="reader-heading"><h1>{article?.title || item?.title || 'Reading mode'}</h1>{item && <a className="quiet-button" href={item.url} target="_blank" rel="noopener noreferrer"><ExternalLink size={16}/> Open in browser</a>}</div></ConversationHeader>
-    {busy && <p className="loading"><LoaderCircle size={17} className="spin"/>Preparing article…</p>}{error && <p className="inline-error" role="alert">{error}</p>}
-    {article && <><p className="reader-source">{article.siteName}{article.byline ? ` · ${article.byline}` : ''} · Saved {date(article.fetchedAt)}</p>{article.warning && article.status !== 'saved' && <p className="reader-warning">{article.warning}</p>}{article.html && <article className="markdown reader-article" dangerouslySetInnerHTML={{ __html: article.html }}/>}</>}
-  </>;
+function ArticleContent({ item, active }: { item: ReadingItem; active: boolean }) {
+    const state = useApp();
+    const cached = state.articleCopies[item.id];
+    const { run: download, error: downloadError } = useReadingAction();
+    const storageError = state.articleErrors[item.id]?.version === item.downloadVersion ? state.articleErrors[item.id]?.message : undefined;
+    const pending = state.readingPending.some(p => p.op.itemId === item.id);
+    const [article, setArticle] = useState<Article | undefined>(cached), [error, setError] = useState(''), [busy, setBusy] = useState(!cached), [attempt, setAttempt] = useState(0);
+    const root = useRef<HTMLDivElement>(null), position = useRef(articlePositions.get(item.id) || 0);
+    useEffect(() => {
+      if (!active) return;
+      let current = true; setError(''); setBusy(true);
+      void getArticle(item.id).then(value => { if (current && value.version === item.downloadVersion) setArticle(value); }).catch(reason => { if (current) setError(reason.message); }).finally(() => { if (current) setBusy(false); });
+      return () => { current = false; };
+    }, [item.id, item.downloadVersion, attempt, state.connectionVersion, active]);
+    useLayoutEffect(() => {
+      const pane = root.current?.parentElement; if (!pane || !active) return;
+      pane.scrollTop = position.current;
+      const remember = () => { position.current = pane.scrollTop; articlePositions.set(item.id, pane.scrollTop); };
+      pane.addEventListener('scroll', remember, { passive: true });
+      return () => pane.removeEventListener('scroll', remember);
+    }, [item.id, article?.html, active]);
+    const content = article?.version === item.downloadVersion ? article : cached;
+    const downloadFailure = storageError || (content?.status === 'unavailable' ? content.warning || 'Article unavailable.' : '');
+    return <div ref={root} className="article-content"><div className="reader-heading"><h1>{item.title}</h1>
+      <div className="reader-meta"><span className="reader-source">{content?.siteName || new URL(item.url).hostname}{content?.byline ? ` · ${content.byline}` : ''}</span>
+        {content?.status === 'excerpt' && <span className="reader-excerpt">Saved excerpt</span>}
+        <a className="reader-original" href={item.url} target="_blank" rel="noopener noreferrer">Open original <ExternalLink size={16} aria-hidden="true"/></a>
+      </div></div>
+      {busy && <p role="status">{content?.html ? 'Refreshing article…' : 'Preparing article…'}</p>}
+      {error && <StatusMessage>{state.online ? error : 'Offline. This article could not be loaded.'}<Button disabled={!state.online} onClick={() => setAttempt(value => value + 1)}>Try again</Button></StatusMessage>}
+      {downloadFailure && <StatusMessage>{downloadFailure}<Button disabled={!state.online || pending} onClick={() => download(() => readingChange(item.id, { kind: 'offline', offline: 'keep' }))}>Retry download</Button></StatusMessage>}
+      {downloadError && <StatusMessage>{downloadError}</StatusMessage>}
+      {content?.html && <article className="markdown reader-article" dangerouslySetInnerHTML={{ __html: content.html }}/>}
+    </div>;
 }
+export function Reader({ id }: { id: string }) { return <ReadingDetail id={id} initialMode="article"/>; }
 export function BookmarkLink({ href, conversationId, children }: {
     href?: string;
     conversationId: string;

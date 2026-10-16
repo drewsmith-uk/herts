@@ -1,3 +1,4 @@
+import { pageAction } from './composer-helpers';
 import {test,expect} from '@playwright/test';
 
 function tone(){
@@ -52,13 +53,13 @@ test('cancels delayed playback without changing the message draft',async({page})
  const gate=new Promise<void>(yes=>{release=yes;});
  await page.route('**/api/v1/audio/speak',async route=>{requested=true;await gate;await route.fulfill({json:tone()});});
  await page.goto('/#/conversation/existing');
- await page.getByLabel('Message Hermes').fill('Keep this unsent draft.');
+ await page.getByLabel(/^(Message Hermes|Add a task)$/).fill('Keep this unsent draft.');
  await page.getByRole('button',{name:'Read response aloud',exact:true}).click();
  await expect.poll(()=>requested).toBe(true);
  await page.getByRole('button',{name:'Cancel audio preparation',exact:true}).click();
  const response=page.waitForResponse('**/api/v1/audio/speak');release();await response;
  await expect(page.getByRole('button',{name:'Read response aloud',exact:true})).toBeVisible();
- await expect(page.getByLabel('Message Hermes')).toHaveValue('Keep this unsent draft.');
+ await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toHaveValue('Keep this unsent draft.');
  expect(await page.evaluate(()=>(window as any).speechEvents)).toEqual([]);
 });
 
@@ -76,7 +77,7 @@ for(const viewport of [{width:390,height:700},{width:320,height:480},{width:1280
  const error=message.getByRole('alert');
  await expect(error).toContainText('Synthetic speech provider unavailable.');
  await expect(error).toBeInViewport();
- await page.getByRole('button',{name:'Refresh conversation history',exact:true}).click();
+ await (await pageAction(page, 'button', 'Refresh conversation history')).click();
  await expect(error).toContainText('Synthetic speech provider unavailable.');
  await expect(error).toBeInViewport();
  await expect(page.getByRole('button',{name:'Cancel audio preparation',exact:true})).toHaveCount(0);

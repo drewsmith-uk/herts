@@ -44,7 +44,7 @@ test('device placement switches More to direct Settings and preserves offline dr
   await page.setViewportSize({ width: 650, height: 844 });
   await expect(nav.getByRole('link', { name: 'Settings', exact: true })).toBeVisible();
   await page.evaluate(() => { location.hash = '/new'; });
-  const editor = page.getByLabel('Message Hermes', { exact: true });
+  const editor = page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true });
   await editor.fill('Keep this local draft through connection checks and navigation changes.');
   await expect(page).toHaveURL(/#\/draft\//);
   const closeDetails = await openConnectionDetails(page);
@@ -116,11 +116,15 @@ test('keyboard dragging swaps overflow tabs and preserves offline order', async 
   await expect(rows).toHaveCount(3);
   await page.evaluate(() => navigator.serviceWorker.ready);
   await context.setOffline(true);
+  await expect(status(page)).toHaveText('Connection status: Disconnected');
+  await page.evaluate(() => document.fonts.ready);
   const handle = page.getByRole('button', {name: 'Drag Reading', exact: true});
   await handle.scrollIntoViewIfNeeded();
   await handle.focus();
   await page.keyboard.press('Space');
   await expect(handle).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[id^=DndLiveRegion]')).toContainText('over droppable area reading');
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
   await page.keyboard.press('ArrowUp');
   await expect(page.locator('[id^=DndLiveRegion]')).toContainText(/over droppable area (conversations|__navigation_more__)/);
   await page.keyboard.press('Space');

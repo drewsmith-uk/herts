@@ -10,7 +10,7 @@ for (const width of [390,1280]) test(`list drop targets remain accurate while dr
   // Move towards the top and let automatic scrolling change the document
   // position while the list tabs remain pinned beneath the app's top bar.
   await page.mouse.move(box.x+box.width/2,12,{steps:10});await expect.poll(()=>page.evaluate(()=>scrollY)).toBeLessThan(start-150);
-  const target=page.locator('.mobile-lists [data-drop-list="waiting"]');
+  const target=page.locator(`${width > 1000 ? '.sidebar' : '.mobile-lists'} [data-drop-list="waiting"]`);
   // Use current target bounds after automatic scrolling.
   await target.hover();await expect(target).toHaveClass(/task-drop-over/);await page.mouse.up();
   await expect(source).toHaveCount(0);await expect(page.locator('.save-state')).toContainText('Changes synced');

@@ -27,7 +27,7 @@ export function useConversationHistory(conversationId: string, version: string |
     return message ? { key: message.dataset.historyMessage, top: message.getBoundingClientRect().top - top } : undefined;
   }
   function move(top: number) {
-    const view = viewport(); if (!view || Math.abs(view.scrollTop - top) < 1) return;
+    const view = viewport(); if (!view || !view.getClientRects().length || Math.abs(view.scrollTop - top) < 1) return;
     view.scrollTop = top; adjusting.current = view.scrollTop;
   }
   function restore(target?: Anchor) {
@@ -45,7 +45,7 @@ export function useConversationHistory(conversationId: string, version: string |
     // A fetched page can queue a tail jump before the reader scrolls upward.
     // Honour their newer choice when React commits that page.
     if (target && target !== 'latest') restore(target); else if (following.current) scrollLatest();
-    readAnchor.current = anchor();
+    if (viewport()?.getClientRects().length) readAnchor.current = anchor();
   }, [pages, liveText, feedback]);
   useLayoutEffect(() => {
     if (!sendVersion) return;
@@ -56,11 +56,12 @@ export function useConversationHistory(conversationId: string, version: string |
     const view = viewport(); if (!view || !root.current) return;
     let frame = 0;
     const save = () => {
-      if (!conversationId) return;
+      if (!conversationId || !view.getClientRects().length) return;
       memory.set(conversationId, { pages: currentPages.current, following: following.current, anchor: readAnchor.current, top: view.scrollTop });
       if (memory.size > 20) memory.delete(memory.keys().next().value!);
     };
     const scroll = () => {
+      if (!view.getClientRects().length) return;
       // Ignore only the position we set. A wheel scroll can arrive in the same
       // frame and must update the reader's anchor before a resize restores it.
       const adjusted = adjusting.current; adjusting.current = undefined;
@@ -78,7 +79,7 @@ export function useConversationHistory(conversationId: string, version: string |
       else if (kind === 'reveal') { move(view.scrollTop + element.getBoundingClientRect().top - view.getBoundingClientRect().top - 12); readAnchor.current = anchor(); }
     };
     const observer = new ResizeObserver(() => {
-      cancelAnimationFrame(frame); frame = requestAnimationFrame(() => { if (following.current) scrollLatest(); else restore(readAnchor.current); save(); });
+      cancelAnimationFrame(frame); frame = requestAnimationFrame(() => { if (!view.getClientRects().length) return; if (following.current) scrollLatest(); else restore(readAnchor.current); save(); });
     });
     observer.observe(root.current); observer.observe(view);
     view.addEventListener('scroll', scroll, { passive: true }); view.addEventListener('wheel', wheel, { passive: true }); view.addEventListener('conversation-position', position);

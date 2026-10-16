@@ -131,6 +131,47 @@ Open `http://127.0.0.1:5173`.
 If inherited environment variables configure Hermes, unset them for tasks-only development.
 Never use production data in development mode.
 
+## Test selection policy
+
+Choose checks from the changed behavior, affected components, and possible data loss.
+Do not run the full release suite for every small update.
+
+| Change | Required checks |
+| --- | --- |
+| Documentation only | Run `npm run check:docs`. Review meaning and technical terms. |
+| Small UI or plugin correction | Build the affected package. Run type checks for TypeScript changes. Run relevant workflow tests. |
+| Editable controls | Also check draft preservation, submission, offline use, and recovery where affected. |
+| New screen or substantial screen change | Apply the complete UI criteria in [AGENTS.md](../AGENTS.md). |
+| Shared behavior across multiple workflows | Run `npm run check:release`. |
+| Storage, migrations, authentication, remote actions, dependencies, or plugin runtime | Run `npm run check:release`. |
+| Grouped or scheduled release | Run `npm run check:release`. |
+
+For small UI corrections, inspect narrow and wide screenshots and check the affected controls.
+Check additional themes when theme styles or shared layout rules change.
+Use existing tests when they already cover the behavior.
+Add regression tests for new failure cases or changed behavior with data preservation requirements.
+Do not add tests that only repeat the implementation.
+
+Select relevant UI tests instead of running every UI test:
+
+```sh
+HERTS_TEST_DIST_DIR=.runtime/release-dist npm run test:ui -- --grep 'refined capture'
+```
+
+Build the current browser code into the selected directory before testing browser changes.
+For plugin-only changes, build the plugin and test it against the compatible browser bundle.
+Small installed updates may proceed after their selected checks pass.
+They do not require a full release run or the complete theme and viewport matrix.
+
+Reuse successful results for unchanged code and dependencies.
+Do not repeat broad checks after a passing focused check without a specific reason.
+Investigate unrelated failures separately and report them.
+Resolve affected failures before deployment.
+State completed checks, omitted checks, and remaining limits.
+
+The Quality workflow keeps the full integration checks on pull requests and main-branch pushes.
+Local updates use this selection policy without repeating unrelated CI checks.
+
 ## Staged browser builds
 
 `npm run check:release` checks documentation and types, then builds browser files in `.runtime/release-dist`.
@@ -148,3 +189,35 @@ Apply any plugin package update separately.
 
 Test traces and screenshots stay in ignored local directories.
 CI retains failed browser diagnostics with synthetic data for seven days.
+
+
+## Interface refinement checks
+
+Use `HERTS_TEST_DIST_DIR` to test staged browser assets.
+Select affected tests with `npm run test:ui -- --grep '<affected tests>'`.
+Use the full suite when the test selection policy requires it.
+Run `npm run test:cross-browser` when changes affect browser-specific behavior or a release requires Firefox and WebKit checks.
+Install the matching Playwright browsers and host libraries before these checks.
+Browser-engine tests do not replace real-device checks.
+
+The normal task-position fixture uses 390×844 pixels, default text size, short names, no warnings, and collapsed capture.
+All six list destinations must remain visible. The first task must start above the bottom navigation.
+Long titles and warnings can move the list down. Task cards expand naturally for their content.
+
+Run `npm run compare:fonts` to generate the Press heading comparison.
+The script starts an isolated fixture and downloads licensed comparison fonts when necessary.
+It writes screenshots, licenses, checksums, and an HTML gallery to `.runtime/font-comparison`.
+It does not change production typography.
+Close other browser fixtures before running it.
+
+Record unavailable physical-device checks as unverified.
+Check software keyboards, touch gestures, installed apps, enlarged text, and screen-reader labels on supported devices.
+
+## Reviewed action layouts
+
+`review-actions.spec.ts` checks explicit title submission, cancellation, failure recovery, and delayed acknowledgement.
+It also checks reading entry modes and offline discussion drafts.
+`ui-consistency.spec.ts` checks shared action rows and theme selection at four widths with every built-in theme.
+The action checks include a 480-pixel viewport height.
+`header-spacing.spec.ts` checks title editors without moving the fixed header.
+Inspect the generated screenshots before release. Bounds checks do not prove visual consistency.

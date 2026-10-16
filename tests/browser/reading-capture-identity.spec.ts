@@ -1,4 +1,4 @@
-import { detailsField, detailsControl } from './composer-helpers';
+import { detailsField, detailsControl, closePageActions } from './composer-helpers';
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 
 const agentCalls = async (request: APIRequestContext) => ((await (await request.get('http://127.0.0.1:8791/calls')).json()) as string[]).filter(method => ['session.create', 'session.resume', 'prompt.submit'].includes(method));
@@ -8,20 +8,20 @@ test('a different URL in the title cannot save or send the wrong reading item', 
   const link = 'https://example.com/actual-post', wrongTitle = 'https://example.com/different-post';
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/#/reading/add');
-  await expect(page.getByLabel('Message Hermes', { exact: true })).toBeEditable();
+  await expect(page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true })).toBeEditable();
   const before = await snapshot(request), calls = await agentCalls(request);
-  await page.getByLabel('Message Hermes', { exact: true }).fill(link);
+  await closePageActions(page); await page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true }).fill(link);
   await (await detailsField(page, 'Reading title')).fill(wrongTitle);
-  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('The title is a different link.');
   await expect(page).toHaveURL(/#\/reading\/add$/);
-  await expect(page.getByLabel('Message Hermes', { exact: true })).toHaveValue(link);
+  await expect(page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true })).toHaveValue(link);
   await expect((await detailsField(page, 'Reading title'))).toHaveValue(wrongTitle);
   expect((await snapshot(request)).snapshot.reading.items).toEqual(before.snapshot.reading.items);
   expect(await agentCalls(request)).toEqual(calls);
   await page.screenshot({ path: 'output/reading-identity/mismatched-title-390.png' });
   await (await detailsField(page, 'Reading title')).fill('');
-  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
   await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase', 'complete');
   await expect((await detailsField(page, 'Reading title'))).toHaveValue('Fixture article');
   await expect((await detailsControl(page, 'link', 'Open original'))).toHaveAttribute('href', link);
@@ -37,9 +37,9 @@ test('matching URL titles and descriptive titles remain valid', async ({ page, r
     ['https://example.com/named-post', 'Notes about the new research'],
   ]) {
     await page.goto('/#/reading/add');
-    await page.getByLabel('Message Hermes', { exact: true }).fill(link);
+    await closePageActions(page); await page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true }).fill(link);
     await (await detailsField(page, 'Reading title')).fill(title);
-    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
     await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase', 'complete');
     await expect((await detailsField(page, 'Reading title'))).toHaveValue(title);
     const state = await snapshot(request), item = state.snapshot.reading.items.find((i: any) => i.url === link);
@@ -69,9 +69,9 @@ test('successive shared links keep separate titles, messages and notification de
     const sharedTitle = index === 0 ? link : 'Second shared post';
     await page.goto(`/share?title=${encodeURIComponent(sharedTitle)}&text=${encodeURIComponent(link)}`);
     await page.getByRole('button', { name: 'Reading', exact: true }).click();
-    await expect(page.getByLabel('Message Hermes', { exact: true })).toHaveValue(link);
+    await expect(page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true })).toHaveValue(link);
     await expect((await detailsField(page, 'Reading title'))).toHaveValue(index === 0 ? '' : sharedTitle);
-    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
     await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase', 'complete');
     await expect(page.locator('.offline-controls')).toContainText('Available offline');
     const state = await snapshot(request), item = state.snapshot.reading.items.find((i: any) => i.url === link);

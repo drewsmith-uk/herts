@@ -73,3 +73,40 @@ Viewed conversation history, opened attachments, and generated speech remain cac
 Depending on the Hermes configuration, prompts, attachments and recordings can be processed by external model, speech or transcription providers. Their retention is controlled outside Herts. Tailscale restricts access to the app; it does not make provider processing local. Web push uses the browser's push service, and notification titles can appear on the device's lock screen.
 
 Production access requires the configured Tailscale user and app origin. Secrets stay on the server. Notifications intentionally include task titles. Herts supports one user per deployment; spaces are organisational groups, not security boundaries. The backend token can grant broad access to Hermes. Keep it private. Bind the backend to loopback or protect its HTTPS endpoint.
+
+
+## Interface changes
+
+Task capture uses **Add a task…** and makes **Save to Inbox** the primary action.
+Ctrl/Cmd+Enter saves during task capture. Enter inserts a newline.
+**Send to Hermes** remains explicit. Conversation shortcuts retain their existing send behavior.
+Task capture shows agent settings and the optional title without expandable groups.
+Reading capture also keeps its optional title visible.
+Capture forms omit the separate destination text.
+
+The full sidebar appears above 1000 pixels. Narrower layouts use compact navigation.
+Tasks keeps list buttons and space tabs visible at every supported width.
+These controls accept task drops. Desktop sidebar controls remain available.
+Draggable Tasks and Reading cards retain their borders. Conversations and Bots retain ruled navigation rows.
+
+Reading list entries open Article when a saved article exists.
+Explicit Article or Discussion choices persist for each item during the browser session.
+Direct conversation links still open Discussion.
+At 1280 pixels or wider, **Show alongside** opens Article and Discussion together.
+The browser session remembers this choice for each item.
+Narrower layouts show the mode that you used last. Mode changes preserve drafts and reading positions.
+
+Behavior changes apply across themes. Each theme retains its palette, font families, borders, and shadows.
+Press font comparisons require a separate approval before production typography changes.
+
+Page actions use shared labelled rows. Visibility actions have one divider and the same row spacing.
+Rename opens an editor with explicit **Save** and **Cancel** actions.
+Editors replace Page actions. Closing an editor returns focus to **More**.
+The editor keeps failed changes for retry and prevents dismissal during saving.
+Task destinations show current values and open labelled move forms.
+The fixed header shows a compact title. Scrolling content contains the full title.
+
+Appearance uses one radio group with theme previews.
+Selection and keyboard focus have separate indicators.
+Custom theme refresh remains available under **Custom themes**. Refresh errors show a visible retry action.
+Settings uses expandable groups for voice, notifications, connection, and updates.

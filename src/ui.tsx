@@ -1,4 +1,5 @@
-import { createContext, useContext, useState, useId, useLayoutEffect, useRef, type ComponentProps, type ReactNode } from 'react';
+import { createContext, useContext, useCallback, useState, useId, useLayoutEffect, useRef, type ComponentProps, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { Search, X, ChevronDown } from 'lucide-react';
 
 const classes = (...values: (string | false | undefined)[]) => values.filter(Boolean).join(' ');
@@ -91,16 +92,55 @@ export function StatusMessage({ tone = 'error', className, ...props }: Component
   return <div role={tone === 'error' ? 'alert' : 'status'} {...props} className={classes('status-message', tone === 'error' ? 'inline-error' : `status-message--${tone}`, className)}/>;
 }
 
+const openActionMenus = new Set<() => void>();
+const ClosePageActions = createContext<(() => void) | null>(null);
+
 // The native dialog owns focus trapping and restoration. Domain components keep
 // their submit/validation logic and decide whether backdrop dismissal is safe.
 export function DialogFrame({ close, busy = false, dismissOnBackdrop = false, size = 'compact', className, children, ...props }: Omit<ComponentProps<'dialog'>, 'ref' | 'open' | 'onCancel' | 'onClick'> & {
   close: () => void; busy?: boolean; dismissOnBackdrop?: boolean; size?: 'compact' | 'wide'; 'aria-labelledby': string;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  useLayoutEffect(() => { const node = dialog.current!; node.showModal(); return () => { if (node.open) node.close(); }; }, []);
-  return <dialog {...props} ref={dialog} className={classes('dialog-frame', `dialog-frame--${size}`, className)} onCancel={event => { event.preventDefault(); event.stopPropagation(); if (!busy) close(); }} onClick={event => {
+  const closePageActions = useContext(ClosePageActions);
+  useLayoutEffect(() => {
+    for (const closeMenu of openActionMenus) closeMenu();
+    const node = dialog.current!;
+    node.showModal();
+    return () => { if (node.open) node.close(); };
+  }, [closePageActions]);
+  const content = <dialog {...props} ref={dialog} className={classes('dialog-frame', `dialog-frame--${size}`, className)} onCancel={event => { event.preventDefault(); event.stopPropagation(); if (!busy) close(); }} onClick={event => {
     if (!dismissOnBackdrop || busy || event.target !== event.currentTarget) return;
     const bounds = event.currentTarget.getBoundingClientRect();
     if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) close();
   }}>{children}</dialog>;
+  return closePageActions ? createPortal(content, document.body) : content;
+}
+
+export function ActionMenu({ children, label = 'More' }: { children: ReactNode; label?: string }) {
+  const [open, setOpen] = useState(false), id = useId();
+  const dialog = useRef<HTMLDialogElement>(null);
+  const close = useCallback(() => { dialog.current?.close(); setOpen(false); }, []);
+  useLayoutEffect(() => {
+    if (open) { dialog.current?.showModal(); openActionMenus.add(close); }
+    else dialog.current?.close();
+    return () => { openActionMenus.delete(close); };
+  }, [open, close]);
+  return <><Button className="detail-more" aria-haspopup="dialog" aria-expanded={open} aria-controls={id} onClick={() => setOpen(true)}>{label}</Button>
+    <dialog ref={dialog} id={id} className="dialog-frame detail-action-menu" aria-labelledby={`${id}-title`} onCancel={event => { event.preventDefault(); event.stopPropagation(); setOpen(false); }} onClick={event => { if (event.target !== event.currentTarget) return; const bounds = event.currentTarget.getBoundingClientRect(); if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) setOpen(false); }}>
+      <DialogHeading id={`${id}-title`} close={close}>Page actions</DialogHeading><ClosePageActions.Provider value={close}>{children}</ClosePageActions.Provider>
+    </dialog></>;
+}
+
+export function ActionRow({ icon, value, separated = false, children, className, ...props }: ComponentProps<typeof Button> & { icon: ReactNode; value?: ReactNode; separated?: boolean }) {
+  return <Button {...props} className={classes('action-row', separated && 'action-row--separated', className)}><span className="action-row-icon" aria-hidden="true">{icon}</span><span className="action-row-label">{children}</span>{value && <span className="action-row-value">{value}</span>}</Button>;
+}
+export function ActionRowLink({ icon, children, className, ...props }: ComponentProps<typeof ButtonLink> & { icon: ReactNode }) {
+  return <ButtonLink {...props} className={classes('action-row', className)}><span className="action-row-icon" aria-hidden="true">{icon}</span><span className="action-row-label">{children}</span></ButtonLink>;
+}
+export function SettingsGroup({ title, children }: { title: string; children: ReactNode }) {
+  return <details className="settings-group"><summary>{title}<ChevronDown size={18} aria-hidden="true"/></summary><div>{children}</div></details>;
+}
+
+export function ListPlaceholder({ label }: { label: string }) {
+  return <div role="status" className="list-placeholder"><span>{label}</span><div aria-hidden="true">{[0, 1, 2].map(index => <div className="placeholder-row" key={index}><span/><span/></div>)}</div></div>;
 }

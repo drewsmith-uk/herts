@@ -1,3 +1,4 @@
+import { ActionRow } from './ui';
 import { createPortal } from 'react-dom';
 import { MessageComposer } from './MessageComposer';
 import { outgoingInHistory, outgoingStatus, liveReplyReplacement, type OutgoingMessage } from './transcriptFeedback';
@@ -22,7 +23,7 @@ import { ConversationContributions } from './plugins';
 
 const finished = (a?: Action) => !!a && ['finished','failed','ready','unknown'].includes(a.state);
 
-export function ConversationPanel({ context: task, initialText = '', showActions = true, showHeading = true, readOnly = false, saveDraftAction, refreshVersion = 0 }: { context: ConversationContext; initialText?: string; showActions?: boolean; showHeading?: boolean; showEmptyNotice?: boolean; readOnly?: boolean; saveDraftAction?: () => void; refreshVersion?: string | number }) {
+export function ConversationPanel({ context: task, initialText = '', showActions = true, showHeading = true, readOnly = false, saveDraftAction, refreshVersion = 0, fullTitle }: { fullTitle?: string; context: ConversationContext; initialText?: string; showActions?: boolean; showHeading?: boolean; showEmptyNotice?: boolean; readOnly?: boolean; saveDraftAction?: () => void; refreshVersion?: string | number }) {
   const state = useApp(); const [error, setError] = useState(''), [busy, setBusy] = useState(false);
   const [statusHost, setStatusHost] = useState<HTMLDivElement | null>(null), [savedHost, setSavedHost] = useState<HTMLDivElement | null>(null);
   const main = state.actions.find(a => !a.cancelled && a.taskId === task.id && ['send','continue'].includes(a.kind)); const binding = state.bindings[task.id];
@@ -47,7 +48,7 @@ export function ConversationPanel({ context: task, initialText = '', showActions
   const attention = !!(needsInput || main?.promptWarning || failedControls.length || main?.error || main?.state === 'failed' || main?.state === 'unknown' || main?.receipt === 'unknown' || uncertainControls.length || error || modelConfirmation);
   const statusLabel = needsInput ? 'Needs your input' : modelConfirmation ? 'Confirm model switch' : attention ? main?.sendStage === 'preparing' || main?.receipt === 'rejected' ? 'Message not sent' : main?.state === 'failed' ? 'Conversation failed' : 'Check conversation' : main?.state === 'stopping' ? 'Stopping…' : main?.phase === 'stopped' ? 'Stopped' : main?.state === 'preparing' ? 'Preparing…' : `Working${main?.phase && !['working','streaming'].includes(main.phase) ? ` · ${main.phase}` : '…'}`;
   return <section className="conversation-panel" data-phase={main?.phase || 'idle'}>
-    <div className="conversation-scroll" tabIndex={0} aria-label="Conversation messages">
+    <div className="conversation-scroll" tabIndex={0} aria-label="Conversation messages">{fullTitle && <h2 className="conversation-content-title">{fullTitle}</h2>}
     {showActions&&<ConversationContributions context={task}/>}
     {showHeading && <div className="conversation-heading"><span><MessageSquare size={17}/> Conversation</span></div>}
     <HistoryView assistantName={task.botChat ? task.title : undefined} key={task.link?.storedId || task.id} conversationId={task.link?.storedId || ''} version={historyChange} liveText={main?.liveText} working={active} phase={main?.phase} outgoing={outgoing} outgoingAction={outgoingAction} sendVersion={sendVersion}/>
@@ -88,7 +89,7 @@ export function HistoryView({ conversationId, assistantName = 'Hermes', version 
   const feedback = `${outgoing?.id}:${outgoingStatus(outgoingAction)}:${working}:${version}`;
   const { pages, cached, busy, error, newMessages, latest, refresh, older, root, end, pauseFollowing } = useConversationHistory(conversationId, version, liveText, working, sendVersion, feedback);
   const [toolbar, setToolbar] = useState<HTMLElement | null>(null);
-  useEffect(() => { setToolbar(root.current?.closest('.conversation-panel')?.parentElement?.querySelector<HTMLElement>('.conversation-toolbar') || null); }, []);
+  useEffect(() => { setToolbar(root.current?.closest('.page-content')?.querySelector<HTMLElement>('.header-secondary-actions') || null); }, []);
   const confirmed = useRef(new Set<string>());
   if (outgoing && outgoingInHistory(outgoing, pages)) confirmed.current.add(outgoing.id);
   const showOutgoing = outgoing && !confirmed.current.has(outgoing.id);
@@ -106,9 +107,9 @@ export function HistoryView({ conversationId, assistantName = 'Hermes', version 
   const speakRef = useRef(speak); speakRef.current = speak;
   const onSpeak = useCallback((message: any, page: History, index: number) => { void speakRef.current(message, page, index); }, []);
   function renderMessage(entry: HistoryEntry) { if (entry.key === replaceReply) entry = { ...entry, message: { ...entry.message, content: liveText } }; return <MessageBoundary key={entry.key} revision={JSON.stringify(entry.message)}><HistoryMessage assistantName={assistantName} entry={entry} conversationId={conversationId} speaking={speaking === entry.key} preparing={preparing === entry.key} speechError={speechError?.id === entry.key ? speechError.message : undefined} onSpeak={onSpeak} pauseFollowing={pauseFollowing}/></MessageBoundary>; }
-  const refreshButton = <button className="icon-button history-refresh" aria-label="Refresh conversation history" disabled={busy || !conversationId} onClick={() => void refresh()}><RefreshCw size={15} className={busy ? 'spin' : ''}/></button>;
+  const refreshButton = <ActionRow icon={<RefreshCw size={20} className={busy ? 'spin' : ''}/>} className="history-refresh" aria-label="Refresh conversation history" disabled={busy || !conversationId || !navigator.onLine} onClick={() => void refresh()}>Refresh history</ActionRow>;
   return <div className="history" ref={root}>{(cached || !toolbar) && <div className="history-note">{cached && <span role="status">Showing saved messages</span>}{!toolbar && refreshButton}</div>}{toolbar && createPortal(refreshButton, toolbar)}
-    {error && <p className="inline-error" role="alert">{error}</p>}
+    {error && <p className="inline-error" role="alert">{error}<button onClick={() => void refresh()} disabled={busy}>Try again</button></p>}
     {pages[0]?.hasMore && <button className="load-more" disabled={busy} onClick={() => void older()}>{busy ? 'Loading…' : 'Load older messages'}</button>}
     {groups.map(group => group.kind === 'message' ? renderMessage(group.entry) : <HistoryDisclosure key={group.key} activityKey={group.key} label={<><span className="hermes-mark">H</span><span>{assistantName} activity</span><span className="activity-count">{activitySummary(group)}</span></>} onInteract={pauseFollowing}>{group.entries.map(renderMessage)}</HistoryDisclosure>)}
     {showOutgoing && <OutgoingFeedback message={outgoing} action={outgoingAction}/>}

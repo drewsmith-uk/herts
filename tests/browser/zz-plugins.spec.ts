@@ -1,4 +1,4 @@
-import { detailsField, detailsControl } from './composer-helpers';
+import { saveTitle, detailsField, detailsControl, closePageActions } from './composer-helpers';
 import {test,expect,type APIRequestContext} from '@playwright/test';
 const headers={'x-herts-request':'1'};
 const agentWrites=async(request:APIRequestContext)=>(await(await request.get('http://127.0.0.1:8791/calls')).json() as string[]).filter(method=>['session.create','session.resume','config.set','session.cwd.set','prompt.submit','session.interrupt'].includes(method));
@@ -26,15 +26,15 @@ test('core conversations work with every plugin disabled; Settings controls tabs
     await expect(navigation.getByRole('link',{name:'Settings',exact:true})).toHaveAttribute('href','#/settings');
     await expect(navigation.getByRole('button',{name:'More',exact:true})).toHaveCount(0);
     await page.goto('/');await expect(page.getByRole('heading',{name:'Conversations',exact:true})).toBeVisible();
-    await page.goto('/#/conversation/reading-links');await expect(page.getByLabel('Message Hermes')).toBeEnabled();
+    await page.goto('/#/conversation/reading-links');await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toBeEnabled();
     await expect(page.getByRole('button',{name:'Make a task',exact:true})).toHaveCount(0);
     await expect(page.getByRole('button',{name:/Save to reading list/})).toHaveCount(0);
-    await page.getByLabel('Message Hermes').fill('Core survives without plugins.');
-    await page.getByRole('button',{name:'Send',exact:true}).click();await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
+    await closePageActions(page); await page.getByLabel(/^(Message Hermes|Add a task)$/).fill('Core survives without plugins.');
+    await page.getByRole('button',{name:/^(Send|Send to Hermes)$/,exact:true}).click();await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
     const beforeNew=await agentWrites(request);
-    await page.goto('/#/new');await expect(page.getByLabel('Message Hermes')).toBeEnabled();
+    await page.goto('/#/new');await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toBeEnabled();
     expect(await agentWrites(request)).toEqual(beforeNew);
-    await page.getByLabel('Message Hermes').fill('A new core-only conversation.');await page.getByRole('button',{name:'Send',exact:true}).click();await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
+    await closePageActions(page); await page.getByLabel(/^(Message Hermes|Add a task)$/).fill('A new core-only conversation.');await page.getByRole('button',{name:/^(Send|Send to Hermes)$/,exact:true}).click();await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
     await page.goto('/#/settings/plugins');await page.getByRole('checkbox',{name:'Enable Tasks',exact:true}).click();
     await page.getByRole('button',{name:'Move Conversations up',exact:true}).click();
     await page.goto('/');await expect(page.getByRole('heading',{name:'Conversations',exact:true})).toBeVisible();
@@ -45,25 +45,25 @@ test('a folder plugin is discovered live and embeds conversation hooks from othe
     await request.post('/__test/notes',{headers,data:{present:true}});
     await page.goto('/#/settings/plugins');await expect(page.getByRole('checkbox',{name:'Enable Notes'})).not.toBeChecked();
     await page.getByRole('checkbox',{name:'Enable Notes'}).click();
-    await page.goto('/#/conversation/reading-links');await page.getByRole('button',{name:'Save as note',exact:true}).click();
+    await page.goto('/#/conversation/reading-links');await (await detailsControl(page, 'button', 'Save as note')).click();
     await expect(page).toHaveURL(/#\/plugins\/notes\//);
-    await expect(page.getByRole('button',{name:'Make a task',exact:true})).toBeVisible();
+    await expect(await detailsControl(page, 'button', 'Make a task')).toBeVisible();
     await expect(page.getByRole('button',{name:/^(Save to reading list|Open reading item): https:\/\/example\.com\/one$/}).first()).toBeVisible();
-    await page.getByLabel('Message Hermes').fill('Draft from the example plugin');const url=page.url();
+    await closePageActions(page); await page.getByLabel(/^(Message Hermes|Add a task)$/).fill('Draft from the example plugin');const url=page.url();
     await request.post('/__test/notes',{headers,data:{present:false}});await expect(page.getByRole('heading',{name:'Plugin unavailable'})).toBeVisible();
-    await page.goto('/#/conversation/reading-links');await expect(page.getByLabel('Message Hermes')).toHaveValue('Draft from the example plugin');
+    await page.goto('/#/conversation/reading-links');await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toHaveValue('Draft from the example plugin');
     await request.post('/__test/notes',{headers,data:{present:true}});await page.goto('/#/settings/plugins');await expect(page.getByRole('checkbox',{name:'Enable Notes'})).not.toBeChecked();
-    await page.getByRole('checkbox',{name:'Enable Notes'}).click();await page.goto(url);await expect(page.getByLabel('Message Hermes')).toHaveValue('Draft from the example plugin');
+    await page.getByRole('checkbox',{name:'Enable Notes'}).click();await page.goto(url);await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toHaveValue('Draft from the example plugin');
   }finally{await manage(request,'notes','disable');await restore(request);}
 });
 test('typed reset removes offline plugin edits without erasing core conversation drafts',async({page,context,browser,request})=>{
   const otherContext=await browser.newContext(),other=await otherContext.newPage();
   try{
-    await page.goto('/#/tasks');await page.getByLabel('Message Hermes',{exact:true}).fill('Reset race task');await page.getByRole('button',{name:'Save to Inbox',exact:true}).click();
+    await page.goto('/#/tasks');await closePageActions(page); await page.getByLabel(/^(Message Hermes|Add a task)$/, {exact:true}).fill('Reset race task');await page.getByRole('button',{name:'Save to Inbox',exact:true}).click();
     await page.getByRole('link',{name:'Reset race task',exact:true}).click();await expect(page.locator('.save-state')).toContainText('Changes synced');
-    await page.getByLabel('Message Hermes').fill('Core draft must survive reset');
+    await closePageActions(page); await page.getByLabel(/^(Message Hermes|Add a task)$/).fill('Core draft must survive reset');
     await page.evaluate(()=>navigator.serviceWorker.ready);await context.setOffline(true);
-    await (await detailsField(page, 'Task title')).fill('Late offline rename');await (await detailsField(page, 'Task title')).press('Tab');
+    await (await detailsField(page, 'Task title')).fill('Late offline rename');await saveTitle(page);
     await other.goto('/#/settings/plugins');const card=other.locator('.plugin-card').filter({has:other.getByRole('checkbox',{name:'Enable Tasks',exact:true})});
     await card.getByRole('button',{name:'Reset data',exact:true}).click();
     await expect(other.getByRole('button',{name:'Permanently reset data',exact:true})).toBeDisabled();

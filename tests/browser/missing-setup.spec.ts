@@ -16,16 +16,16 @@ for (const view of ['reading', 'standalone']) test(`resends in a legacy ${view} 
   }
   const before = await workCalls(request);
   await page.goto(`/#${path}`);
-  await page.getByLabel('Message Hermes').fill('Keep my current draft');
+  await page.getByLabel(/^(Message Hermes|Add a task)$/).fill('Keep my current draft');
   await expect(page.getByRole('button', { name: 'Reconnect here', exact: true })).toHaveCount(0);
   expect(await workCalls(request)).toEqual(before);
   await page.reload();
-  await expect(page.getByLabel('Message Hermes')).toHaveValue('Keep my current draft');
-  await page.getByLabel('Message Hermes').focus();
-  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
+  await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toHaveValue('Keep my current draft');
+  await page.getByLabel(/^(Message Hermes|Add a task)$/).focus();
+  await expect(page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true })).toBeEnabled();
   const defaultsRevision = (await readState(request)).snapshot.sessionSettings.defaults.revision;
   const sent = page.waitForRequest(r => r.url().endsWith('/api/v1/actions') && r.method() === 'POST');
-  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
   expect((await sent).postDataJSON().defaultsRevision).toBe(defaultsRevision);
   await expect.poll(async () => (await workCalls(request)).slice(before.length)).toEqual(['session.create', 'prompt.submit']);
   await expect(page.getByText('Hermes request failed (404).', { exact: true })).toHaveCount(0);
@@ -35,7 +35,7 @@ for (const view of ['reading', 'standalone']) test(`resends in a legacy ${view} 
   expect(after.snapshot.contexts.find((c: any) => c.id === fixture.contextId).link).toBeTruthy();
   expect(after.actions.find((a: any) => a.id === fixture.actionId).text).toBe('The original saved message');
   await page.reload();
-  await expect(page.getByLabel('Message Hermes')).toBeVisible();
+  await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toBeVisible();
   expect((await workCalls(request)).slice(before.length)).toEqual(['session.create', 'prompt.submit']);
 });
 
@@ -45,8 +45,8 @@ test('does not replace a conversation with an uncertain submission on Send', asy
   const before = await workCalls(request);
   await page.goto(`/#/conversation/${id}`);
   await expect(page.getByText('The linked Hermes session could not be found.', { exact: false }).first()).toBeVisible();
-  await page.getByLabel('Message Hermes').fill('A different message');
-  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByLabel(/^(Message Hermes|Add a task)$/).fill('A different message');
+  await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
   await expect.poll(async () => {
     const state = await readState(request);
     return state.actions.find((a: any) => a.taskId === fixture.contextId && a.id !== fixture.actionId)?.receipt;
@@ -70,8 +70,8 @@ test('keeps the saved message and link when another device changes defaults befo
   });
   try {
     await page.goto(`/#/conversation/${id}`);
-    await page.getByLabel('Message Hermes').fill('Keep this unsent message');
-    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    await page.getByLabel(/^(Message Hermes|Add a task)$/).fill('Keep this unsent message');
+    await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
     await expect.poll(async () => {
       const state = await readState(request);
       return state.actions.find((a: any) => a.taskId === fixture.contextId && a.id !== fixture.actionId)?.receipt;

@@ -74,7 +74,7 @@ export function useConversationList({ query, showAll, filterKey, offset }: Selec
         const saved = await savedConversations(current, true).catch(() => []);
         if (alive) setResult(old => {
           const rows = unique([...old.rows, ...saved]).sort((a, b) => b.updatedAt - a.updatedAt);
-          return { selection, rows, busy: false, cached: true, more: false, error: rows.length ? '' : error.message };
+          return { selection, rows, busy: false, cached: true, more: false, error: error.message };
         });
       });
     }, 250);
@@ -87,5 +87,5 @@ export function useConversationList({ query, showAll, filterKey, offset }: Selec
     const timer = setInterval(() => { if (!document.hidden && navigator.onLine) setRetry(n => n + 1); }, 8000);
     return () => clearInterval(timer);
   }, [busy, cached, error, online]);
-  return { rows: current ? result.rows : [], busy, cached, error, more: current && result.more };
+  return { rows: current ? result.rows : [], busy, cached, error, more: current && result.more, refresh: () => setRetry(value => value + 1) };
 }

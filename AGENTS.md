@@ -44,8 +44,30 @@ For each new or substantially changed screen, complete these checks:
 - Add behavioural regression tests for data preservation and recovery. Use isolated synthetic data. Never use live bots or model prompts for validation.
 - State the checks completed and any remaining limits. Workflow test counts do not prove visual consistency.
 
-Run `npm run test:ui` for affected UI.
-Run `npm run check:release` before you finish a release.
+## Test scope
+
+Select checks from the changed behavior and its dependencies before you start tests.
+Use the [test selection policy](docs/testing.md#test-selection-policy).
+
+For small text, layout, or plugin changes, build the affected package and run checks for the affected workflows.
+Run type checks when TypeScript changes.
+For UI changes, inspect screenshots and check the affected controls at narrow and wide widths.
+Check additional themes when the change affects theme styles or shared layout rules.
+Test draft preservation and recovery when the change affects editable controls.
+Use existing tests when they cover the change.
+Do not add tests that only repeat the implementation.
+
+Small updates may be deployed after these checks pass.
+A small update does not require the full release suite or the complete theme and viewport matrix.
+The full screen criteria above still apply to new screens and substantial screen changes.
+Use `npm run test:ui -- --grep '<affected tests>'` to select relevant UI tests.
+
+Run `npm run check:release` for changes to storage, migrations, authentication, remote actions, dependencies, or plugin runtime behavior.
+Also run it for shared changes that affect multiple workflows and for grouped or scheduled releases.
+Do not repeat successful checks unless code changes or new evidence requires them.
+If an unrelated test fails, investigate it separately and report the result.
+An affected test failure must be resolved before deployment.
+State completed checks, omitted checks, and remaining limits.
 The Quality workflow runs release checks on pull requests.
 Configure it as a required status check in repository branch protection to prevent merges when checks fail.
 

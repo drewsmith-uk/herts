@@ -66,5 +66,15 @@
   "pluginNotifications",
   "subscribeCore",
   "getConversationTitle",
-  "undoableAction"
+  "undoableAction",
+  "ActionMenu",
+  "ListPlaceholder",
+  "messagePreview",
+  "compactDate",
+  "readingTitle",
+  "composerCapabilities",
+  "ActionRow",
+  "ActionRowLink",
+  "SettingsGroup",
+  "RenameAction"
 ]

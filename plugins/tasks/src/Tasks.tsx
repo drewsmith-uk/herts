@@ -1,6 +1,6 @@
 import { TaskCapture } from './TaskCapture';
-import { PageHeader, Button, IconButton, SectionNav, ItemList, EmptyState, StatusMessage, DialogFrame } from '@herts/plugin-api/client';
-import { useEffect, useState, type FormEvent } from 'react';
+import { ActionRow, RenameAction, FormDialog, FormField, PageHeader, Button, IconButton, SectionNav, ItemList, EmptyState, StatusMessage, DialogFrame } from '@herts/plugin-api/client';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Inbox, ArrowRight, Clock3, Pause, Check, Plus, ChevronLeft, ArrowUp, ArrowDown, AlarmClock, Pencil, CheckCheck } from 'lucide-react';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { ConversationPanel, ConversationHeader, Voice, useDraftPersistence, useUpdateWork, useUpdatePreparation, pluginLocal, type RouteProps, type ConversationActionProps, conversationDrafts } from '@herts/plugin-api/client';
@@ -33,17 +33,33 @@ function TaskDetail({ task }: {
 }) {
     const state = useApp();
     const { snooze } = useTaskInteractions();
-    const [title, setTitle] = useState(task.title);
-    const savingTitle = useUpdateWork();
-    useUpdatePreparation({ blocked: () => title.trim() !== task.title ? 'The task title is still being saved. Please try updating again after it is saved.' : undefined });
-    useEffect(() => setTitle(task.title), [task.title]);
-    return <div className="task-detail"><ConversationHeader title={title || task.title} savedTitle={task.title} backHref={`#${spacePath(taskSpaceId(task), task.status)}`} backLabel={`${spaceName(state.snapshot, taskSpaceId(task))} / ${labels[task.status]}`} context={contextForTask(task.id)}><div className="detail-heading"><textarea className="detail-title" aria-label="Task title" rows={2} value={title} onChange={e => setTitle(e.target.value)} onBlur={() => { if (title.trim() && title !== task.title)
-        void savingTitle(renameTask(task.id, title));
-    else
-        setTitle(task.title); }}/><div className="detail-controls"><select aria-label="Task space" value={taskSpaceId(task)} onChange={e => void moveTask(task.id, 'inbox', undefined, e.target.value)}>{state.snapshot.spaces?.map(space => <option key={space.id} value={space.id}>{space.name}</option>)}</select><select aria-label="Task list" value={task.status} onChange={e => { if (e.target.value === 'snoozed')
-        snooze(task);
-    else
-        void moveTask(task.id, e.target.value as Status); }}>{statuses.filter(s => s !== 'snoozed' || ['inbox', 'snoozed'].includes(task.status)).map(s => <option key={s} value={s}>{labels[s]}</option>)}</select>{task.status === 'inbox' && <button className="quiet-button" onClick={() => snooze(task)}><AlarmClock size={16}/>Snooze</button>}{task.status === 'snoozed' && <><button className="quiet-button" onClick={() => snooze(task)}><AlarmClock size={16}/>Change reminder</button><button className="quiet-button" onClick={() => void moveTask(task.id, 'inbox')}>Unsnooze</button></>}<button className="quiet-button" onClick={() => void moveTask(task.id, task.status === 'done' ? ['done', 'snoozed'].includes(task.previousStatus) ? 'inbox' : task.previousStatus : 'done')}><Check size={16}/>{task.status === 'done' ? 'Reopen task' : 'Complete task'}</button></div>{task.status === 'snoozed' && task.snoozedUntil && <p className="snooze-detail-time"><AlarmClock size={14}/> Back in Inbox {time(task.snoozedUntil)}</p>}</div></ConversationHeader><ConversationPanel context={contextForTask(task.id)!} showActions={false}/></div>;
+    const [moving, setMoving] = useState<'list' | 'space'>(), [destination, setDestination] = useState('');
+    const [busy, setBusy] = useState(false), [error, setError] = useState('');
+    const work = useUpdateWork();
+    async function move(status: Status, space?: string) {
+      if (busy) return;
+      setBusy(true); setError('');
+      try { await work(moveTask(task.id, status, undefined, space)); setMoving(undefined); }
+      catch (error) { setError((error as Error).message); }
+      finally { setBusy(false); }
+    }
+    function choose(kind: 'list' | 'space') { setError(''); setMoving(kind); setDestination(kind === 'list' ? task.status : taskSpaceId(task)); }
+    return <div className="task-detail"><ConversationHeader title={task.title} backHref={`#${spacePath(taskSpaceId(task), task.status)}`} backLabel={`${spaceName(state.snapshot, taskSpaceId(task))} / ${labels[task.status]}`} context={contextForTask(task.id)}>
+      <RenameAction title={task.title} label="Rename task" fieldLabel="Task title" save={(title, base) => renameTask(task.id, title, base)}/>
+      <ActionRow icon={<ArrowRight size={20}/>} value={labels[task.status]} onClick={() => choose('list')}>Move to list</ActionRow>
+      <ActionRow icon={<Inbox size={20}/>} value={spaceName(state.snapshot, taskSpaceId(task))} onClick={() => choose('space')}>Move to space</ActionRow>
+      {['inbox', 'snoozed'].includes(task.status) && <ActionRow icon={<AlarmClock size={20}/>} onClick={() => snooze(task)}>{task.status === 'snoozed' ? 'Change reminder' : 'Snooze'}</ActionRow>}
+      {task.status === 'snoozed' && <ActionRow icon={<Clock3 size={20}/>} disabled={busy} onClick={() => void move('inbox')}>Unsnooze</ActionRow>}
+      <ActionRow icon={<Check size={20}/>} disabled={busy} onClick={() => void move(task.status === 'done' ? ['done', 'snoozed'].includes(task.previousStatus) ? 'inbox' : task.previousStatus : 'done')}>{task.status === 'done' ? 'Reopen task' : 'Complete task'}</ActionRow>
+      {task.status === 'snoozed' && task.snoozedUntil && <p className="snooze-detail-time">Back in Inbox {time(task.snoozedUntil)}</p>}
+      {error && !moving && <StatusMessage>{error}</StatusMessage>}
+      {moving && <FormDialog id="move-task" title={moving === 'list' ? 'Move to list' : 'Move to space'} close={() => setMoving(undefined)} busy={busy} error={error}
+        onSubmit={event => { event.preventDefault(); if (moving === 'list' && destination === 'snoozed') { setMoving(undefined); snooze(task); } else void move(moving === 'list' ? destination as Status : 'inbox', moving === 'space' ? destination : undefined); }}
+        footer={<div className="button-row"><Button disabled={busy} onClick={() => setMoving(undefined)}>Cancel</Button><Button type="submit" variant="primary" disabled={busy}>{busy ? 'Moving…' : 'Move'}</Button></div>}>
+        <FormField label={moving === 'list' ? 'Task list' : 'Task space'}><select disabled={busy} value={destination} onChange={event => setDestination(event.target.value)}>{moving === 'list' ? statuses.filter(s => s !== 'snoozed' || ['inbox', 'snoozed'].includes(task.status)).map(s => <option key={s} value={s}>{labels[s]}</option>) : state.snapshot.spaces?.map(space => <option key={space.id} value={space.id}>{space.name}</option>)}</select></FormField>
+        {moving === 'space' && <p>Move to Inbox in this space.</p>}
+      </FormDialog>}
+    </ConversationHeader><ConversationPanel fullTitle={task.title} context={contextForTask(task.id)!} showActions={false}/></div>;
 }
 export function TasksScreen({ path, parts, recordRequest, shared }: RouteProps) {
     const state = useApp();
@@ -97,7 +113,7 @@ export function TaskActions({ context, conversation, suggestedTitle }: Conversat
     finally {
         setBusy(false);
     } }
-    return linked ? <button className="quiet-button" onClick={() => { location.hash = `/task/${linked.id}`; }}>Open task <ArrowRight size={15}/></button> : <><button className="quiet-button" disabled={!state.online} onClick={() => { setTitle(defaultTitle); setError(''); setOpen(true); }}><Plus size={16}/> Make a task</button>{open && <DialogFrame close={() => setOpen(false)} busy={busy} aria-labelledby="create-task-title"><form className="create-from-chat" onSubmit={save}><h2 id="create-task-title">Make a task</h2><label>New task in {spaceName(state.snapshot, destination)} Inbox<input autoFocus aria-label="New task from conversation title" value={title} maxLength={2000} onChange={e => setTitle(e.target.value)}/></label><div className="button-row"><button disabled={busy || !title.trim()}>Create task</button><button type="button" disabled={busy} onClick={() => setOpen(false)}>Cancel</button></div>{error && <p role="alert">{error}</p>}</form></DialogFrame>}</>;
+    return linked ? <ActionRow icon={<ArrowRight size={20}/>} onClick={() => { location.hash = `/task/${linked.id}`; }}>Open task</ActionRow> : <><ActionRow icon={<Plus size={20}/>} disabled={!state.online} onClick={() => { setTitle(defaultTitle); setError(''); setOpen(true); }}>Make a task</ActionRow>{open && <DialogFrame close={() => setOpen(false)} busy={busy} aria-labelledby="create-task-title"><form className="create-from-chat" onSubmit={save}><h2 id="create-task-title">Make a task</h2><label>New task in {spaceName(state.snapshot, destination)} Inbox<input autoFocus aria-label="New task from conversation title" value={title} maxLength={2000} onChange={e => setTitle(e.target.value)}/></label><div className="button-row"><button disabled={busy || !title.trim()}>Create task</button><button type="button" disabled={busy} onClick={() => setOpen(false)}>Cancel</button></div>{error && <p role="alert">{error}</p>}</form></DialogFrame>}</>;
 }
 export function TaskConflicts() { const state = useApp(); return <>{state.pending.filter(p => p.conflict).map(p => <div className="conflict-banner" key={p.id}><strong>A change needs your choice</strong><p>{p.conflict}</p><p>Your change: {p.op.title || (p.op.kind === 'snooze' ? `Snooze until ${new Date(p.op.snoozedUntil!).toLocaleString()}` : p.op.status || 'Task reminder')}</p><p>Synced version: {state.remote.tasks.find(t => t.id === p.op.taskId)?.title}</p>{p.op.spaceId && !state.remote.spaces?.some(s => s.id === p.op.spaceId) && <p>The space was deleted. Keeping this change saves it in {spaceName(state.remote, state.remote.defaultSpaceId)} Inbox.</p>}<div className="button-row"><button onClick={() => void resolveConflict(p.id, true)}>Keep my change</button><button onClick={() => void resolveConflict(p.id, false)}>Use synced version</button></div></div>)}{state.spacePending.filter(p => p.conflict).map(p => <SpaceConflict key={p.id} pending={p}/>)}</>; }
 function ReminderSummary({ id }: {

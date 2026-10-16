@@ -1,4 +1,5 @@
-import { detailsField, detailsControl } from './composer-helpers';
+import { openSettingsGroups } from './composer-helpers';
+import { detailsField, detailsControl, closePageActions, saveTitle } from './composer-helpers';
 import { test, expect, type Page } from '@playwright/test';
 import { builtinThemes, themeStorageKey } from '../../shared/themeValues';
 
@@ -40,7 +41,7 @@ for (const width of [320, 390, 1280]) test(`update popup floats without moving n
   let before!: Awaited<ReturnType<typeof layout>>;
   const beforeCalls = await calls(page);
   await oldPage(page, '/#/conversation/long-history', async () => {
-    await expect(page.getByLabel('Message Hermes')).toBeEditable();
+    await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toBeEditable();
     await expect(page.locator('[data-history-message="long-history:450"]')).toBeInViewport();
     const history = page.locator('.conversation-scroll'), top = await history.evaluate(el => el.scrollTop);
     await history.hover(); await page.mouse.wheel(0, -700);
@@ -87,18 +88,18 @@ async function stored(page: Page, table: string) {
 test('a first installation and an already-current page never offer or force an update', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(() => navigator.serviceWorker.ready.then(() => true));
-  await page.getByRole('textbox', { name: 'Message Hermes' }).fill('Keep writing on this release');
+  await page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ }).fill('Keep writing on this release');
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await expect(toast(page)).toHaveCount(0);
   await page.reload();
-  await expect(page.getByRole('textbox', { name: 'Message Hermes' })).toHaveValue('Keep writing on this release');
+  await expect(page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ })).toHaveValue('Keep writing on this release');
   await expect(toast(page)).toHaveCount(0);
 });
 
 test('Settings checks the deployed version on demand and confirms when it is current', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const before = await calls(page);
-  await page.goto('/#/settings');
+  await page.goto('/#/settings'); await openSettingsGroups(page);
   await expect(settings(page)).toContainText('App version:');
   await settings(page).getByRole('button', { name: 'Check for updates', exact: true }).click();
   await expect(settings(page).getByRole('status')).toHaveText('Herts is up to date.');
@@ -110,7 +111,7 @@ test('Settings checks the deployed version on demand and confirms when it is cur
 });
 
 test('a dismissed update remains available in Settings and a manual check restores the toast', async ({ page }) => {
-  await oldPage(page, '/#/settings');
+  await oldPage(page, '/#/settings'); await openSettingsGroups(page);
   await toast(page).getByRole('button', { name: 'Later' }).click();
   await expect(toast(page)).toHaveCount(0);
   await expect(settings(page).getByRole('button', { name: 'Update now' })).toBeVisible();
@@ -120,12 +121,13 @@ test('a dismissed update remains available in Settings and a manual check restor
   await toast(page).getByRole('button', { name: 'Later' }).click();
   await settings(page).getByRole('button', { name: 'Update now' }).click();
   await expect.poll(() => version(page)).not.toBe('tasks-shell-fixture-previous');
+  await openSettingsGroups(page);
   await expect(settings(page)).toBeVisible();
   await expect(toast(page)).toHaveCount(0);
 });
 
 test('an offline update check is unconfirmed and can be retried after reconnecting', async ({ page, context }) => {
-  await page.goto('/#/settings');
+  await page.goto('/#/settings'); await openSettingsGroups(page);
   await settings(page).getByRole('button', { name: 'Check for updates' }).click();
   await expect(settings(page).getByRole('status')).toHaveText('Herts is up to date.');
   await context.setOffline(true);
@@ -140,7 +142,7 @@ test('an offline update check is unconfirmed and can be retried after reconnecti
 });
 
 test('manual checks wait for installation and report a failed download without claiming to be current', async ({ page }) => {
-  await page.goto('/#/settings');
+  await page.goto('/#/settings'); await openSettingsGroups(page);
   await settings(page).getByRole('button', { name: 'Check for updates' }).click();
   await expect(settings(page).getByRole('status')).toHaveText('Herts is up to date.');
   await page.evaluate(() => {
@@ -169,14 +171,14 @@ test('Later leaves the app, draft and agent untouched and stays dismissed while 
   await page.setViewportSize({ width: 390, height: 844 });
   const before = await calls(page);
   await oldPage(page);
-  await page.getByRole('textbox', { name: 'Message Hermes' }).fill('Keep this capture');
+  await page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ }).fill('Keep this capture');
   await page.screenshot({ path: 'test-results/phone-update-toast.png' });
   const box = await toast(page).boundingBox(), nav = await page.getByRole('navigation', { name: 'Main navigation' }).boundingBox();
   expect(box!.y + box!.height).toBeLessThan(nav!.y);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await toast(page).getByRole('button', { name: 'Later' }).click();
   await page.evaluate(() => { window.dispatchEvent(new Event('focus')); window.dispatchEvent(new Event('online')); });
-  await expect(page.getByRole('textbox', { name: 'Message Hermes' })).toHaveValue('Keep this capture');
+  await expect(page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ })).toHaveValue('Keep this capture');
   await page.getByRole('link', { name: 'Settings', exact: true }).click();
   await expect(toast(page)).toHaveCount(0);
   expect(await version(page)).toBe('tasks-shell-fixture-previous');
@@ -187,17 +189,17 @@ test('Update now reloads once, keeps the current screen, offline task changes an
   const before = await calls(page);
   await oldPage(page);
   await page.route('**/api/v1/plugins/tasks/commands', route => route.abort());
-  await page.getByRole('textbox', { name: 'Message Hermes' }).fill('Pending update fixture');
+  await page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ }).fill('Pending update fixture');
   await page.getByRole('button', { name: 'Save to Inbox', exact: true }).click();
   await expect(page.getByRole('link', { name: 'Pending update fixture', exact: true })).toBeVisible();
-  await page.getByRole('textbox', { name: 'Message Hermes' }).fill('Unfinished capture');
+  await page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ }).fill('Unfinished capture');
   const pending = await stored(page, 'pluginPending'), url = page.url();
   expect(pending).toHaveLength(1);
   await context.setOffline(true);
   let loads = 0; page.on('load', () => loads++);
   await toast(page).getByRole('button', { name: 'Update now' }).click();
   await expect.poll(() => version(page)).not.toBe('tasks-shell-fixture-previous');
-  await expect(page.getByRole('textbox', { name: 'Message Hermes' })).toHaveValue('Unfinished capture');
+  await expect(page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ })).toHaveValue('Unfinished capture');
   await expect(page.getByRole('link', { name: 'Pending update fixture', exact: true })).toBeVisible();
   expect(await stored(page, 'pluginPending')).toEqual(pending);
   expect(page.url()).toBe(url);
@@ -212,7 +214,7 @@ test('draft text and attachments survive; updating one window does not reload an
   const taskId = crypto.randomUUID();
   await request.post('/api/v1/sync', { headers: { 'x-tasks-request': '1' }, data: { id: crypto.randomUUID(), taskId, kind: 'create', title: 'Update draft fixture', at: Date.now() } });
   await oldPage(page, `/#/task/${taskId}`);
-  await page.getByRole('textbox', { name: 'Message Hermes' }).fill('Draft preserved through update');
+  await page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ }).fill('Draft preserved through update');
   await page.locator('input[type=file]').setInputFiles({ name: 'fixture.txt', mimeType: 'text/plain', buffer: Buffer.from('Synthetic attachment') });
   await expect(page.locator('.attachment-list')).toContainText('fixture.txt');
   const files = (await stored(page, 'files')).map(f => f.id);
@@ -221,20 +223,20 @@ test('draft text and attachments survive; updating one window does not reload an
   // Keep the other window on the old HTML; it shares the same waiting worker.
   await context.addCookies([{ name: 'fixture-old-page', value: '1', url: 'http://127.0.0.1:8790/' }]);
   await other.goto('/'); await expect(toast(other)).toBeVisible();
-  await other.getByRole('textbox', { name: 'Message Hermes' }).fill('Other window draft');
+  await other.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ }).fill('Other window draft');
   const before = await calls(page);
   await toast(page).getByRole('button', { name: 'Update now' }).click();
   await expect.poll(() => version(page)).not.toBe('tasks-shell-fixture-previous');
-  await expect(page.getByRole('textbox', { name: 'Message Hermes' })).toHaveValue('Draft preserved through update');
+  await expect(page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ })).toHaveValue('Draft preserved through update');
   expect((await stored(page, 'drafts')).find(d => d.id === taskId)?.files).toEqual(files);
   await expect(page.locator('.attachment-list')).toContainText('fixture.txt');
   expect((await stored(page, 'files')).map(f => f.id)).toEqual(files);
   expect(await version(other)).toBe('tasks-shell-fixture-previous');
-  await expect(other.getByRole('textbox', { name: 'Message Hermes' })).toHaveValue('Other window draft');
+  await expect(other.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ })).toHaveValue('Other window draft');
   await expect(toast(other)).toBeVisible();
   await toast(other).getByRole('button', { name: 'Update now' }).click();
   await expect.poll(() => version(other)).not.toBe('tasks-shell-fixture-previous');
-  await expect(other.getByRole('textbox', { name: 'Message Hermes' })).toHaveValue('Other window draft');
+  await expect(other.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ })).toHaveValue('Other window draft');
   expect(await calls(page)).toEqual(before);
 });
 
@@ -264,16 +266,16 @@ test('storage failure leaves the draft and current release usable, with a retry'
     };
     (window as any).restoreStorage = () => { IDBObjectStore.prototype.put = put; };
   });
-  await page.getByRole('textbox', { name: 'Message Hermes' }).fill('Do not lose this draft');
+  await page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ }).fill('Do not lose this draft');
   await toast(page).getByRole('button', { name: 'Update now' }).click();
   await expect(toast(page).getByRole('alert')).toContainText('could not be saved');
   expect(await version(page)).toBe('tasks-shell-fixture-previous');
-  await expect(page.getByRole('textbox', { name: 'Message Hermes' })).toBeEnabled();
-  await expect(page.getByRole('textbox', { name: 'Message Hermes' })).toHaveValue('Do not lose this draft');
+  await expect(page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ })).toBeEnabled();
+  await expect(page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ })).toHaveValue('Do not lose this draft');
   await page.evaluate(() => (window as any).restoreStorage());
   await toast(page).getByRole('button', { name: 'Update now' }).click();
   await expect.poll(() => version(page)).not.toBe('tasks-shell-fixture-previous');
-  await expect(page.getByRole('textbox', { name: 'Message Hermes' })).toHaveValue('Do not lose this draft');
+  await expect(page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ })).toHaveValue('Do not lose this draft');
 });
 
 test('a failed initial update check retries on reconnection without reloading', async ({ page }) => {
@@ -283,17 +285,17 @@ test('a failed initial update check retries on reconnection without reloading', 
     navigator.serviceWorker.register = (...args) => { if (!failed) { failed = true; return Promise.reject(new Error('Fixture disconnected')); } return register(...args); };
   });
   await page.goto('/');
-  await page.getByRole('textbox', { name: 'Message Hermes' }).fill('Keep the offline draft');
+  await page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ }).fill('Keep the offline draft');
   await page.evaluate(() => window.dispatchEvent(new Event('online')));
   await expect.poll(() => page.evaluate(async () => !!(await navigator.serviceWorker.getRegistration())?.active)).toBe(true);
   await expect(toast(page)).toHaveCount(0);
-  await expect(page.getByRole('textbox', { name: 'Message Hermes' })).toHaveValue('Keep the offline draft');
+  await expect(page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ })).toHaveValue('Keep the offline draft');
 });
 
 test('a failed worker installation keeps the working release and never offers a broken update', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(() => navigator.serviceWorker.ready.then(() => true));
-  await page.getByRole('textbox', { name: 'Message Hermes' }).fill('Still usable after failed install');
+  await page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ }).fill('Still usable after failed install');
   const current = await version(page);
   await page.evaluate(async () => {
     const reg = await navigator.serviceWorker.register('/__test/failed-sw.js', { scope: '/' });
@@ -302,15 +304,15 @@ test('a failed worker installation keeps the working release and never offers a 
   });
   await expect(toast(page)).toHaveCount(0);
   expect(await version(page)).toBe(current);
-  await expect(page.getByRole('textbox', { name: 'Message Hermes' })).toHaveValue('Still usable after failed install');
+  await expect(page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ })).toHaveValue('Still usable after failed install');
 });
 
 test('accepted work survives updating without another send or interrupt', async ({ page, request }) => {
   const taskId = crypto.randomUUID();
   await request.post('/api/v1/sync', { headers: { 'x-tasks-request': '1' }, data: { id: crypto.randomUUID(), taskId, kind: 'create', title: 'Update during work fixture', at: Date.now() } });
   await oldPage(page, `/#/task/${taskId}`, async () => {
-    await page.getByRole('textbox', { name: 'Message Hermes' }).fill('ask approval');
-    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    await page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ }).fill('ask approval');
+    await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
     await expect(page.getByRole('button', { name: 'Approve once', exact: true })).toBeVisible();
   });
   const before = await calls(page), submissions = await stored(page, 'submissions');
@@ -326,8 +328,8 @@ test('an unconfirmed submission remains recoverable and is never retried by upda
   await request.post('/api/v1/sync', { headers: { 'x-tasks-request': '1' }, data: { id: crypto.randomUUID(), taskId, kind: 'create', title: 'Unconfirmed update fixture', at: Date.now() } });
   await oldPage(page, `/#/task/${taskId}`, async () => {
     await page.route('**/api/v1/actions', route => route.abort());
-    await page.getByRole('textbox', { name: 'Message Hermes' }).fill('Keep this unconfirmed message');
-    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    await page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ }).fill('Keep this unconfirmed message');
+    await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
     await expect(page.getByText('Your submission is not confirmed.', { exact: false })).toBeVisible();
   });
   const before = await calls(page), submissions = await stored(page, 'submissions');
@@ -336,8 +338,8 @@ test('an unconfirmed submission remains recoverable and is never retried by upda
   let sends = 0; page.on('request', req => { if (req.url().endsWith('/api/v1/actions') && req.method() === 'POST') sends++; });
   await toast(page).getByRole('button', { name: 'Update now' }).click();
   await expect.poll(() => version(page)).not.toBe('tasks-shell-fixture-previous');
-  await expect(page.getByRole('textbox', { name: 'Message Hermes' })).toHaveValue('Keep this unconfirmed message');
-  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+  await expect(page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ })).toHaveValue('Keep this unconfirmed message');
+  await expect(page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true })).toBeDisabled();
   expect(await stored(page, 'submissions')).toEqual(submissions);
   expect(sends).toBe(0); expect(await calls(page)).toEqual(before);
 });
@@ -350,18 +352,18 @@ test('updating keeps the reviewable voice draft without sending it', async ({ pa
   await page.getByRole('button', { name: 'Dictate', exact: true }).click();
   await page.waitForTimeout(1200);
   await page.getByRole('button', { name: 'Stop recording and transcribe', exact: true }).click();
-  await expect(page.getByLabel('Message Hermes')).toHaveValue('Please draft a packing list.');
+  await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toHaveValue('Please draft a packing list.');
   await expect(page.locator('.countdown')).toHaveCount(0);
   await toast(page).getByRole('button', { name: 'Update now' }).click();
   await expect.poll(() => version(page)).not.toBe('tasks-shell-fixture-previous');
-  await expect(page.getByRole('textbox', { name: 'Message Hermes' })).toHaveValue('Please draft a packing list.');
+  await expect(page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ })).toHaveValue('Please draft a packing list.');
   await expect(page.locator('.countdown')).toHaveCount(0);
   await page.waitForTimeout(5500);
   expect(await calls(page)).toEqual(before);
 });
 
 for (const kind of ['task', 'reading'] as const) {
-  test(`updating commits the focused ${kind} title and preserves it offline`, async ({ page, context, request }) => {
+  test(`updating preserves an edited ${kind} title offline`, async ({ page, context, request }) => {
     const id = crypto.randomUUID(), headers = { 'x-tasks-request': '1' };
     if (kind === 'task') await request.post('/api/v1/sync', { headers, data: { id: crypto.randomUUID(), taskId: id, kind: 'create', title: 'Title update fixture', at: Date.now() } });
     else await request.post('/api/v1/reading/sync', { headers, data: { id: crypto.randomUUID(), itemId: id, contextId: crypto.randomUUID(), kind: 'create', title: 'Title update fixture', url: `https://example.com/${id}`, at: Date.now() } });
@@ -369,20 +371,21 @@ for (const kind of ['task', 'reading'] as const) {
     const field = (await detailsField(page, kind === 'task' ? 'Task title' : 'Reading title'));
     await context.setOffline(true);
     await field.fill('Title edited immediately before updating');
+    await saveTitle(page);
     await toast(page).getByRole('button', { name: 'Update now' }).click();
     await expect.poll(() => version(page)).not.toBe('tasks-shell-fixture-previous');
-    await expect(field).toHaveValue('Title edited immediately before updating');
+    await expect(await detailsField(page, kind === 'task' ? 'Task title' : 'Reading title')).toHaveValue('Title edited immediately before updating');
   });
 }
 
 test('a reading capture draft survives updating without adding it or sending it to Hermes', async ({ page }) => {
   const before = await calls(page);
   await oldPage(page, '/#/reading/add');
-  await page.getByRole('textbox', { name: 'Message Hermes' }).fill('https://example.com/reading-draft');
+  await page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ }).fill('https://example.com/reading-draft');
   await (await detailsField(page, 'Reading title')).fill('An unfinished reading draft');
   await toast(page).getByRole('button', { name: 'Update now' }).click();
   await expect.poll(() => version(page)).not.toBe('tasks-shell-fixture-previous');
-  await expect(page.getByRole('textbox', { name: 'Message Hermes' })).toHaveValue('https://example.com/reading-draft');
+  await expect(page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ })).toHaveValue('https://example.com/reading-draft');
   await expect((await detailsField(page, 'Reading title'))).toHaveValue('An unfinished reading draft');
   expect(await calls(page)).toEqual(before);
 });
@@ -391,7 +394,7 @@ test('a reading capture draft survives updating without adding it or sending it 
 test('slow activation completes once and keeps drafts without another update click', async ({ page, context }) => {
   await oldPage(page, '/#/conversation/existing');
   const old = await version(page);
-  const draft = page.getByRole('textbox', { name: 'Message Hermes', exact: true });
+  const draft = page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/, exact: true });
   await draft.fill('Keep this draft during slow activation.');
   const worker = context.serviceWorkers().find(worker => worker.url().endsWith('/sw.js'))!;
   await worker.evaluate(() => {

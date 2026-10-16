@@ -1,4 +1,4 @@
-import { detailsField, detailsControl } from './composer-helpers';
+import { detailsField, detailsControl, closePageActions } from './composer-helpers';
 import { test, expect, type Locator, type Page } from '@playwright/test';
 
 async function swipeBox(item: Locator) {
@@ -20,7 +20,7 @@ async function changeVisibilityFromView(page: Page, id: string, hidden: boolean)
   await page.goto(`/#/conversation/${id}`);
   await (await detailsControl(page, 'button', hidden ? 'Hide conversation' : 'Unhide conversation')).click();
   await expect(page.getByRole('button', { name: hidden ? 'Unhide conversation' : 'Hide conversation', exact: true })).toBeEnabled();
-  await page.getByRole('link', { name: 'Back to Conversations', exact: true }).click();
+  await closePageActions(page); await page.getByRole('link', { name: 'Back to Conversations', exact: true }).click();
 }
 
 test('phone swipes respect scrolling and cancellation, hide with undo, and create exactly one task', async ({ browser, request }) => {

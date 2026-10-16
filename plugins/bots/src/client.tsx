@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowRight, Bot as BotIcon, Eye, EyeOff, LoaderCircle, Pencil, Plus, RefreshCw } from 'lucide-react';
 import * as sdk from '@herts/plugin-api/client';
-import { Button, ButtonLink, ConversationHeader, ConversationPanel, DialogFrame, DialogHeading, EmptyState, IconButton, ItemList, ItemMeta, ItemRow, PageHeader, SearchField, StatusMessage, pluginLocal, pluginQuery, refresh, useCore, useListState, usePluginRecords, SwipeRow } from '@herts/plugin-api/client';
+import { ActionRow, messagePreview, compactDate, ListPlaceholder, Button, ButtonLink, ConversationHeader, ConversationPanel, DialogFrame, DialogHeading, EmptyState, IconButton, ItemList, ItemMeta, ItemRow, PageHeader, SearchField, StatusMessage, pluginLocal, pluginQuery, refresh, useCore, useListState, usePluginRecords, SwipeRow } from '@herts/plugin-api/client';
 import type { Bot, BotDetails, ClientPlugin, ConversationContext, RouteProps } from '@herts/plugin-api/client';
 import { BotEditor } from './BotEditor';
 import { Routines } from './Routines';
@@ -37,15 +37,22 @@ function BotChat({ bot, bots, edit, editing, error, markSeen, hide, hiding }: { 
     seen(); document.addEventListener('visibilitychange', seen);
     return () => document.removeEventListener('visibilitychange', seen);
   }, [bot.name, bot.updatedAt, context?.id]);
+  const unconfirmed = action.record && !['failed', 'finished'].includes(action.record.state);
+  const openError = action.error || (action.record?.state === 'failed' ? action.record.error : '');
   return <>
-    <ConversationHeader title={bot.title} backHref={href()} backLabel="Bots" context={context} contributionsInDetails actions={<><ButtonLink href={`${href(bot.name)}/routines`}>Routines</ButtonLink><Button disabled={editing} onClick={edit}>{editing ? 'Loading editor…' : 'Edit bot'}</Button></>}>
-      <div className="bot-identity"><Avatar bot={bot}/><div><h1>{bot.title}</h1><p className="form-hint">{bot.name}</p></div></div>
-      {bot.description && <p className="bot-description">{bot.description}</p>}
-      <div className="button-row"><Button disabled={hiding || !action.online} onClick={hide}>{hiding?'Saving…':bot.hidden?'Unhide bot':'Hide bot'}</Button><RecentActions bots={bots} profile={bot.name}/></div>
+    <ConversationHeader title={bot.title} backHref={href()} backLabel="Bots" context={context} contributionsInDetails visibilityActions={<ActionRow icon={bot.hidden ? <Eye size={20}/> : <EyeOff size={20}/>} disabled={hiding || !action.online} onClick={hide}>{hiding ? 'Saving…' : bot.hidden ? 'Unhide bot' : 'Hide bot'}</ActionRow>} actions={<><ButtonLink href={`${href(bot.name)}/routines`}>Routines</ButtonLink></>}>
+      <ActionRow icon={<Pencil size={20}/>} disabled={editing} onClick={edit}>{editing ? 'Loading editor…' : 'Edit bot'}</ActionRow><RecentActions bots={bots} profile={bot.name} actionRow/>
+
     </ConversationHeader>
-    {(error || action.error) && <StatusMessage>{error || action.error} {!context && <Button disabled={!action.online || opening} onClick={() => setAttempt(n => n + 1)}>Retry opening chat</Button>}</StatusMessage>}
+    {error && <StatusMessage>{error}</StatusMessage>}
+    {(openError || (unconfirmed && !opening && !action.busy)) && <StatusMessage>
+      <p>{unconfirmed ? 'Opening this chat is unconfirmed. Check its status before retrying.' : /session storage/i.test(openError || '') ? 'Hermes session storage is unavailable.' : openError}</p>
+      {context && <p>Saved messages and drafts remain available.</p>}
+      {unconfirmed ? <Button disabled={!action.online || action.busy || opening} onClick={() => void action.check()}>Check opening status</Button> : <Button disabled={!action.online || opening} onClick={() => setAttempt(n => n + 1)}>Retry opening chat</Button>}
+      {/session storage/i.test(openError || '') && <details><summary>Error details</summary><p>{openError}</p></details>}
+    </StatusMessage>}
     {!action.online && <StatusMessage tone="notice">{core.online ? 'Hermes is unavailable.' : 'Offline.'} Saved messages and drafts remain available.</StatusMessage>}
-    {context ? <ConversationPanel key={context.id} context={{ ...context, title: bot.title }} refreshVersion={bot.updatedAt} showHeading={false} showActions={false}/>
+    {context ? <ConversationPanel fullTitle={bot.title} key={context.id} context={{ ...context, title: bot.title }} refreshVersion={bot.updatedAt} showHeading={false} showActions={false}/>
       : opening || action.online && !action.error ? <p className="bots-loading" role="status"><LoaderCircle size={16} className="spin"/> Opening Bot Chat…</p>
       : !action.error && <EmptyState icon={<BotIcon/>} title="Chat not saved on this device" description="Reconnect to open this bot’s existing conversation."/>}
   </>;
@@ -117,11 +124,11 @@ function BotsPage({ parts }: RouteProps) {
         {!action.online && <StatusMessage tone="notice">{core.online ? 'Hermes is unavailable.' : 'Offline.'} Showing saved bots. You can open saved chats and continue drafts.</StatusMessage>}
         {(error || action.error || records.error) && <StatusMessage>{error || action.error || records.error}</StatusMessage>}
         {notice && <StatusMessage tone="notice">{notice} {undo && <Button variant="quiet" disabled={!action.online || action.busy} onClick={() => void setHiddenBot(undo, false)}>Undo hide</Button>}</StatusMessage>}
-        {!records.roster && action.online && !records.error && <p role="status" className="bots-loading"><LoaderCircle size={16} className="spin"/> Loading bots…</p>}
+        {!records.roster && action.online && !records.error && <ListPlaceholder label="Loading bots…"/>}
         <ItemList divided className="bots-roster">{visible.map(b => <SwipeRow key={b.name} busy={editing||hiding||action.busy} disabled={!action.online||action.locked} className={b.hidden?'is-hidden-item':''} left={{label:`${b.hidden?'Unhide':'Hide'} ${b.title}`,icon:b.hidden?<Eye size={20}/>:<EyeOff size={20}/>,run:()=>void setHiddenBot(b,!b.hidden)}} right={{label:'Edit bot',icon:<Pencil size={20}/>,run:()=>void edit(b)}}>
           <ItemRow variant="preview" className="conversation-row" href={href(b.name)} draggable={false} onDragStart={(e:React.DragEvent<HTMLAnchorElement>)=>e.preventDefault()} leading={<Avatar bot={b}/>} trailing={<ArrowRight size={17}/>} aria-label={b.title}>
-            <h2 className="item-title">{b.title}</h2><p className="item-preview">{b.preview?.trim()||b.description}</p>
-            <ItemMeta>{b.active&&<span>Active now</span>}{b.hidden&&<span>Hidden</span>}{b.updatedAt>(seen[b.name]||0)&&<span>Updated</span>}{b.updatedAt>0&&<span>{formatTime(b.updatedAt)}</span>}</ItemMeta>
+            <h2 className="item-title">{b.title}</h2><p className="item-preview">{messagePreview(b.preview?.trim() || b.description)}</p>
+            <ItemMeta>{b.active&&<span>Active now</span>}{b.hidden&&<span>Hidden</span>}{b.updatedAt>(seen[b.name]||0)&&<span>Updated</span>}{b.updatedAt>0&&<time dateTime={new Date(b.updatedAt).toISOString()} title={formatTime(b.updatedAt)} aria-label={formatTime(b.updatedAt)}>{compactDate(b.updatedAt)}</time>}</ItemMeta>
           </ItemRow>
         </SwipeRow>)}</ItemList>
         {records.roster && !visible.length && !records.error && <EmptyState icon={<BotIcon/>} title={query ? 'No bots match this search' : bots.length ? 'All bots are hidden' : 'No bots yet'} description={query ? 'Try another name or description.' : bots.length ? 'Show hidden bots to restore one to your roster.' : 'Create a bot to start an ongoing conversation.'}>{query && <Button variant="quiet" onClick={() => setSearch('')}>Clear search</Button>}{!query && bots.length > 0 && <Button onClick={() => setHidden(true)}>Show hidden bots</Button>}</EmptyState>}
@@ -132,7 +139,7 @@ function BotsPage({ parts }: RouteProps) {
 }
 function Screen(props: RouteProps) { return <><style>{styles}</style><BotsPage {...props}/></>; }
 export default function activate(): ClientPlugin {
-  if (!sdk.MessageAuthor || !sdk.useMessageSpeech || !sdk.reviewPluginAction || !sdk.FormDialog || !sdk.SwipeRow || !sdk.ModelPicker || !sdk.MessageMarkdown || !sdk.useListState || !sdk.DialogHeading) return { tab: { title: 'Bots', path: '/plugins/bots' }, routes: [{ match: p => p.startsWith('/plugins/bots'), component: () => <p>Update Herts through Settings → App updates to use Bots.</p> }] };
+  if (!sdk.ActionRow || !sdk.messagePreview || !sdk.ListPlaceholder || !sdk.MessageAuthor || !sdk.useMessageSpeech || !sdk.reviewPluginAction || !sdk.FormDialog || !sdk.SwipeRow || !sdk.ModelPicker || !sdk.MessageMarkdown || !sdk.useListState || !sdk.DialogHeading) return { tab: { title: 'Bots', path: '/plugins/bots' }, routes: [{ match: p => p.startsWith('/plugins/bots'), component: () => <p>Update Herts through Settings → App updates to use Bots.</p> }] };
   return { tab: { title: 'Bots', path: '/plugins/bots', icon: BotIcon }, routes: [{ match: p => p === '/plugins/bots' || p.startsWith('/plugins/bots/'), component: Screen }],
     conversationTitle(contextId) { return sdk.getCore().snapshot.contexts.find(context => context.id === contextId)?.title; },
     filter: { id: 'linked', label: 'Bot Chats', visible: (conversation, _records, contexts) => !conversation.botChat && !contexts.some(c => c.botChat && c.aliases.includes(conversation.id)) }, ConversationBadge: ({ context, conversation }) => context?.botChat || conversation.botChat ? <span>Bot Chat</span> : null };

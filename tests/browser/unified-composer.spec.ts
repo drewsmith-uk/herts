@@ -1,3 +1,4 @@
+import { pageAction, closePageActions } from './composer-helpers';
 import { test, expect, type Page } from '@playwright/test';
 
 // A read-only fixture probe may race Node closing an idle keep-alive socket.
@@ -5,7 +6,7 @@ const execution = async (request: any) => (await (await request.get('http://127.
 async function openEditor(page: Page) {
   const open = page.getByRole('button', { name: /^(Message Hermes|Continue draft)…$/ });
   if (await open.isVisible()) await open.click();
-  await expect(page.getByLabel('Message Hermes', { exact: true })).toBeEditable();
+  await expect(page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true })).toBeEditable();
 }
 for (const width of [390, 1280]) {
   test(`one reviewed composer saves task, link and conversation without sending at ${width}px`, async ({ page, request, context }) => {
@@ -13,24 +14,24 @@ for (const width of [390, 1280]) {
     const before = await execution(request);
     await page.goto('/'); await openEditor(page);
     const message = `Review task ${width}`;
-    await page.getByLabel('Message Hermes', { exact: true }).fill(message);
+    await page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true }).fill(message);
     await page.getByRole('button', { name: 'Save to Inbox', exact: true }).click();
     await expect(page.getByRole('link', { name: message, exact: true })).toBeVisible();
     await page.getByRole('link', { name: message, exact: true }).click();
-    await expect(page.getByLabel('Message Hermes', { exact: true })).toHaveValue(message);
+    await expect(page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true })).toHaveValue(message);
     await expect(page.getByRole('button', { name: 'Dictate', exact: true })).toBeVisible();
     await page.goto('/#/reading/add'); await openEditor(page);
-    await page.getByLabel('Message Hermes', { exact: true }).fill(`Review this before sending https://example.com/review-${width}`);
+    await page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true }).fill(`Review this before sending https://example.com/review-${width}`);
     await page.getByRole('button', { name: 'Save link', exact: true }).click();
     await expect(page).toHaveURL(/#\/reading$/);
     await page.getByRole('link', { name: new RegExp(`example.com/review-${width}`) }).first().click();
-    await expect(page.getByLabel('Message Hermes', { exact: true })).toHaveValue(`Review this before sending https://example.com/review-${width}`);
+    await expect(page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true })).toHaveValue(`Review this before sending https://example.com/review-${width}`);
     await page.goto('/#/new'); await openEditor(page);
-    await page.getByLabel('Message Hermes', { exact: true }).fill(`Conversation draft ${width}`);
+    await page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true }).fill(`Conversation draft ${width}`);
     await page.getByRole('button', { name: 'Save draft', exact: true }).click();
     await expect(page.locator('.conversation-drafts')).toContainText(`Conversation draft ${width}`);
     await page.locator('.conversation-drafts .draft-open').filter({ hasText: `Conversation draft ${width}` }).click();
-    await expect(page.getByLabel('Message Hermes', { exact: true })).toHaveValue(`Conversation draft ${width}`);
+    await expect(page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true })).toHaveValue(`Conversation draft ${width}`);
     expect(await execution(request)).toEqual(before);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
@@ -42,12 +43,12 @@ for (const width of [390, 1280]) {
     await page.getByRole('button', { name: 'Dictate', exact: true }).click();
     await page.waitForTimeout(1200);
     await page.getByRole('button', { name: 'Stop recording and transcribe' }).click();
-    await expect(page.getByLabel('Message Hermes', { exact: true })).toHaveValue('Please draft a packing list.');
+    await expect(page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true })).toHaveValue('Please draft a packing list.');
     await page.waitForTimeout(5500);
     expect(await execution(request)).toEqual(before);
     await expect(page.locator('.countdown')).toHaveCount(0);
-    await page.getByLabel('Message Hermes', { exact: true }).fill(`Edited transcript ${width}`);
-    await page.getByRole('button', { name: 'Send', exact: true }).dblclick();
+    await page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true }).fill(`Edited transcript ${width}`);
+    await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).dblclick();
     await expect.poll(async () => (await execution(request)).slice(before.length).filter(m => m === 'prompt.submit').length).toBe(1);
     await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase', 'complete');
   });
@@ -61,18 +62,18 @@ for (const width of [390, 1280]) {
     await page.goto(`/#/conversation/${conversation}`);
     await expect(page.locator(`[data-history-message="${conversation}:450"]`)).toBeInViewport();
     const history = await page.locator('.history').elementHandle();
-    release(); await expect(page.getByLabel('Message Hermes')).toBeEditable();
+    release(); await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toBeEditable();
     expect(await history!.evaluate(el => el === document.querySelector('.history'))).toBe(true);
     const viewport = page.locator('.conversation-scroll');
-    const header = await page.locator('.conversation-page-header').boundingBox();
     await viewport.hover(); await page.mouse.wheel(0, -100000);
     await expect.poll(() => viewport.evaluate(el => el.scrollTop)).toBe(0);
+    const header = await page.locator('.conversation-page-header').boundingBox();
     const anchor = page.locator(`[data-history-message="${conversation}:251"]`);
     const top = await anchor.evaluate(el => el.getBoundingClientRect().top);
     await page.getByRole('button', { name: 'Load older messages', exact: true }).click();
     await expect(page.locator('.message')).toHaveCount(400);
     await expect.poll(async () => Math.abs(await anchor.evaluate(el => el.getBoundingClientRect().top) - top)).toBeLessThan(5);
-    await page.getByRole('button', { name: 'Refresh conversation history' }).click();
+    await (await pageAction(page, 'button', 'Refresh conversation history')).click(); await closePageActions(page);
     await expect(page.locator('.message')).toHaveCount(400);
     await expect.poll(async () => Math.abs(await anchor.evaluate(el => el.getBoundingClientRect().top) - top)).toBeLessThan(5);
     expect(await page.locator('.conversation-page-header').boundingBox()).toEqual(header);
@@ -88,9 +89,9 @@ test('opening an empty editor creates no listed draft, while shared edits are se
   await page.goto('/share?title=Shared%20review&text=Please%20review%20https%3A%2F%2Fexample.com%2Fshared-review');
   await page.getByRole('button', { name: 'Reading', exact: true }).click();
   const edited = 'My edited instruction https://example.com/shared-review';
-  await expect(page.getByLabel('Message Hermes', { exact: true })).toHaveValue('Please review https://example.com/shared-review');
-  await page.getByLabel('Message Hermes', { exact: true }).fill(edited);
-  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true })).toHaveValue('Please review https://example.com/shared-review');
+  await page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true }).fill(edited);
+  await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
   await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase', 'complete');
   const state = await (await request.get('/api/v1/state')).json();
   expect(state.actions.some((action: any) => action.kind === 'send' && action.text === edited)).toBe(true);
@@ -98,16 +99,16 @@ test('opening an empty editor creates no listed draft, while shared edits are se
 
 test('offline saving keeps Send explicit and preserves message plus attachment on reload', async ({ page, context, request }) => {
   await page.goto('/#/new'); await openEditor(page); await page.evaluate(() => navigator.serviceWorker.ready);
-  await page.getByLabel('Message Hermes', { exact: true }).fill('Offline reviewed message');
+  await page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true }).fill('Offline reviewed message');
   await page.locator('input[type=file]').setInputFiles({ name: 'review.txt', mimeType: 'text/plain', buffer: Buffer.from('review attachment') });
   await expect(page.locator('.attachment')).toContainText('review.txt');
   const before = await execution(request);
   await context.setOffline(true);
-  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true })).toBeDisabled();
   await page.getByRole('button', { name: 'Save draft', exact: true }).click();
   await page.locator('.draft-open').filter({ hasText: 'Offline reviewed message' }).click();
   await page.reload();
-  await expect(page.getByLabel('Message Hermes', { exact: true })).toHaveValue('Offline reviewed message');
+  await expect(page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true })).toHaveValue('Offline reviewed message');
   await expect(page.locator('.attachment')).toContainText('review.txt');
   await context.setOffline(false);
   await expect(page.locator('.save-state')).toContainText('Changes synced');
@@ -115,7 +116,7 @@ test('offline saving keeps Send explicit and preserves message plus attachment o
 });
 
 test('legacy task text, attachments and saved recordings migrate together without sending', async ({ page, request }) => {
-  await page.goto('/'); await expect(page.getByLabel('Message Hermes')).toBeEditable();
+  await page.goto('/'); await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toBeEditable();
   const before = await execution(request);
   await page.evaluate(async () => {
     const r = indexedDB.open('hermes-tasks');
@@ -134,7 +135,7 @@ test('legacy task text, attachments and saved recordings migrate together withou
     }); db.close();
   });
   await page.reload();
-  await expect(page.getByLabel('Message Hermes')).toHaveValue('Legacy capture for review');
+  await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toHaveValue('Legacy capture for review');
   await expect(page.locator('.attachment')).toContainText('legacy.txt');
   await expect(page.getByRole('button', { name: 'Transcribe saved recording', exact: true })).toBeVisible();
   expect(await execution(request)).toEqual(before);
@@ -144,13 +145,13 @@ test('a phone keyboard leaves the message and Send usable, and collapsing keeps 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/#/conversation/existing');
   const text = Array.from({ length: 20 }, (_, i) => `Reviewed line ${i}`).join('\n');
-  await page.getByLabel('Message Hermes').fill(text);
+  await page.getByLabel(/^(Message Hermes|Add a task)$/).fill(text);
   await page.evaluate(() => {
     Object.defineProperty(window.visualViewport, 'height', { configurable: true, value: 480 });
     window.visualViewport!.dispatchEvent(new Event('resize'));
   });
   await expect(page.locator('body')).toHaveClass(/keyboard-open/);
-  const composer = page.getByLabel('Message Hermes'), send = page.getByRole('button', { name: 'Send', exact: true });
+  const composer = page.getByLabel(/^(Message Hermes|Add a task)$/), send = page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true });
   expect((await composer.boundingBox())!.height).toBeLessThanOrEqual(121);
   expect((await send.boundingBox())!.y + (await send.boundingBox())!.height).toBeLessThanOrEqual(480);
   await expect(page.locator('.mobile-nav > a:not(.navigation-end)').first()).toBeHidden();
@@ -164,20 +165,20 @@ test('a phone keyboard leaves the message and Send usable, and collapsing keeps 
 });
 
 test('a confirmed send with a lost acknowledgement clears only its submitted draft', async ({ page, request }) => {
-  await page.goto('/#/new'); await expect(page.getByLabel('Message Hermes')).toBeEditable();
+  await page.goto('/#/new'); await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toBeEditable();
   const before = await execution(request);
   await page.route('**/api/v1/actions', async route => { await route.fetch(); await route.abort(); });
-  await page.getByLabel('Message Hermes').fill('Reviewed message with a lost acknowledgement');
-  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByLabel(/^(Message Hermes|Add a task)$/).fill('Reviewed message with a lost acknowledgement');
+  await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
   await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase', 'complete');
-  await expect(page.getByLabel('Message Hermes')).toHaveValue('');
-  await page.reload(); await expect(page.getByLabel('Message Hermes')).toHaveValue('');
+  await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toHaveValue('');
+  await page.reload(); await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toHaveValue('');
   expect((await execution(request)).slice(before.length).filter(method => method === 'prompt.submit')).toHaveLength(1);
 });
 
 test('typing keeps focus and uses the completed message as the conversation title', async ({ page, request }) => {
   await page.goto('/#/new');
-  const editor = page.getByLabel('Message Hermes');
+  const editor = page.getByLabel(/^(Message Hermes|Add a task)$/);
   await expect(editor).toBeEditable();
   await editor.pressSequentially('Typing remains uninterrupted', { delay: 25 });
   await expect(editor).toBeFocused(); await expect(editor).toHaveValue('Typing remains uninterrupted');
@@ -188,7 +189,7 @@ test('typing keeps focus and uses the completed message as the conversation titl
   await page.goto('/#/conversations');
   await expect(page.locator('.draft-open')).toHaveCount(2);
   await page.locator('.draft-open').filter({ hasText: 'Typing remains uninterrupted' }).click();
-  await editor.focus(); await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await editor.focus(); await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
   await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase', 'complete');
   const state = await (await request.get('/api/v1/state')).json();
   expect(state.snapshot.contexts.some((c: any) => c.link && c.title === 'Typing remains uninterrupted')).toBe(true);
@@ -203,7 +204,7 @@ for (const width of [390, 1280]) test(`refresh preserves a reader's first page a
   });
   await page.goto('/#/conversation/long-history');
   await expect(page.locator('[data-history-message="long-history:450"]')).toBeInViewport();
-  await expect(page.getByLabel('Message Hermes')).toBeEditable();
+  await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toBeEditable();
   const viewport = page.locator('.conversation-scroll');
   // Express reader intent and await the asynchronous browser scroll. Directly
   // assigning scrollTop can race the initial automatic layout adjustment.
@@ -213,7 +214,7 @@ for (const width of [390, 1280]) test(`refresh preserves a reader's first page a
   await expect(anchor).toBeInViewport();
   const top = await anchor.evaluate(el => el.getBoundingClientRect().top);
   count += 401;
-  await page.getByRole('button', { name: 'Refresh conversation history' }).click();
+  await (await pageAction(page, 'button', 'Refresh conversation history')).click(); await closePageActions(page);
   await expect(page.locator('.message').last()).toContainText('Stable message 851');
   await expect.poll(async () => Math.abs(await anchor.evaluate(el => el.getBoundingClientRect().top) - top)).toBeLessThan(5);
 });

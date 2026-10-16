@@ -1,5 +1,7 @@
+import { ActionRow } from './ui';
+import { messagePreview } from '../shared/messagePreview';
 import { undoableAction } from './UndoToast';
-import { PageHeader, Button, ButtonLink, DialogFrame, ItemList, ItemRow, ItemMeta, EmptyState, StatusMessage } from './ui';
+import { PageHeader, Button, ButtonLink, DialogFrame, ItemList, ItemRow, ItemMeta, EmptyState, StatusMessage, ListPlaceholder } from './ui';
 import { useEffect, useRef, useState } from 'react';
 import { liveQuery } from 'dexie';
 import { Search, X, MessageSquare, LoaderCircle, Plus, Trash2, Eye, EyeOff } from 'lucide-react';
@@ -45,7 +47,7 @@ export function Conversations() {
     const selection = JSON.stringify([query, showAll]), previousFilter = useRef(selection);
     const listOffset = previousFilter.current === selection ? offset : 0;
     useEffect(() => { if (previousFilter.current !== selection) { setOffset(0); previousFilter.current = selection; } }, [selection]);
-    const { rows, more, busy, error, cached } = useConversationList({ query, showAll, filterKey, offset: listOffset }, listVersion);
+    const { rows, more, busy, error, cached, refresh: retryList } = useConversationList({ query, showAll, filterKey, offset: listOffset }, listVersion);
     async function hide(c: Conversation) { setWorking(c.key); setActionError(''); try {
         await undoableAction(`conversation:${c.key}`, c.hidden ? 'Conversation unhidden.' : 'Conversation hidden.',
             () => setConversationHidden(c, !c.hidden), () => setConversationHidden(c, !!c.hidden));
@@ -99,7 +101,7 @@ export function Conversations() {
     {drafts.length > 0 && <section className="conversation-drafts" aria-labelledby="conversation-drafts-heading">
       <h2 id="conversation-drafts-heading">Drafts <span className="heading-count">{matchingDrafts.length}</span></h2>
       <ItemList id="conversation-drafts-list">{displayedDrafts.map(c => <ItemRow key={c.id} trailing={<Button variant="quiet" aria-label={`Delete draft: ${c.title}`} onClick={() => { setDeleteError(''); setDraftNotice(''); setDeletingDraft({ id: c.id, title: c.title }); }}><Trash2 size={16} aria-hidden="true"/> Delete</Button>}>
-        <a className="draft-open" href={`#${savedDrafts.routes[c.id] || `/draft/${encodeURIComponent(c.id)}`}`}><h3 className="item-title">{c.title}</h3><p className="item-preview">{c.preview || (c.files ? `${c.files} attachment${c.files === 1 ? '' : 's'}` : 'No message yet')}</p>
+        <a className="draft-open" href={`#${savedDrafts.routes[c.id] || `/draft/${encodeURIComponent(c.id)}`}`}><h3 className="item-title">{c.title}</h3><p className="item-preview">{messagePreview(c.preview, c.files) || 'No message yet'}</p>
         {!!c.files && !!c.preview && <ItemMeta><span>{c.files} attachment{c.files === 1 ? '' : 's'}</span></ItemMeta>}
         </a>
       </ItemRow>)}</ItemList>
@@ -117,9 +119,9 @@ export function Conversations() {
     {drafts.length > 0 && <h2 className="conversation-list-heading">Hermes conversations</h2>}
     <div className="conversation-filters"><label className="conversation-filter"><input type="checkbox" checked={showAll} onChange={e => setShowAll(e.target.checked)}/>Show all</label></div>
     {notice && <StatusMessage tone="notice" className="conversation-notice"><span>{notice.text}</span>{notice.route && <a href={`#${notice.route}`}>Open</a>}</StatusMessage>}
-    {actionError && <StatusMessage>{actionError}</StatusMessage>}{error && <StatusMessage>{error}</StatusMessage>}{cached && (!busy || !state.online) && <div><span className="eyebrow">SAVED ON THIS DEVICE</span><p>Offline results cover conversations previously viewed on this device.</p></div>}
+    {actionError && <StatusMessage>{actionError}</StatusMessage>}{error && <StatusMessage>{error}<Button disabled={busy || !state.online} onClick={retryList}>Try again</Button></StatusMessage>}{cached && (!busy || !state.online) && <div><span className="eyebrow">SAVED ON THIS DEVICE</span><p>Offline results cover conversations previously viewed on this device.</p></div>}
     <ItemList divided className="conversation-list">{visible.map(c => <ConversationRow key={c.key} conversation={c} badges={<ConversationBadges conversation={c}/>} canActOffline={swipes.some(p=>pluginHook(p,()=>p.definition.swipe?.canRunOffline?.(c)||false,false))} updatedAt={time(c.updatedAt)} online={state.online} busy={working === c.key} actionLabel={swipes.length === 1 ? pluginHook(swipes[0], () => swipes[0].definition.swipe!.label(c), 'Actions') : swipes.length ? 'Actions' : undefined} onAction={kind => kind === 'visibility' ? hide(c) : swipe(c)}/>)}</ItemList>
-    {busy && <p className="loading"><LoaderCircle className="spin" size={17}/> {visible.length ? 'Refreshing conversations…' : 'Loading conversations…'}</p>}{!busy && !visible.length && !error && !actionError && <EmptyState icon={<MessageSquare size={30}/>} title={drafts.length ? 'No Hermes conversations found' : 'No conversations found'} description={query ? 'Try a different search.' : 'Your personal Hermes conversations will appear here.'}>{!showAll && <p>Turn on “Show all” to include linked and hidden conversations.</p>}</EmptyState>}{more && !busy && <button className="load-more" onClick={() => setOffset(offset + 50)}>Load more conversations</button>}
+    {busy && (visible.length ? <p role="status" className="loading">Refreshing conversations…</p> : <ListPlaceholder label="Loading conversations…"/>)}{!busy && !visible.length && !error && !actionError && <EmptyState icon={<MessageSquare size={30}/>} title={drafts.length ? 'No Hermes conversations found' : 'No conversations found'} description={query ? 'Try a different search.' : 'Your personal Hermes conversations will appear here.'}>{!showAll && <p>Turn on “Show all” to include linked and hidden conversations.</p>}</EmptyState>}{more && !busy && <button className="load-more" onClick={() => setOffset(offset + 50)}>Load more conversations</button>}
     {chooser && <div className="action-chooser" role="dialog" aria-label="Conversation actions">{swipes.map(p => <button key={p.id} onClick={() => void swipe(chooser, p)}>{pluginHook(p, () => p.definition.swipe!.label(chooser), 'Actions')}</button>)}<button onClick={() => setChooser(undefined)}>Cancel</button></div>}</>;
 }
 export function ConversationView({ id }: {
@@ -143,7 +145,7 @@ export function ConversationView({ id }: {
         setError(e.message); }); return () => { alive = false; }; }, [id, !!context, state.online, state.connectionVersion, attempt]);
     const current = { ...(conversation || { id: context?.link?.storedId || id, key: context?.link?.key || id, aliases: context?.aliases || [id], title: 'Conversation', preview: '', source: context?.link?.source || '', updatedAt: 0 }), ...(context ? { title: context.link?.title || context.title } : {}) };
     const hidden = conversationHidden(current, state.snapshot.hiddenConversations || []);
-    async function hide() { setBusy(true); try {
+    async function hide() { setBusy(true); setError(''); try {
         await setConversationHidden(current, !hidden);
     }
     catch (e) {
@@ -152,8 +154,8 @@ export function ConversationView({ id }: {
     finally {
         setBusy(false);
     } }
-    return <div className="conversation-detail"><ConversationHeader title={current.title} backHref="#/conversations" backLabel="Conversations" context={context} conversation={current}><div className="page-heading conversation-detail-heading">{context ? <ConversationTitle context={context}/> : <h1>{current.title}</h1>}</div><div className="conversation-header-actions"><button disabled={busy} onClick={() => void hide()}>{hidden ? <Eye size={16}/> : <EyeOff size={16}/>} {hidden ? 'Unhide conversation' : 'Hide conversation'}</button></div></ConversationHeader>
-    <ConversationPanel context={context || { id, title: current.title, aliases: current.aliases, link: { ...current, storedId: id } }} readOnly={!context} showActions={false} showHeading={false}/>{!context && error && <p role="alert"><span>{error}</span> <button onClick={() => setAttempt(n => n + 1)}>Try again</button></p>}</div>;
+    return <div className="conversation-detail"><ConversationHeader title={current.title} backHref="#/conversations" backLabel="Conversations" context={context} conversation={current} visibilityActions={<><ActionRow icon={hidden ? <Eye size={20}/> : <EyeOff size={20}/>} disabled={busy} onClick={() => void hide()}>{hidden ? 'Unhide conversation' : 'Hide conversation'}</ActionRow>{context && error && <p role="alert" className="inline-error">{error}</p>}</>}>{context && <ConversationTitle context={context}/>}</ConversationHeader>
+    <ConversationPanel fullTitle={current.title} context={context || { id, title: current.title, aliases: current.aliases, link: { ...current, storedId: id } }} readOnly={!context} showActions={false} showHeading={false}/>{!context && error && <p role="alert"><span>{error}</span> <button onClick={() => setAttempt(n => n + 1)}>Try again</button></p>}</div>;
 }
 export function NewConversation({ id, shared, initialId }: { id?: string; shared?: SharedContent; initialId?: string }) {
     const state = useApp(), [draftId] = useState(() => id || initialId || crypto.randomUUID());
@@ -165,7 +167,8 @@ export function NewConversation({ id, shared, initialId }: { id?: string; shared
     useEffect(() => { if (!entry.id) return; const sub = liveQuery(() => db.kv.get(`context-draft-deleted:${entry.id}`)).subscribe(row => setDeleted(!!row)); return () => sub.unsubscribe(); }, [entry.id]);
     if ((deleted && !entry.context.link) || (id && entry.id && state.loaded && !state.snapshot.contexts.some(c => c.id === id))) return <><PageHeader title="Draft unavailable" description="This draft was deleted from this device."/><ButtonLink href="#/conversations">Back to conversations</ButtonLink></>;
     return <div className="conversation-detail"><ConversationHeader title={entry.context.title} backHref="#/conversations" backLabel="Conversations" context={entry.id ? entry.context : undefined}>{entry.id && <ConversationTitle context={entry.context}/>}</ConversationHeader>
-      {entry.id && (entry.context.link ? <ConversationPanel context={entry.context} showActions={false} showHeading={false}/> : <MessageComposer context={entry.context} persist={entry.persist} allowSaveEmpty={entry.context.title !== 'New conversation'} saveLabel="Save draft" onSaved={async () => { await entry.complete(); location.hash = '/conversations'; }} onSent={async () => { await entry.complete(); history.replaceState(null, '', `/#/draft/${entry.id}`); dispatchEvent(new PopStateEvent('popstate')); }}/>) }
+      {!entry.context.link && entry.context.title !== 'New conversation' && <h2 className="conversation-content-title">{entry.context.title}</h2>}
+      {entry.id && (entry.context.link ? <ConversationPanel fullTitle={entry.context.title} context={entry.context} showActions={false} showHeading={false}/> : <MessageComposer context={entry.context} persist={entry.persist} allowSaveEmpty={entry.context.title !== 'New conversation'} saveLabel="Save draft" onSaved={async () => { await entry.complete(); location.hash = '/conversations'; }} onSent={async () => { await entry.complete(); history.replaceState(null, '', `/#/draft/${entry.id}`); dispatchEvent(new PopStateEvent('popstate')); }}/>) }
       {entry.error && <p role="alert">{entry.error}</p>}
     </div>;
 }

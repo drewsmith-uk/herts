@@ -1,4 +1,4 @@
-import { detailsField, detailsControl } from './composer-helpers';
+import { saveTitle, detailsField, detailsControl, closePageActions } from './composer-helpers';
 import { test, expect } from '@playwright/test';
 
 test('multiple new conversations can share an opening message and titles can be edited without agent work', async ({ page, request }) => {
@@ -8,8 +8,8 @@ test('multiple new conversations can share an opening message and titles can be 
   for (let i = 0; i < 2; i++) {
     await page.goto('/#/new');
     await expect((await detailsField(page, 'Conversation title'))).toHaveValue('New conversation');
-    await page.getByLabel('Message Hermes').fill('Plan a new weekend away');
-    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    await closePageActions(page); await page.getByLabel(/^(Message Hermes|Add a task)$/).fill('Plan a new weekend away');
+    await closePageActions(page); await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
     await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
     await expect((await detailsField(page, 'Conversation title'))).toHaveValue(`Plan a new weekend away${i ? ' (2)' : ''}`);
   }
@@ -17,25 +17,40 @@ test('multiple new conversations can share an opening message and titles can be 
   expect(after.slice(before.length).filter(method => method === 'session.create')).toHaveLength(2);
   expect(after.slice(before.length).filter(method => method === 'prompt.submit')).toHaveLength(2);
   const title = (await detailsField(page, 'Conversation title'));
-  await detailsField(page, 'Conversation title'); await title.fill('Ideas for our weekend'); await title.press('Tab');
-  await expect(title).toBeEnabled(); await page.reload();
-  await expect(title).toHaveValue('Ideas for our weekend');
+  await detailsField(page, 'Conversation title'); await title.fill('Ideas for our weekend'); await saveTitle(page);
+  await expect((await detailsField(page, 'Conversation title'))).toBeEnabled(); await page.reload();
+  await detailsField(page, 'Conversation title'); await expect(title).toHaveValue('Ideas for our weekend');
   await page.goto('/#/conversations'); await page.getByRole('link', { name: /Ideas for our weekend/ }).click();
-  await detailsField(page, 'Conversation title'); await title.fill('Updated weekend ideas'); await title.press('Tab');
-  await expect(title).toBeEnabled(); await page.reload(); await expect(title).toHaveValue('Updated weekend ideas');
+  await detailsField(page, 'Conversation title'); await title.fill('Updated weekend ideas'); await saveTitle(page);
+  await expect((await detailsField(page, 'Conversation title'))).toBeEnabled(); await page.reload(); await detailsField(page, 'Conversation title'); await expect(title).toHaveValue('Updated weekend ideas');
   expect((await calls()).slice(after.length).filter(method => ['session.create', 'session.resume', 'prompt.submit'].includes(method))).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
 test('an edited draft title persists and a click on Send waits for its title save', async ({ page, request }) => {
   await page.goto('/#/new'); const title = (await detailsField(page, 'Conversation title'));
-  await detailsField(page, 'Conversation title'); await title.fill('Draft conversation name'); await title.press('Tab'); await expect(title).toBeEnabled();
-  await page.reload(); await expect(title).toHaveValue('Draft conversation name');
-  await page.getByLabel('Message Hermes').fill('A message for my named conversation');
-  await detailsField(page, 'Conversation title'); await title.fill('My chosen conversation name');
-  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await detailsField(page, 'Conversation title'); await title.fill('Draft conversation name'); await saveTitle(page); await expect((await detailsField(page, 'Conversation title'))).toBeEnabled();
+  await page.reload(); await detailsField(page, 'Conversation title'); await expect(title).toHaveValue('Draft conversation name');
+  await closePageActions(page); await page.getByLabel(/^(Message Hermes|Add a task)$/).fill('A message for my named conversation');
+  await detailsField(page, 'Conversation title'); await title.fill('My chosen conversation name'); await saveTitle(page);
+  await closePageActions(page); await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
   await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
-  await expect(title).toHaveValue('My chosen conversation name');
+  await expect((await detailsField(page, 'Conversation title'))).toHaveValue('My chosen conversation name');
   const response = await request.get('/api/v1/conversations?includeLinked=true');
   expect((await response.json()).conversations.some((c: any) => c.title === 'My chosen conversation name')).toBe(true);
+});
+
+test('local title edits normalize whitespace and controls before creation and rename', async ({ page }) => {
+  await page.goto('/#/new');
+  for (const [input, expected] of [
+    ['  First\n  draft\u200b\u202e title  ', 'First draft title'],
+    ['  Renamed\t  draft\u2066 title  ', 'Renamed draft title'],
+    ['\u200b\u202e', 'Renamed draft title'],
+  ]) {
+    await (await detailsField(page, 'Conversation title')).fill(input);
+    await saveTitle(page);
+    await page.reload();
+    await expect(await detailsField(page, 'Conversation title')).toHaveValue(expected);
+    await closePageActions(page);
+  }
 });

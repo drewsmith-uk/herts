@@ -31,9 +31,9 @@ test('shortcut records on a cold launch, preserves the draft, and only saves a t
   await page.setViewportSize({ width: 390, height: 844 });
   await probeMicrophone(page);
   await page.goto('/');
-  await page.getByRole('textbox', { name: 'Message Hermes' }).fill('My saved idea.');
+  await page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ }).fill('My saved idea.');
   await page.reload();
-  await expect(page.getByRole('textbox', { name: 'Message Hermes' })).toHaveValue('My saved idea.');
+  await expect(page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ })).toHaveValue('My saved idea.');
   expect(await page.evaluate(() => window.voiceProbe.calls)).toBe(0);
   const before: string[] = await (await request.get('http://127.0.0.1:8791/calls')).json();
   const url = await shortcutUrl(page);
@@ -41,22 +41,22 @@ test('shortcut records on a cold launch, preserves the draft, and only saves a t
   await page.goto(url);
   await expect(page.getByRole('button', { name: 'Stop recording and transcribe' })).toBeVisible();
   await expect(page).toHaveURL(/#\/tasks\/inbox$/);
-  await expect(page.getByRole('textbox', { name: 'Message Hermes' })).toHaveValue('My saved idea.');
+  await expect(page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ })).toHaveValue('My saved idea.');
   const edited = `Edited while recording ${testInfo.repeatEachIndex}.`;
-  await page.getByRole('textbox', { name: 'Message Hermes' }).fill(edited);
+  await page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ }).fill(edited);
   await page.waitForTimeout(1200); // Let the synthetic microphone produce a saved audio chunk.
   await page.screenshot({ path: 'test-results/phone-voice-shortcut.png', fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.getByRole('button', { name: 'Stop recording and transcribe' }).click();
   const title = `${edited}\nPlease draft a packing list.`;
-  await expect(page.getByRole('textbox', { name: 'Message Hermes' })).toHaveValue(title);
+  await expect(page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ })).toHaveValue(title);
   await expect(page.getByRole('link', { name: title, exact: true })).toHaveCount(0);
   await expect(page.locator('.countdown')).toHaveCount(0);
   expect(await page.evaluate(() => window.voiceProbe.calls)).toBe(1);
   await page.getByRole('button', { name: 'Save to Inbox', exact: true }).click();
   await expect(page.getByRole('link', { name: edited, exact: true })).toBeVisible();
   await page.reload();
-  await expect(page.getByRole('textbox', { name: 'Message Hermes' })).toHaveValue('');
+  await expect(page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ })).toHaveValue('');
   expect(await page.evaluate(() => window.voiceProbe.calls)).toBe(0);
   const after: string[] = await (await request.get('http://127.0.0.1:8791/calls')).json();
   expect(after.slice(before.length).filter(method => ['session.create', 'session.resume', 'prompt.submit'].includes(method))).toEqual([]);
@@ -79,7 +79,7 @@ test('shortcut works in an open app, avoids overlapping recordings and is consum
   await page.evaluate(() => { location.hash = '/conversations'; });
   await expect(page.getByRole('heading', { name: 'Conversations', exact: true })).toBeVisible();
   await page.goBack();
-  await expect(page.getByRole('textbox', { name: 'Message Hermes' })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Dictate', exact: true })).toBeEnabled();
   expect(await page.evaluate(() => window.voiceProbe.calls)).toBe(1);
   expect(await page.evaluate(() => window.voiceProbe.streams.every(stream => stream.getTracks().every(track => track.readyState === 'ended')))).toBe(true);
@@ -91,7 +91,7 @@ test('denied shortcut microphone is explained and can be retried manually withou
   await expect(page.getByRole('alert')).toContainText('Microphone permission is needed');
   await expect(page).toHaveURL(/#\/tasks\/inbox$/);
   await page.reload();
-  await expect(page.getByRole('textbox', { name: 'Message Hermes' })).toBeEnabled();
+  await expect(page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ })).toBeEnabled();
   expect(await page.evaluate(() => window.voiceProbe.calls)).toBe(0);
   await page.evaluate(() => { window.voiceProbe.denied = false; });
   await page.getByRole('button', { name: 'Dictate', exact: true }).click();
@@ -130,10 +130,10 @@ test('offline shortcut retains audio across reload and transcribes only when req
   await probeMicrophone(page);
   await page.goto('/');
   const url = await shortcutUrl(page);
-  await page.getByRole('textbox', { name: 'Message Hermes' }).fill('Offline capture.');
+  await page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ }).fill('Offline capture.');
   await page.evaluate(() => navigator.serviceWorker.ready);
   await page.reload();
-  await expect(page.getByRole('textbox', { name: 'Message Hermes' })).toHaveValue('Offline capture.');
+  await expect(page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ })).toHaveValue('Offline capture.');
   await page.goto('about:blank');
   await context.setOffline(true);
   await page.goto(url);
@@ -150,7 +150,7 @@ test('offline shortcut retains audio across reload and transcribes only when req
   await expect(page.locator('.save-state')).toContainText('Changes synced');
   expect(transcriptions).toBe(0);
   await page.getByRole('button', { name: 'Transcribe saved recording', exact: true }).click();
-  await expect(page.getByRole('textbox', { name: 'Message Hermes' })).toHaveValue('Offline capture.\nPlease draft a packing list.');
+  await expect(page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ })).toHaveValue('Offline capture.\nPlease draft a packing list.');
   expect(transcriptions).toBe(1);
   await expect(page.locator('.countdown')).toHaveCount(0);
 });

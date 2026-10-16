@@ -4,6 +4,7 @@ import { originalSpaceId, spacePath } from '../../shared/model';
 const headers = { 'x-tasks-request': '1' };
 const snapshot = async (request: APIRequestContext) => (await (await request.get('/api/v1/state')).json()).snapshot;
 const tab = (page: Page, id: string) => page.getByRole('navigation', { name: 'Task spaces', exact: true }).locator(`[data-drop-space="${id}"]`);
+async function selectSpace(page: Page, id: string) { const select=page.getByRole('combobox',{name:'Viewing space',exact:true}); if(await select.isVisible()) await select.selectOption(id); else await tab(page,id).click(); }
 const row = (page: Page, id: string) => page.locator(`[data-task-id="${id}"]`);
 const agentCalls = async (request: APIRequestContext) => (await (await request.get('http://127.0.0.1:8791/calls')).json() as string[]).filter(m => ['session.create', 'session.resume', 'prompt.submit', 'session.interrupt'].includes(m));
 async function space(request: APIRequestContext, name: string) {
@@ -30,7 +31,7 @@ for (const width of [390, 1280]) test(`space tabs and creation modal work on ${w
   await page.setViewportSize({ width, height: 844 });
   const before = await agentCalls(request), defaultId = (await snapshot(request)).defaultSpaceId, name = `Tab space ${width}`;
   await page.goto(`/#${spacePath(originalSpaceId, 'next')}`);
-  await expect(page.getByRole('combobox', { name: 'Viewing space' })).toHaveCount(0);
+  if(width>1000) await expect(page.getByRole('combobox', { name: 'Viewing space' })).toBeVisible(); else await expect(page.getByRole('combobox', { name: 'Viewing space' })).toHaveCount(0);
   await expect(page.getByRole('combobox', { name: 'Sidebar space' })).toHaveCount(0);
   const add = page.getByRole('button', { name: 'Create space', exact: true });
   await add.click(); const dialog = page.getByRole('dialog', { name: 'Create space' });
@@ -41,11 +42,11 @@ for (const width of [390, 1280]) test(`space tabs and creation modal work on ${w
   await dialog.getByRole('button', { name: 'Create space', exact: true }).click();
   await expect(dialog).toHaveCount(0); await expect(page.locator('.save-state')).toContainText('Changes synced');
   const current = (await snapshot(request)).spaces.find((s: any) => s.name === name).id;
-  await expect(page).toHaveURL(new RegExp(`/spaces/${current}/inbox$`)); await expect(tab(page, current)).toHaveAttribute('aria-current', 'page');
+  await expect(page).toHaveURL(new RegExp(`/spaces/${current}/inbox$`)); if(width>1000) await expect(page.getByRole('combobox',{name:'Viewing space'})).toHaveValue(current); else await expect(tab(page, current)).toHaveAttribute('aria-current', 'page');
   expect((await snapshot(request)).defaultSpaceId).toBe(defaultId);
-  await page.getByLabel('Message Hermes', { exact: true }).fill('A draft for this space');
-  await tab(page, originalSpaceId).click(); await expect(page.getByLabel('Message Hermes', { exact: true })).toHaveValue('');
-  await tab(page, current).click(); await expect(page.getByLabel('Message Hermes', { exact: true })).toHaveValue('A draft for this space');
+  await page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true }).fill('A draft for this space');
+  await selectSpace(page, originalSpaceId); await expect(page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true })).toHaveValue('');
+  await selectSpace(page, current); await expect(page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true })).toHaveValue('A draft for this space');
   await add.click(); await dialog.getByLabel('New space name', { exact: true }).fill(name.toUpperCase());
   await dialog.getByRole('button', { name: 'Create space', exact: true }).click();
   await expect(dialog.getByRole('alert')).toContainText('already exists'); await expect(dialog.getByLabel('New space name')).toHaveValue(name.toUpperCase());
@@ -54,7 +55,7 @@ for (const width of [390, 1280]) test(`space tabs and creation modal work on ${w
   await page.screenshot({ path: `test-results/space-tabs-${width}.png` });
 });
 
-for (const width of [390, 1280]) test(`overflow tabs scroll during a drag and move into the destination Inbox on ${width}px`, async ({ page, request }) => {
+for (const width of [390, 768, 1280]) test(`overflow tabs scroll during a drag and move into the destination Inbox on ${width}px`, async ({ page, request }) => {
   await page.setViewportSize({ width, height: 844 });
   const source = await space(request, `Drag source ${width}`), before = await agentCalls(request);
   for (let i = 0; i < 9; i++) await space(request, `Extra ${width} ${i + 1}`);
@@ -93,7 +94,7 @@ test('creating a space in the modal offline retains it and its tasks after reloa
     await page.getByRole('button', { name: 'Create space', exact: true }).click(); const dialog = page.getByRole('dialog');
     await dialog.getByLabel('New space name').fill('Offline tab space'); await dialog.getByRole('button', { name: 'Create space', exact: true }).click();
     await expect(page.getByRole('navigation', { name: 'Task spaces' }).getByRole('link', { name: 'Offline tab space', exact: true })).toHaveAttribute('aria-current', 'page');
-    await page.getByLabel('Message Hermes', { exact: true }).fill('Offline space task'); await page.getByRole('button', { name: 'Save to Inbox', exact: true }).click();
+    await page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true }).fill('Offline space task'); await page.getByRole('button', { name: 'Save to Inbox', exact: true }).click();
     await expect(page.getByRole('link', { name: 'Offline space task', exact: true })).toBeVisible(); await page.reload();
     await expect(page.getByRole('link', { name: 'Offline space task', exact: true })).toBeVisible();
   } finally { await context.setOffline(false); }

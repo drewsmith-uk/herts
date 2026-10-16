@@ -1,4 +1,4 @@
-import { detailsField, detailsControl } from './composer-helpers';
+import { saveTitle, detailsField, detailsControl, closePageActions } from './composer-helpers';
 import { randomUUID } from 'node:crypto';
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 
@@ -12,21 +12,22 @@ async function edit(page: Page, title: string) {
 }
 const agentCalls = async (request: APIRequestContext) => (await (await request.get('http://127.0.0.1:8791/calls')).json() as string[]).filter(method => ['session.create', 'session.resume', 'prompt.submit'].includes(method));
 
-test('reading titles save on blur, restore blank edits, survive offline reload and remain editable after marking read', async ({ page, context, request }) => {
+test('reading titles save explicitly, reject blank edits, and survive offline reload and marking read', async ({ page, context, request }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const url = await create(request, 'Shared reading title'), before = await agentCalls(request);
   await page.goto(url);
   await expect(page.locator('.offline-controls')).toContainText('Available offline');
   await expect(page.getByRole('button', { name: /^(Edit title|Save title)$/ })).toHaveCount(0);
   await edit(page, '   ');
-  await (await detailsField(page, 'Reading title')).blur();
+  await expect(page.getByRole('button', {name:'Save',exact:true})).toBeDisabled();
+  await page.getByRole('button', {name:'Cancel',exact:true}).click();
   await expect((await detailsField(page, 'Reading title'))).toHaveValue('Shared reading title');
   await page.evaluate(() => navigator.serviceWorker.ready);
   await context.setOffline(true);
   await edit(page, '  Saved offline reading title  ');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/reading-title-edit-phone.png', fullPage: true });
-  await (await detailsField(page, 'Reading title')).blur();
+  await saveTitle(page);
   await expect((await detailsField(page, 'Reading title'))).toHaveValue('Saved offline reading title');
   await page.reload();
   await expect((await detailsField(page, 'Reading title'))).toHaveValue('Saved offline reading title');
@@ -39,12 +40,12 @@ test('reading titles save on blur, restore blank edits, survive offline reload a
   await (await detailsControl(page, 'button', 'Mark read')).click();
   await expect((await detailsControl(page, 'button', 'Mark unread'))).toBeVisible();
   await edit(page, 'Finished article title');
-  await (await detailsField(page, 'Reading title')).blur();
+  await saveTitle(page);
   await expect(page.locator('.save-state')).toContainText('Changes synced');
   await page.reload();
   await expect((await detailsField(page, 'Reading title'))).toHaveValue('Finished article title');
   await expect((await detailsControl(page, 'button', 'Mark unread'))).toBeVisible();
-  await page.getByRole('link', { name: 'Back to Reading list', exact: true }).click();
+  await closePageActions(page); await page.getByRole('link', { name: 'Back to Reading list', exact: true }).click();
   await expect(page.getByRole('link', { name: 'Finished article title', exact: true })).toBeVisible();
   expect(await agentCalls(request)).toEqual(before);
 });
@@ -58,14 +59,14 @@ for (const keepMine of [true, false]) test(`competing reading-title edits preser
     await expect(other.locator('.save-state')).toContainText('Changes synced');
     await edit(page, 'My draft title');
     await edit(other, 'Other device title');
-    await (await detailsField(other, 'Reading title')).blur();
+    await saveTitle(other);
     await expect(other.locator('.save-state')).toContainText('Changes synced');
     await expect((await detailsField(page, 'Reading title'))).toHaveValue('My draft title');
-    await (await detailsField(page, 'Reading title')).blur();
+    await saveTitle(page);
     const conflict = page.locator('.conflict-banner');
     await expect(conflict).toContainText('Your title: My draft title');
     await expect(conflict).toContainText('Synced title: Other device title');
-    await conflict.getByRole('button', { name: keepMine ? 'Keep my change' : 'Use synced version', exact: true }).click();
+    await closePageActions(page); await conflict.getByRole('button', { name: keepMine ? 'Keep my change' : 'Use synced version', exact: true }).click();
     await expect(conflict).toHaveCount(0);
     await expect(page.locator('.save-state')).toContainText('Changes synced');
     const title = keepMine ? 'My draft title' : 'Other device title';
@@ -93,7 +94,7 @@ for (const width of [390, 1280]) test(`reading list Edit mode saves inline title
   await page.goto(url); await expect((await detailsField(page, 'Reading title'))).toHaveValue(updated);
   await (await detailsControl(page, 'button', 'Mark read')).click();
   await expect((await detailsControl(page, 'button', 'Mark unread'))).toBeVisible();
-  await page.getByRole('link', { name: 'Back to Reading list', exact: true }).click();
+  await closePageActions(page); await page.getByRole('link', { name: 'Back to Reading list', exact: true }).click();
   await page.getByRole('button', { name: 'Edit list', exact: true }).click();
   const readRow = page.getByRole('group', { name: updated, exact: true });
   await expect(readRow.locator('.reorder-controls')).toHaveCount(0);

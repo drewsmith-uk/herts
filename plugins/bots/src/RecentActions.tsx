@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { History, RefreshCw } from 'lucide-react';
-import { Button, ButtonLink, DialogFrame, DialogHeading, ItemMeta, StatusMessage, pluginActionStatus, pluginLocal, pluginQuery, reviewPluginAction, useCore } from '@herts/plugin-api/client';
+import { ActionRow, Button, ButtonLink, DialogFrame, DialogHeading, ItemMeta, StatusMessage, pluginActionStatus, pluginLocal, pluginQuery, reviewPluginAction, useCore } from '@herts/plugin-api/client';
 import type { Bot, RemoteAction, Routine } from '@herts/plugin-api/client';
 import { reviewRoutineAction, errorText, formatTime, href, ID, routineHref } from './state';
 const operations:Record<string,string>={create:'Create routine',update:'Edit routine',pause:'Pause routine',resume:'Resume routine',remove:'Delete routine',run:'Run routine',hide:'Hide bot',unhide:'Unhide bot'};
 const states={pending:'In progress',finished:'Completed',failed:'Failed',unknown:'Needs checking'};
-export function RecentActions({bots,profile}:{bots:Bot[];profile?:string}){
+export function RecentActions({bots,profile,actionRow=false}:{bots:Bot[];profile?:string;actionRow?:boolean}){
  const core=useCore(),local=useRef(pluginLocal(ID)).current,[open,setOpen]=useState(false),[rows,setRows]=useState<RemoteAction[]>([]),[loading,setLoading]=useState(false),[error,setError]=useState(''),[attempt,setAttempt]=useState(0),[count,setCount]=useState(30),[more,setMore]=useState(false),[cached,setCached]=useState(false);
  const [review,setReview]=useState<{row:RemoteAction;text:string}>(),[reviewing,setReviewing]=useState(false),[checked,setChecked]=useState(false);
  useEffect(()=>{if(!open)return;let alive=true,working=false;const key=`actions:${profile||'all'}`;
@@ -20,7 +20,7 @@ export function RecentActions({bots,profile}:{bots:Bot[];profile?:string}){
   try{const subject=row.subject;let text:string;if(row.command==='routine'){text=await reviewRoutineAction(subject.profile,subject.routineId,subject.title,subject.operation==='run');}else{const bot=await pluginQuery(ID,'describe',{name:subject.profile});text=`${bot.title}\n${bot.hidden?'Hidden':'Visible'}\n${bot.description}\n${bot.soul}`;}setReview({row,text});}
   catch(e){setError(errorText(e));}finally{setReviewing(false);}
  }
- return <><Button variant="quiet" onClick={()=>setOpen(true)}><History size={16}/> Recent actions</Button>{open&&<DialogFrame className="bots-dialog" size="wide" close={()=>setOpen(false)} busy={reviewing} aria-labelledby="bot-actions-title">
+ return <>{actionRow ? <ActionRow icon={<History size={20}/>} onClick={()=>setOpen(true)}>Recent actions</ActionRow> : <Button variant="quiet" onClick={()=>setOpen(true)}><History size={16}/> Recent actions</Button>}{open&&<DialogFrame className="bots-dialog" size="wide" close={()=>setOpen(false)} busy={reviewing} aria-labelledby="bot-actions-title">
   <DialogHeading id="bot-actions-title" close={()=>setOpen(false)} busy={reviewing}>Recent actions</DialogHeading>
   <p className="form-hint">{profile?bots.find(b=>b.name===profile)?.title||profile:'All bots'}. Unconfirmed actions stay here until reviewed and are never automatically repeated.</p>
   <Button variant="quiet" disabled={loading||!core.online} onClick={()=>setAttempt(n=>n+1)}><RefreshCw size={16} className={loading?'spin':''}/>{loading?'Checking actions…':'Refresh actions'}</Button>

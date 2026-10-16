@@ -30,15 +30,15 @@ for (const outage of ['Hermes', 'network']) test(`idle conversation history and 
   await message(request, id, 'Message before disconnect.');
   await page.goto(`/#/conversation/${id}`);
   await expect(page.locator('.history')).toContainText('Message before disconnect.');
-  await page.getByLabel('Message Hermes').fill('Keep this unsent draft.');
-  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
+  await page.getByLabel(/^(Message Hermes|Add a task)$/).fill('Keep this unsent draft.');
+  await expect(page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true })).toBeEnabled();
   if (outage === 'Hermes') await hermes(request, false); else await context.setOffline(true);
-  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true })).toBeDisabled();
   await message(request, id, 'Message received while disconnected.');
   if (outage === 'Hermes') await hermes(request, true); else await context.setOffline(false);
   await expect(page.locator('.history')).toContainText('Message received while disconnected.');
-  await expect(page.getByLabel('Message Hermes')).toHaveValue('Keep this unsent draft.');
-  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
+  await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toHaveValue('Keep this unsent draft.');
+  await expect(page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true })).toBeEnabled();
   expect(await work(request)).toEqual(before);
 });
 
@@ -47,8 +47,8 @@ test('returning to the app replaces a stalled status read and ignores its late r
   await message(request, id, 'Before the app was backgrounded.');
   await page.goto(`/#/conversation/${id}`);
   await expect(page.locator('.history')).toContainText('Before the app was backgrounded.');
-  await page.getByLabel('Message Hermes').fill('Still unsent after returning.');
-  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
+  await page.getByLabel(/^(Message Hermes|Add a task)$/).fill('Still unsent after returning.');
+  await expect(page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true })).toBeEnabled();
   const stale = await state(request); stale.gateway.online = false;
   let requests = 0, recovering = false, release!: () => void, held!: () => void;
   const delayed = new Promise<void>(resolve => { release = resolve; });
@@ -67,8 +67,8 @@ test('returning to the app replaces a stalled status read and ignores its late r
     await expect.poll(() => requests, { timeout: 5000 }).toBeGreaterThan(beforeRecovery);
     await expect(page.locator('.history')).toContainText('Latest message after returning to the app.');
     release();
-    await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
-    await expect(page.getByLabel('Message Hermes')).toHaveValue('Still unsent after returning.');
+    await expect(page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true })).toBeEnabled();
+    await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toHaveValue('Still unsent after returning.');
     expect(await work(request)).toEqual(before);
   } finally { release(); }
 });

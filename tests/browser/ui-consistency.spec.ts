@@ -1,3 +1,5 @@
+import { openSettingsGroups } from './composer-helpers';
+import { pageAction, closePageActions } from './composer-helpers';
 import { openConnectionDetails } from './navigation-helpers';
 import { test, expect } from '@playwright/test';
 import { pinnedPlugin, pinnedReady, seedPin } from './pinned-helpers';
@@ -7,7 +9,7 @@ async function bots(request: import('@playwright/test').APIRequestContext, actio
   const { catalogue } = await (await request.get('/api/v1/plugins')).json();
   expect((await request.post('/api/v1/plugins/bots/manage', { headers: { 'x-herts-request': '1' }, data: { action, revision: catalogue.revision } })).ok()).toBe(true);
 }
-test.afterEach(async ({ request }) => { await bots(request, 'disable'); await pinnedPlugin(request, 'disable'); });
+test.afterEach(async ({ page, request }) => { await page.unrouteAll({ behavior: 'wait' }); await bots(request, 'disable'); await pinnedPlugin(request, 'disable'); });
 
 test('an older app gets an actionable plugin update message and can still open app updates', async ({ page }) => {
   await page.addInitScript(() => {
@@ -21,7 +23,7 @@ test('an older app gets an actionable plugin update message and can still open a
   await page.goto('/#/settings/plugins');
   await expect(page.getByText('Update Herts in Settings → App updates to use this version of Tasks.', { exact: true })).toBeVisible();
   await expect(page.getByText('Update Herts in Settings → App updates to use this version of Reading.', { exact: true })).toBeVisible();
-  await page.goto('/#/settings');
+  await page.goto('/#/settings'); await openSettingsGroups(page);
   await expect(page.getByRole('button', { name: 'Check for updates', exact: true })).toBeVisible();
 });
 
@@ -83,7 +85,7 @@ for (const theme of builtinThemes) {
           await row.dispatchEvent('pointercancel',{pointerId:1});await page.mouse.up();await expect(page.getByRole('dialog')).toHaveCount(0);
         }
         if (path === '/plugins/bots/research/routines') await expect(page.getByRole('heading', { name: 'research briefing', exact: true })).toBeVisible();
-        if (path === '/settings') {
+        if (path === '/settings') { await openSettingsGroups(page);
           const voice=page.getByLabel('Voice on this device');
           await expect(voice).toHaveValue('device');await voice.focus();await expect(voice).toBeFocused();
           const bounds=(await voice.boundingBox())!;
@@ -109,21 +111,21 @@ for (const theme of builtinThemes) {
     for(const width of [320,390,768,1280]){
       await page.setViewportSize({width,height:480});
       await page.goto('/#/plugins/bots/research');await expect(page.getByLabel('Message Researcher')).toBeVisible();
-      await expect(page.getByRole('link',{name:'Routines',exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'Edit bot',exact:true})).toBeVisible();
+      await expect(page.getByRole('link',{name:'Routines',exact:true})).toBeVisible();await expect(page.locator('.conversation-page-header').getByRole('button',{name:'More',exact:true})).toBeVisible();
       const history=await page.locator('.conversation-scroll').boundingBox(),composer=await page.locator('.composer-wrap').boundingBox();expect(history!.height).toBeGreaterThan(30);expect(history!.y+history!.height).toBeLessThanOrEqual(composer!.y+1);
-      const bottom=width<=700?await page.locator('.mobile-nav').evaluate(node=>node.getBoundingClientRect().top):480;
+      const bottom=width<=1000?await page.locator('.mobile-nav').evaluate(node=>node.getBoundingClientRect().top):480;
       expect(composer!.y+composer!.height).toBeLessThanOrEqual(bottom);
       await page.screenshot({path:`test-results/ui-${theme.id}-bot-chat-${width}.png`});
       // Focusing expands the composer; its controls must remain reachable inside
       // the fixed viewport even when settings and draft status consume space.
       await page.getByLabel('Message Researcher').fill('An unsent short-window draft');
-      await page.getByRole('button',{name:'Send',exact:true}).scrollIntoViewIfNeeded();
+      await page.getByRole('button',{name:/^(Send|Send to Hermes)$/,exact:true}).scrollIntoViewIfNeeded();
       await page.locator('.composer-wrap').evaluate(node=>{node.scrollTop=node.scrollHeight;});
-      const expanded=await page.locator('.composer-wrap').boundingBox(),send=await page.getByRole('button',{name:'Send',exact:true}).boundingBox();
+      const expanded=await page.locator('.composer-wrap').boundingBox(),send=await page.getByRole('button',{name:/^(Send|Send to Hermes)$/,exact:true}).boundingBox();
       expect(expanded!.y+expanded!.height).toBeLessThanOrEqual(bottom);expect(send!.y).toBeGreaterThanOrEqual(expanded!.y);expect(send!.y+send!.height).toBeLessThanOrEqual(expanded!.y+expanded!.height-5);
       await page.screenshot({path:`test-results/ui-${theme.id}-bot-chat-expanded-${width}.png`});
       await page.getByRole('button',{name:'Collapse message box',exact:true}).click();
-      await page.getByRole('button',{name:'Edit bot',exact:true}).click();await page.getByRole('textbox',{name:'Persona',exact:true}).fill('Long persona with https://example.com/'+ 'instructions'.repeat(80));
+      if (!await page.getByRole('button', {name:'Edit bot',exact:true}).isVisible()) await page.locator('.conversation-page-header').getByRole('button',{name:'More',exact:true}).click(); await page.getByRole('button',{name:'Edit bot',exact:true}).click();await page.getByRole('textbox',{name:'Persona',exact:true}).fill('Long persona with https://example.com/'+ 'instructions'.repeat(80));
       await page.getByRole('textbox',{name:'Persona',exact:true}).focus();
       const field=await page.getByRole('textbox',{name:'Persona',exact:true}).boundingBox(),footer=await page.locator('.form-dialog-footer').boundingBox();expect(field!.y+field!.height).toBeLessThanOrEqual(footer!.y+1);
       await page.screenshot({path:`test-results/ui-${theme.id}-bot-form-${width}.png`});await page.keyboard.press('Escape');
@@ -202,7 +204,7 @@ for (const theme of builtinThemes) {
       expect(await dialog.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
       await page.keyboard.press('Escape'); await expect(dialog).toHaveCount(0);
     }
-    await page.goto('/#/settings');
+    await page.goto('/#/settings'); await openSettingsGroups(page);
     await page.getByRole('button', { name: 'Edit conversation defaults', exact: true }).click();
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
@@ -274,7 +276,7 @@ for (const theme of builtinThemes) {
       await context.grantPermissions(['notifications']); await retryPins();
       await expect(page.locator('.pinned-list').getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0);
       await page.setViewportSize({ width, height: 480 }); await page.goto('/#/conversation/existing');
-      const pin = page.getByRole('button', { name: 'Pin notification', exact: true }); await expect(pin).toBeEnabled();
+      const pin = await pageAction(page, 'button', 'Pin notification'); await expect(pin).toBeEnabled();
       await pin.focus(); await expect(pin).toBeFocused();
       const bounds = (await pin.boundingBox())!;
       expect(bounds.x).toBeGreaterThanOrEqual(0); expect(bounds.x + bounds.width).toBeLessThanOrEqual(width + 1);
@@ -286,7 +288,7 @@ for (const theme of builtinThemes) {
       }
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       const composer = (await page.locator('.composer-wrap').boundingBox())!;
-      const bottom = width <= 700 ? await page.locator('.mobile-nav').evaluate(node => node.getBoundingClientRect().top) : 480;
+      const bottom = width <= 1000 ? await page.locator('.mobile-nav').evaluate(node => node.getBoundingClientRect().top) : 480;
       expect(composer.y + composer.height).toBeLessThanOrEqual(bottom + 1);
       await page.screenshot({ path: `test-results/pinned-${theme.id}-conversation-${width}.png` });
     }
@@ -317,7 +319,7 @@ for (const theme of builtinThemes) {
         expect(bounds.x).toBeGreaterThanOrEqual(0);
         expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
         expect(bounds.height).toBeLessThanOrEqual(64);
-        const bottom = width <= 700 ? (await page.locator('.mobile-nav').boundingBox())!.y : 900;
+        const bottom = width <= 1000 ? (await page.locator('.mobile-nav').boundingBox())!.y : 900;
         expect(bounds.y + bounds.height).toBeLessThan(bottom);
         await toast.getByRole('button', { name: 'Undo', exact: true }).focus();
         await expect(toast.getByRole('button', { name: 'Undo', exact: true })).toBeFocused();
@@ -343,6 +345,7 @@ for (const theme of builtinThemes) test(`${theme.name}: speech preparation and e
     await page.route('**/api/v1/audio/speak',async route=>{await gate;await route.fulfill({status:503,json:{error:'The speech provider is unavailable. Your message is unchanged. Try reading this response again when the connection returns.'}});});
     try {
       await page.goto('/#/conversation/existing');
+      await expect(page.getByRole('textbox', {name: 'Message Hermes', exact: true})).toBeEditable();
       const response=page.locator('.message').filter({has:page.locator('button.read-aloud')});
       const button=response.getByRole('button',{name:'Read response aloud',exact:true});
       await button.focus();await expect(button).toBeFocused();
@@ -354,7 +357,7 @@ for (const theme of builtinThemes) test(`${theme.name}: speech preparation and e
       release();
       await expect(response.getByRole('alert')).toContainText('Read aloud failed:');
       await expect(response.getByRole('alert')).toBeInViewport();
-      await page.getByRole('button',{name:'Refresh conversation history',exact:true}).click();
+      await (await pageAction(page, 'button', 'Refresh conversation history')).click(); await closePageActions(page);
       await expect(response.getByRole('alert')).toContainText('The speech provider is unavailable.');
       for(const element of [response,response.getByRole('alert')]) {
         const bounds=(await element.boundingBox())!;
@@ -378,6 +381,7 @@ for (const theme of builtinThemes) for (const width of [320,390,768,1280]) test(
     : {error:'Hermes is unavailable. Try again when the connection returns.'}}));
   await page.setViewportSize({width,height:480});
   await page.goto('/#/conversation/existing');
+  await expect(page.getByRole('textbox', {name: 'Message Hermes', exact: true})).toBeEditable();
   const button = page.getByRole('button',{name:'Download file',exact:true});
   await button.focus(); await expect(button).toBeFocused();
   await page.screenshot({path:`test-results/media-${theme.id}-${width}-idle.png`});
@@ -421,7 +425,7 @@ for (const theme of builtinThemes) test(`${theme.name}: adaptive navigation and 
     await expect(page.locator('.topbar')).toHaveCount(0);
     const status = page.locator('.connection-badge:visible');
     await expect(status).toBeVisible();
-    if (width < 701) {
+    if (width <= 1000) {
       const nav = page.locator('.mobile-nav');
       await nav.getByRole('button', { name: 'More', exact: true }).click();
       const sheet = page.getByRole('dialog');
@@ -459,7 +463,7 @@ for (const theme of builtinThemes) test(`${theme.name}: adaptive navigation and 
     await page.setViewportSize({ width, height: 560 });
     await expect(status).toBeVisible();
     await page.screenshot({ path: `test-results/navigation-conversation-${theme.id}-${width}.png` });
-    if (width < 701) {
+    if (width <= 1000) {
       await page.evaluate(() => document.body.classList.add('keyboard-open'));
       await expect(page.locator('.mobile-nav .navigation-end')).toBeVisible();
       await expect(page.locator('.mobile-nav > a:not(.navigation-end)').first()).toBeHidden();
@@ -494,5 +498,165 @@ test('tab order keeps long names inside collapsible sections in every theme', as
       await toggle.click();
       await expect(title).toBeVisible();
     }
+  }
+});
+
+for (const theme of builtinThemes) test(`${theme.name}: refined capture and reading modes fit all viewports`, async ({ page, request }) => {
+  test.setTimeout(120_000);
+  await page.addInitScript(({key,theme}) => localStorage.setItem(key,JSON.stringify({id:theme.id,theme})), {key:themeStorageKey,theme});
+  const taskId=crypto.randomUUID(),itemId=crypto.randomUUID();
+  const title='Review https://example.com/'+'long-project-reference/'.repeat(12);
+  await request.post('/api/v1/sync',{headers:{'x-herts-request':'1'},data:{id:crypto.randomUUID(),taskId,kind:'create',title,at:Date.now()}});
+  await request.post('/api/v1/reading/sync',{headers:{'x-herts-request':'1'},data:{id:crypto.randomUUID(),itemId,contextId:crypto.randomUUID(),kind:'create',title,url:'https://example.com/refined-reading',at:Date.now()}});
+  for(const width of [320,390,768,1280]) {
+    await page.setViewportSize({width,height:844});
+    await page.goto('/#/tasks/inbox');
+    await expect(page.getByRole('textbox',{name:'Add a task',exact:true})).toBeVisible();
+    await expect(page.getByRole('navigation',{name:'Task spaces',exact:true})).toBeVisible();
+    const destinations=page.locator('.mobile-lists [data-drop-list]');
+    await expect(destinations).toHaveCount(6);
+    for(const target of await destinations.all()) await expect(target).toBeInViewport({ratio:1});
+    await destinations.first().focus();
+    await expect(destinations.first()).toBeFocused();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({path:`test-results/refined-${theme.id}-tasks-${width}.png`});
+    await page.getByRole('textbox', { name: 'Add a task', exact: true }).fill('A draft with https://example.com/' + 'long-reference/'.repeat(15));
+    const capture = page.locator('.composer-capture');
+    await expect(capture.locator('details')).toHaveCount(0);
+    await expect(capture.locator('.capture-destination')).toHaveCount(0);
+    const titleField = capture.getByRole('textbox', { name: 'New task title', exact: true });
+    await expect(titleField).toBeVisible();
+    await titleField.fill('A long optional task title '.repeat(20));
+    await titleField.focus();
+    await expect(titleField).toBeFocused();
+    await expect(capture.getByRole('button', { name: /^Conversation settings:/ })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({path:`test-results/capture-open-${theme.id}-${width}.png`});
+    await page.goto(`/#/reading-item/${itemId}`);
+    await expect(page.getByRole('link',{name:'Article',exact:true})).toBeVisible();
+    await page.getByRole('textbox',{name:/^(Message Hermes|Add a task)$/,exact:true}).fill('A discussion draft with a long URL https://example.com/'+'long-path/'.repeat(20));
+    await page.getByRole('link',{name:'Article',exact:true}).click();
+    await expect(page.locator('.reader-article')).toBeVisible();
+    await expect(page.locator('.reading-mode-bar .offline-controls')).toHaveCount(0);
+    const original = page.locator('.reader-meta').getByRole('link', { name: 'Open original', exact: true });
+    await expect(original).toHaveAttribute('target', '_blank');
+    await original.focus();
+    await expect(original).toBeFocused();
+    await page.locator('.conversation-page-header').getByRole('button', { name: 'More', exact: true }).click();
+    await expect(page.getByRole('dialog', { name: 'Page actions' }).getByRole('button', { name: 'Remove download', exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.conversation-page-header').getByRole('button', { name: 'More', exact: true })).toBeFocused();
+    if(width===1280) await page.getByRole('button',{name:'Show alongside',exact:true}).click();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({path:`test-results/refined-${theme.id}-reading-${width}.png`});
+    await page.getByRole('link',{name:'Discussion',exact:true}).click();
+    await page.setViewportSize({width,height:480});
+    await expect(page.getByRole('textbox',{name:/^(Message Hermes|Add a task)$/,exact:true})).toHaveValue(/A discussion draft/);
+    await expect.poll(async () => { const composer = (await page.locator('.composer-wrap').boundingBox())!; return composer.y + composer.height; }).toBeLessThanOrEqual(480);
+    await expect(page.getByRole('button',{name:'Send',exact:true})).toBeInViewport({ratio:1});
+    await page.screenshot({path:`test-results/refined-${theme.id}-discussion-short-${width}.png`});
+  }
+});
+
+test('normal task capture keeps visible destinations and the first task reachable', async ({page,request}) => {
+  await request.post('/api/v1/sync',{headers:{'x-herts-request':'1'},data:{id:crypto.randomUUID(),taskId:crypto.randomUUID(),kind:'create',title:'Short task',at:Date.now()}});
+  await page.setViewportSize({width:390,height:844});await page.goto('/#/tasks/inbox');
+  await expect(page.getByRole('textbox',{name:'Add a task',exact:true})).toBeVisible();
+  await expect(page.locator('.task-item').first()).toBeVisible();
+  const targets=page.locator('.mobile-lists [data-drop-list]');
+  await expect(targets).toHaveCount(6);
+  for(const target of await targets.all()) await expect(target).toBeInViewport({ratio:1});
+  const capture=(await page.locator('.composer-capture').boundingBox())!;
+  const task=(await page.locator('.task-item').first().boundingBox())!;
+  expect(task.y).toBeGreaterThanOrEqual(capture.y+capture.height);
+  expect(task.y).toBeLessThan((await page.locator('.mobile-nav').boundingBox())!.y);
+});
+
+for (const theme of builtinThemes) test(`${theme.name}: reviewed actions and one theme picker fit every viewport`, async ({ page, request }) => {
+  test.setTimeout(180_000);
+  await bots(request, 'enable');
+  await page.addInitScript(({key,theme}) => localStorage.setItem(key, JSON.stringify({id:theme.id,theme})), {key:themeStorageKey,theme});
+  const taskId=crypto.randomUUID(), itemId=crypto.randomUUID(), title='Review '+ 'the detailed project schedule and delivery dates '.repeat(12);
+  const headers={'x-herts-request':'1'};
+  await request.post('/api/v1/sync',{headers,data:{id:crypto.randomUUID(),taskId,kind:'create',title,at:Date.now()}});
+  await request.post('/api/v1/reading/sync',{headers,data:{id:crypto.randomUUID(),itemId,contextId:crypto.randomUUID(),kind:'create',title,url:'https://example.com/'+ 'long-path/'.repeat(20),at:Date.now()}});
+  for (const width of [320,390,768,1280]) {
+    await page.setViewportSize({width,height:480});
+    for (const path of [`/task/${taskId}`,`/reading-item/${itemId}`,'/conversation/existing','/plugins/bots/research']) {
+      await page.goto('/#'+path);
+      await expect(page.locator('.conversation-panel')).toBeVisible();
+      await expect(page.locator('.conversation-compact-title')).toBeVisible();
+      await expect(page.locator('html')).toHaveAttribute('data-theme',theme.id);
+      const more=page.locator('.conversation-page-header').getByRole('button',{name:'More',exact:true});
+      await more.click();
+      const dialog=page.getByRole('dialog',{name:'Page actions',exact:true});
+      await expect(dialog.locator('.action-row').first()).toBeVisible();
+      const fonts=await dialog.locator('.action-row').evaluateAll(nodes=>nodes.map(n=>getComputedStyle(n).fontSize));
+      expect(new Set(fonts).size).toBe(1);
+      const bounds=await dialog.locator('.action-row').evaluateAll(nodes=>nodes.map(n=>{const b=n.getBoundingClientRect();return {height:b.height,left:b.left,right:b.right,text:n.textContent?.trim()}}));
+      for (const b of bounds) {expect(b.height).toBeGreaterThanOrEqual(44);expect(b.left).toBeGreaterThanOrEqual(0);expect(b.right).toBeLessThanOrEqual(width);expect(b.text).toBeTruthy();}
+      const visibility=dialog.locator('.page-visibility-actions');
+      if(await visibility.count()) expect(await visibility.evaluate(n=>getComputedStyle(n).marginTop)).toBe('0px');
+      await page.screenshot({path:`test-results/review-${theme.id}-${path.split('/')[1]}-${width}.png`});
+      const rename=dialog.getByRole('button',{name:/^Rename /});
+      if(await rename.count()) {
+        await rename.click();
+        const editor=page.getByRole('dialog',{name:/^Rename /}), field=editor.getByRole('textbox');
+        await field.fill('A long title with https://example.com/'+'reference'.repeat(6));await field.focus();
+        await expect(field).toBeFocused();
+        await expect(dialog).toBeHidden();await expect(page.locator('dialog[open]')).toHaveCount(1);
+        const box=(await field.boundingBox())!, footer=(await editor.locator('.form-dialog-footer').boundingBox())!;
+        expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(width);expect(box.y+box.height).toBeLessThanOrEqual(footer.y+1);
+        await page.screenshot({path:`test-results/review-${theme.id}-${path.split('/')[1]}-rename-${width}.png`});
+        await page.keyboard.press('Escape');await expect(editor).toBeHidden();await expect(more).toBeFocused();
+      }
+      if(path.startsWith('/task/')) for(const kind of ['list','space']) {
+        await more.click();
+        const trigger=dialog.getByRole('button',{name:new RegExp(`^Move to ${kind}`)});await trigger.click();
+        const editor=page.getByRole('dialog',{name:`Move to ${kind}`,exact:true}), field=editor.getByRole('combobox');
+        await field.focus();await expect(field).toBeFocused();
+        await expect(dialog).toBeHidden();await expect(page.locator('dialog[open]')).toHaveCount(1);
+        const box=(await field.boundingBox())!;expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(width);
+        await page.screenshot({path:`test-results/review-${theme.id}-move-${kind}-${width}.png`});
+        await page.keyboard.press('Escape');await expect(editor).toBeHidden();await expect(more).toBeFocused();
+      }
+      if(path.startsWith('/task/') || path.startsWith('/plugins/bots/')) {
+        if(!await dialog.isVisible()) await more.click();
+        await dialog.getByRole('button',{name:path.startsWith('/task/')?'Snooze':'Edit bot',exact:true}).click();
+        const editor=page.getByRole('dialog');
+        await expect(editor).toBeVisible();await expect(dialog).toBeHidden();
+        await expect(page.locator('dialog[open]')).toHaveCount(1);
+        await page.screenshot({path:`test-results/review-${theme.id}-${path.startsWith('/task/')?'snooze':'bot-editor'}-${width}.png`});
+        await page.keyboard.press('Escape');await expect(editor).toBeHidden();await expect(more).toBeFocused();
+      }
+      await page.keyboard.press('Escape');await expect(dialog).toBeHidden();await expect(more).toBeFocused();
+      expect(await page.locator('.conversation-page-header').evaluate(n=>n.getBoundingClientRect().height)).toBeLessThanOrEqual(90);
+      expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    }
+    await page.goto('/#/settings');
+    await expect(page.locator('.appearance-settings select')).toHaveCount(0);
+    await expect(page.getByRole('radio')).toHaveCount(builtinThemes.length);
+    await expect(page.getByRole('radio',{checked:true})).toHaveCount(1);
+    await page.screenshot({path:`test-results/review-${theme.id}-appearance-${width}.png`,fullPage:true});
+    await page.locator('.theme-preview').first().click();await expect(page.getByRole('radio').first()).toBeChecked();
+    await page.getByRole('radio').first().focus();await page.keyboard.press('ArrowRight');await expect(page.getByRole('radio').nth(1)).toBeChecked();
+    await page.locator(`input[name="appearance-theme"][value="${theme.id}"]`).check();
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  }
+});
+
+for (const theme of builtinThemes.filter(t => ['press', 'fieldwork'].includes(t.id))) test(`${theme.name}: bot header actions share vertical edges`, async ({ page, request }) => {
+  await bots(request, 'enable');
+  await page.addInitScript(({ key, theme }) => localStorage.setItem(key, JSON.stringify({ id: theme.id, theme })), { key: themeStorageKey, theme });
+  await page.goto('/#/plugins/bots/research');
+  for (const width of [320, 390, 768, 1280]) {
+    await page.setViewportSize({ width, height: 844 });
+    const routines = page.getByRole('link', { name: 'Routines', exact: true });
+    const more = page.locator('.conversation-page-header').getByRole('button', { name: 'More', exact: true });
+    await expect(routines).toBeVisible(); await expect(more).toBeVisible();
+    const a = (await routines.boundingBox())!, b = (await more.boundingBox())!;
+    expect(Math.abs(a.y - b.y)).toBeLessThanOrEqual(1);
+    expect(Math.abs(a.y + a.height - b.y - b.height)).toBeLessThanOrEqual(1);
+    await page.screenshot({ path: `test-results/header-alignment-${theme.id}-${width}.png` });
   }
 });

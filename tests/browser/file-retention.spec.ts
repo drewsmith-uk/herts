@@ -8,7 +8,7 @@ async function rows(page: Page, table: string) {
   }, table);
 }
 test('removing an attachment and deleting its draft leaves no file bytes behind', async ({ page }) => {
-  await page.goto('/#/new'); await page.getByLabel('Message Hermes').fill('Synthetic private draft');
+  await page.goto('/#/new'); await page.getByLabel(/^(Message Hermes|Add a task)$/).fill('Synthetic private draft');
   await page.locator('input[type=file]').setInputFiles({ name: 'private.txt', mimeType: 'text/plain', buffer: Buffer.from('Synthetic private file') });
   await expect(page.getByRole('button', { name: 'Remove private.txt' })).toBeVisible();
   await page.getByRole('button', { name: 'Remove private.txt' }).click();
@@ -23,13 +23,13 @@ test('dictation clears transient audio only after the transcript is durably save
   await page.goto('/#/new'); await page.getByRole('button', { name: 'Dictate', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Stop recording and transcribe' })).toBeVisible();
   await page.waitForTimeout(1200); await page.getByRole('button', { name: 'Stop recording and transcribe' }).click();
-  await expect(page.getByLabel('Message Hermes')).toHaveValue('Please draft a packing list.');
+  await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toHaveValue('Please draft a packing list.');
   await expect.poll(async () => (await rows(page, 'recordings')).length).toBe(0);
   await expect.poll(async () => (await rows(page, 'files')).length).toBe(0);
   await expect.poll(async () => (await request.get(`/api/v1/uploads/${transcription!.uploadId}`)).status()).toBe(404);
   const replay = await request.post('/api/v1/audio/transcribe', { headers: { 'x-herts-request': '1' }, data: transcription });
   expect(replay.status()).toBe(410);
-  await page.reload(); await expect(page.getByLabel('Message Hermes')).toHaveValue('Please draft a packing list.');
+  await page.reload(); await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toHaveValue('Please draft a packing list.');
 });
 for (const width of [390, 1280]) test(`failed transcription retains recoverable audio with usable deletion at ${width}px`, async ({ page, request }) => {
   await page.setViewportSize({ width, height: 844 });
@@ -59,18 +59,18 @@ test('a lost transcription reply recovers the same request and defers offline cl
   await expect(page.getByRole('button', { name: 'Stop recording and transcribe' })).toBeVisible();
   await page.waitForTimeout(1200); await page.getByRole('button', { name: 'Stop recording and transcribe' }).click();
   await page.getByRole('button', { name: 'Transcribe saved recording', exact: true }).click();
-  await expect(page.getByLabel('Message Hermes')).toHaveValue('Please draft a packing list.');
+  await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toHaveValue('Please draft a packing list.');
   expect(attempts).toHaveLength(2); expect(attempts[1]).toEqual(attempts[0]);
   await expect.poll(() => rows(page, 'recordings')).toEqual([]);
   await expect.poll(() => rows(page, 'files')).toEqual([]);
   expect((await request.get(`/api/v1/uploads/${attempts[0].uploadId}`)).status()).toBe(200);
   await page.unroute('**/api/v1/audio/discard'); await page.reload();
-  await expect(page.getByLabel('Message Hermes')).toHaveValue('Please draft a packing list.');
+  await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toHaveValue('Please draft a packing list.');
   await expect.poll(async () => (await request.get(`/api/v1/uploads/${attempts[0].uploadId}`)).status()).toBe(404);
 });
 
 test('removing an attachment preserves other drafts, plugin data and pending journal references', async ({ page }) => {
-  await page.goto('/#/new'); await page.getByLabel('Message Hermes').fill('Shared attachment');
+  await page.goto('/#/new'); await page.getByLabel(/^(Message Hermes|Add a task)$/).fill('Shared attachment');
   await page.locator('input[type=file]').setInputFiles({ name: 'shared.txt', mimeType: 'text/plain', buffer: Buffer.from('Shared private file') });
   await expect(page.getByRole('button', { name: 'Remove shared.txt' })).toBeVisible();
   const file = (await rows(page, 'files'))[0];
@@ -98,7 +98,7 @@ test('removing an attachment preserves other drafts, plugin data and pending jou
 });
 
 test('old unreferenced files get a recovery day before device cleanup', async ({ page }) => {
-  await page.goto('/#/new'); await expect(page.getByLabel('Message Hermes')).toBeEditable();
+  await page.goto('/#/new'); await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toBeEditable();
   await page.evaluate(async () => {
     const database = await new Promise<IDBDatabase>(resolve => { const r = indexedDB.open('hermes-tasks'); r.onsuccess = () => resolve(r.result); });
     await new Promise<void>((resolve, reject) => { const tx = database.transaction('files', 'readwrite'); tx.objectStore('files').put({ id: 'old-orphan', blob: new Blob(['Legacy audio']), name: 'dictation.webm', hash: 'fixture' }); tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); }); database.close();
