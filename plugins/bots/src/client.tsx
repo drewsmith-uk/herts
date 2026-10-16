@@ -41,7 +41,7 @@ function BotChat({ bot, bots, edit, editing, error, markSeen, hide, hiding }: { 
   const openError = action.error || (action.record?.state === 'failed' ? action.record.error : '');
   return <>
     <ConversationHeader title={bot.title} backHref={href()} backLabel="Bots" context={context} contributionsInDetails visibilityActions={<ActionRow icon={bot.hidden ? <Eye size={20}/> : <EyeOff size={20}/>} disabled={hiding || !action.online} onClick={hide}>{hiding ? 'Saving…' : bot.hidden ? 'Unhide bot' : 'Hide bot'}</ActionRow>} actions={<><ButtonLink href={`${href(bot.name)}/routines`}>Routines</ButtonLink></>}>
-      <ActionRow icon={<Pencil size={20}/>} disabled={editing} onClick={edit}>{editing ? 'Loading editor…' : 'Edit bot'}</ActionRow><RecentActions bots={bots} profile={bot.name} actionRow/>{error && <StatusMessage>{error}</StatusMessage>}
+      <ActionRow icon={<Pencil size={20}/>} disabled={editing} onClick={edit}>{editing ? 'Loading editor…' : 'Edit bot'}</ActionRow><RecentActions bots={bots} profile={bot.name} actionRow/>
 
     </ConversationHeader>
     {error && <StatusMessage>{error}</StatusMessage>}

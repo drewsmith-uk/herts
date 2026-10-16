@@ -39,3 +39,18 @@ test('an edited draft title persists and a click on Send waits for its title sav
   const response = await request.get('/api/v1/conversations?includeLinked=true');
   expect((await response.json()).conversations.some((c: any) => c.title === 'My chosen conversation name')).toBe(true);
 });
+
+test('local title edits normalize whitespace and controls before creation and rename', async ({ page }) => {
+  await page.goto('/#/new');
+  for (const [input, expected] of [
+    ['  First\n  draft\u200b\u202e title  ', 'First draft title'],
+    ['  Renamed\t  draft\u2066 title  ', 'Renamed draft title'],
+    ['\u200b\u202e', 'Renamed draft title'],
+  ]) {
+    await (await detailsField(page, 'Conversation title')).fill(input);
+    await saveTitle(page);
+    await page.reload();
+    await expect(await detailsField(page, 'Conversation title')).toHaveValue(expected);
+    await closePageActions(page);
+  }
+});

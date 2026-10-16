@@ -319,3 +319,18 @@ test('an unconfirmed bot opening offers status checks instead of another open', 
   await expect(check).toBeHidden();
   expect(attempts).toBe(1);
 });
+
+test('bot editor loading failures have one alert with page actions open or closed', async ({ page }) => {
+  await page.goto('/#/plugins/bots/research');
+  await expect(page.getByLabel('Message Researcher')).toBeVisible();
+  await page.route('**/api/v1/plugins/bots/queries/describe', route => route.fulfill({ status: 503, json: { error: 'Synthetic read failure' } }));
+  const more = page.locator('.conversation-page-header').getByRole('button', { name: 'More', exact: true });
+  await more.click();
+  await page.getByRole('button', { name: 'Edit bot', exact: true }).click();
+  const alerts = page.locator('[role="alert"]').filter({ hasText: 'Settings could not be loaded. Reconnect and try again.' });
+  await expect(alerts).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  await expect(alerts).toBeVisible();
+  await more.click();
+  await expect(alerts).toHaveCount(1);
+});
