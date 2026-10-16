@@ -12,11 +12,18 @@ async function older(page: Page) {
   await page.getByLabel(/^(Message Hermes|Add a task)$/).evaluate(el => (el as HTMLElement).blur());
   const history = page.locator('.conversation-scroll');
   await history.hover();
-  const top = await history.evaluate(el => el.scrollTop);
+  const anchor = await history.evaluate(el => {
+    const top = el.getBoundingClientRect().top;
+    const message = [...el.querySelectorAll<HTMLElement>('[data-history-message]')].find(node => node.getBoundingClientRect().bottom > top);
+    if (!message) throw new Error('No visible history message');
+    return { key: message.dataset.historyMessage, top: message.getBoundingClientRect().top - top, distance: Math.min(500, el.scrollTop) };
+  });
   await page.mouse.wheel(0, -1000);
-  // Replacing outgoing feedback with fetched history can change the layout by
-  // a few pixels. Require a substantial move into older history, not an exact delta.
-  await expect.poll(() => history.evaluate(el => el.scrollTop)).toBeLessThanOrEqual(Math.max(0, top - 500) + 1);
+  // Older pages can arrive during scrolling. Measure movement against a message, not the changing scroll offset.
+  await expect.poll(() => history.evaluate((el, saved) => {
+    const message = [...el.querySelectorAll<HTMLElement>('[data-history-message]')].find(node => node.dataset.historyMessage === saved.key);
+    return message ? message.getBoundingClientRect().top - el.getBoundingClientRect().top - saved.top : null;
+  }, anchor)).toBeGreaterThanOrEqual(anchor.distance - 1);
   await expect(page.locator('.conversation-status')).toBeInViewport();
 }
 async function conversationReady(page: Page) {
