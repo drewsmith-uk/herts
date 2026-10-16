@@ -12,15 +12,16 @@ function Media({ media, conversationId, offset, index, order = 'oldest' }: { med
   const key = `media:${conversationId}:${media.path}`;
   const [url, setUrl] = useState(''), [error, setError] = useState(''), [busy, setBusy] = useState(false);
   const active = useRef(false), pending = useRef(false);
-  async function load() {
+  async function load(download = !media.image) {
     if (pending.current) return;
     pending.current = true; setBusy(true); setError('');
     try {
-      const saved = url || (await db.kv.get(key))?.value?.dataUrl;
-      const dataUrl = saved || (await cacheRead(key, () => api('/media', { conversationId, offset, index, order, path: media.path }))).value.dataUrl;
+      const result = await cacheRead(key, () => api('/media', { conversationId, offset, index, order, path: media.path }));
+      const dataUrl = result.value.dataUrl;
       if (!active.current) return;
       setUrl(dataUrl);
-      if (!media.image) {
+      if (result.cached) setError('Saved copy. Reconnect and download again for the latest file.');
+      if (download) {
         const link = document.createElement('a');
         link.href = dataUrl; link.download = media.name;
         document.body.append(link); link.click(); link.remove();
@@ -34,5 +35,5 @@ function Media({ media, conversationId, offset, index, order = 'oldest' }: { med
     void db.kv.get(key).then(row => { if (alive && row) setUrl(row.value.dataUrl); }).catch(() => {});
     return () => { alive = false; active.current = false; };
   }, [key]);
-  return <div className="message-file">{url && media.image && /^data:image\/(png|jpeg|webp|gif|bmp);base64,/.test(url) && <img src={url} alt={media.name} loading="lazy"/>}<div><Paperclip size={15}/><span>{media.name}</span>{media.image && url ? <a href={url} download={media.name}><Download size={16}/> Download image</a> : <Button disabled={busy} onClick={() => void load()}>{busy ? 'Fetching file…' : media.image ? 'View image' : 'Download file'}</Button>}</div>{error && <StatusMessage>{error}</StatusMessage>}</div>;
+  return <div className="message-file">{url && media.image && /^data:image\/(png|jpeg|webp|gif|bmp);base64,/.test(url) && <img src={url} alt={media.name} loading="lazy"/>}<div><Paperclip size={15}/><span>{media.name}</span>{media.image && url ? <a href={url} download={media.name} onClick={event => { event.preventDefault(); void load(true); }}><Download size={16}/> Download image</a> : <Button disabled={busy} onClick={() => void load()}>{busy ? 'Fetching file…' : media.image ? 'View image' : 'Download file'}</Button>}</div>{error && <StatusMessage>{error}</StatusMessage>}</div>;
 }

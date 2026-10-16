@@ -21,10 +21,12 @@ test('one press downloads bytes and cached files remain available offline', asyn
   expect(downloaded.suggestedFilename()).toBe('report.html');
   expect(await readFile((await downloaded.path())!, 'utf8')).toBe('<h1>Report</h1>');
   await expect(button).toBeEnabled();
+  await page.unroute('**/api/v1/media');
   await context.setOffline(true);
   const second = page.waitForEvent('download');
   await button.click();
   expect((await second).suggestedFilename()).toBe('report.html');
+  await expect(page.locator('.message-file [role="alert"]')).toContainText('Saved copy');
   expect(reads).toBe(1);
 });
 
@@ -59,4 +61,37 @@ test('navigation ignores a delayed file response', async ({ page }) => {
   await (await response).finished();
   await expect(page.locator('.page-header')).toBeVisible();
   expect(downloads).toBe(0);
+});
+
+for (const reload of [false, true]) test(`downloads changed bytes at the same path after reload=${reload}`, async ({ page }) => {
+  let reads = 0;
+  await page.route('**/api/v1/media', route => route.fulfill({ json: {
+    dataUrl: `data:text/html;base64,${Buffer.from(++reads === 1 ? 'Original' : 'Updated').toString('base64')}`,
+  } }));
+  let button = await attachment(page);
+  const first = page.waitForEvent('download');
+  await button.click();
+  expect(await readFile((await (await first).path())!, 'utf8')).toBe('Original');
+  await expect(button).toBeEnabled();
+  if (reload) { await page.reload(); button = page.getByRole('button', { name: 'Download file', exact: true }); }
+  const second = page.waitForEvent('download');
+  await button.click();
+  expect(await readFile((await (await second).path())!, 'utf8')).toBe('Updated');
+  expect(reads).toBe(2);
+});
+
+test('image downloads refresh a previously displayed image', async ({ page }) => {
+  const original = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';
+  let reads = 0;
+  await page.route('**/api/v1/media', route => route.fulfill({ json: { dataUrl: ++reads === 1 ? original : dataUrl } }));
+  await page.route('**/api/v1/conversations/*/history*', route => route.fulfill({ json: {
+    sessionId: 'existing', offset: 0, order: 'latest', hasMore: false, fetchedAt: Date.now(),
+    messages: [{ role: 'assistant', content: 'MEDIA:/tmp/image.png' }],
+  } }));
+  await page.goto('/#/conversation/existing');
+  await page.getByRole('button', { name: 'View image', exact: true }).click();
+  const download = page.waitForEvent('download');
+  await page.getByRole('link', { name: 'Download image' }).click();
+  expect(await readFile((await (await download).path())!, 'utf8')).toBe('<h1>Report</h1>');
+  expect(reads).toBe(2);
 });
