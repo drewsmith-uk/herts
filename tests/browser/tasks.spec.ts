@@ -9,8 +9,17 @@ test('phone capture, title editing, priority, completion and offline reload', as
   await page.getByRole('link', { name: 'Prepare for Friday', exact: true }).click();
   await (await detailsField(page, 'Task title')).fill('Prepare for Monday'); await saveTitle(page);
   await page.goto('/#/tasks/inbox');
+  await expect(page.getByLabel('Add a task', { exact: true })).toBeEditable();
+  const source = page.getByRole('group', { name: 'Prepare for Monday', exact: true });
+  const target = page.getByRole('group', { name: 'Book the train', exact: true });
   await page.getByRole('button', { name: 'Drag Prepare for Monday', exact: true }).focus();
-  await page.keyboard.press('Space'); await page.keyboard.press('ArrowDown'); await page.keyboard.press('Space');
+  await page.keyboard.press('Space');
+  await expect(source).toHaveClass(/dragging/);
+  await expect(page.locator('[id^=DndLiveRegion]')).toContainText('over droppable area');
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  await page.keyboard.press('ArrowDown');
+  await expect(target).toHaveClass(/task-insertion-after/);
+  await page.keyboard.press('Space');
   await expect(page.locator('.task-title').first()).toHaveText('Book the train');
   await page.getByRole('link', { name: 'Prepare for Monday', exact: true }).click(); await (await detailsField(page, 'Task list')).selectOption('next');await page.getByRole('button', { name: 'Move', exact: true }).click();
   await page.goto('/#/tasks/next'); await expect(page.locator('.task-title').first()).toHaveText('Prepare for Monday');
