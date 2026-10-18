@@ -23,6 +23,7 @@ test('phone spaces keep captures, ordering and drafts separate; moving Done reop
   const dragStatus = page.locator('[id^=DndLiveRegion]');
   await page.getByRole('button',{name:'Drag Work second',exact:true}).focus();await page.keyboard.press('Space');
   await expect(dragStatus).toContainText(`over droppable area ${secondId}`);
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
   await page.keyboard.press('ArrowDown');
   await expect(dragStatus).toContainText(`over droppable area ${firstId}`);
   await page.keyboard.press('Space');await expect(page.locator('.task-title').first()).toHaveText('Work first');

@@ -113,6 +113,7 @@ test('unread reorder controls and shared drafts survive reload across reading an
   await page.keyboard.press('Space');
   await expect(secondRow).toHaveClass(/dragging/);
   await expect(page.locator('[id^=DndLiveRegion]')).toContainText('over droppable area');
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
   await page.keyboard.press('ArrowDown');
   await expect(firstRow).toHaveClass(/task-insertion-after/);
   await page.keyboard.press('Space'); await expect(page.locator('.reading-row .task-title').first()).toHaveText('Reading order first');
