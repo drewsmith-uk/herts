@@ -69,7 +69,7 @@ main:has(.conversation-panel) { height: 100%; display: flex; flex-direction: col
 
 @media(max-height:600px) {
   .conversation-scroll { min-height:64px; }
-  .conversation-panel .composer-wrap { max-height:calc(100% - 72px); overflow-y:auto; overflow-x:hidden; margin-inline:-6px; padding:6px; }
+  .conversation-panel .composer-wrap { margin-inline:-6px; padding:6px; }
   .conversation-panel .composer-docked.is-expanded textarea { min-height:64px; max-height:64px; }
 }
 
@@ -85,3 +85,9 @@ main:has(.conversation-panel) { height: 100%; display: flex; flex-direction: col
 /* Update notices float above the navigation without reserving layout space. */
 body:has(.conversation-panel) .update-toast { max-height: min(40dvh, 260px); overflow: auto; }
 @media(max-width:1000px) { body.keyboard-open:has(.conversation-panel) .update-toast { display: none; } }
+
+body.keyboard-open .conversation-panel .composer textarea { min-height:44px; max-height:clamp(44px, calc(var(--viewport-height, 100dvh) - 360px), 156px); }
+body.keyboard-open .conversation-scroll { min-height:24px; padding-block:0; }
+body.keyboard-open .conversation-panel .composer-expanded { padding-block:0; }
+body.keyboard-open .conversation-panel .session-settings-controls { margin-bottom:4px; }
+body.keyboard-open .conversation-panel .composer-note { margin-block:4px; }

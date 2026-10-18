@@ -825,7 +825,8 @@ for (const theme of builtinThemes) test(`${theme.name}: More connection row alig
   }
 });
 
-for (const width of [320, 390, 768, 1280]) test(`keyboard navigation releases space and preserves discussion drafts at ${width}px`, async ({ page, request }) => {
+for (const theme of builtinThemes) for (const width of [320, 390, 768, 1280]) test(`${theme.name}: keyboard navigation releases space and preserves discussion drafts at ${width}px`, async ({ page, request }) => {
+  await page.addInitScript(({ key, theme }) => localStorage.setItem(key, JSON.stringify({ id: theme.id, theme })), { key: themeStorageKey, theme });
   const itemId = crypto.randomUUID(), taskId = crypto.randomUUID();
   const headers = { 'x-herts-request': '1' };
   await request.post('/api/v1/reading/sync', { headers, data: { id: crypto.randomUUID(), itemId, contextId: crypto.randomUUID(), kind: 'create', title: 'Reading keyboard layout', url: 'https://example.com/keyboard-layout', at: Date.now() } });
@@ -834,29 +835,38 @@ for (const width of [320, 390, 768, 1280]) test(`keyboard navigation releases sp
   for (const path of [`/reading-item/${itemId}`, `/task/${taskId}`, '/conversation/existing']) {
     await page.goto('/#' + path);
     const editor = page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ });
-    const draft = `Keep this draft when the keyboard changes: ${path}`;
-    await expect(page.locator('.composer')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+    const draft = `Keep this draft when the keyboard changes: ${path}\n` + 'A long draft with a source https://example.com/research.\n'.repeat(12);
+    if (theme.id === 'press') await expect(page.locator('.composer')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
     await editor.fill(draft);
-    await expect(page.locator('.composer')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
-    await page.evaluate(() => {
-      Object.defineProperty(window.visualViewport!, 'height', { configurable: true, value: 460 });
-      window.visualViewport!.dispatchEvent(new Event('resize'));
-    });
-    await expect(page.locator('body')).toHaveClass(/keyboard-open/);
-    await expect(editor).toHaveValue(draft);
-    const nav = page.locator('.mobile-nav');
-    await expect(nav).toBeHidden();
-    if (width <= 1000) expect(await page.locator('main').evaluate(e => getComputedStyle(e).paddingBottom)).toBe('0px');
-    const composer = (await page.locator('.composer-wrap').boundingBox())!;
-    expect(composer.y + composer.height).toBeLessThanOrEqual(460);
-    await page.screenshot({ path: `test-results/keyboard-hidden-${path.split('/')[1]}-${width}.png` });
-    await page.evaluate(() => {
-      delete (window.visualViewport as any).height;
-      window.visualViewport!.dispatchEvent(new Event('resize'));
-    });
-    await expect(page.locator('body')).not.toHaveClass(/keyboard-open/);
-    if (width <= 1000) await expect(nav).toBeVisible();
-    await expect(editor).toHaveValue(draft);
+    if (theme.id === 'press') await expect(page.locator('.composer')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+    for (const height of [360, 460]) {
+      await page.evaluate(height => {
+        Object.defineProperty(window.visualViewport!, 'height', { configurable: true, value: height });
+        window.visualViewport!.dispatchEvent(new Event('resize'));
+      }, height);
+      await expect(page.locator('body')).toHaveClass(/keyboard-open/);
+      await expect(editor).toHaveValue(draft);
+      const nav = page.locator('.mobile-nav');
+      await expect(nav).toBeHidden();
+      if (width <= 1000) expect(await page.locator('main').evaluate(e => getComputedStyle(e).paddingBottom)).toBe('0px');
+      const composer = (await page.locator('.composer-wrap').boundingBox())!;
+      expect(composer.y + composer.height).toBeLessThanOrEqual(height);
+      for (const selector of ['.composer-settings-row', '.composer textarea', '.composer-tools']) {
+        const control = (await page.locator(selector).boundingBox())!;
+        expect(control.y).toBeGreaterThanOrEqual(composer.y);
+        expect(control.y + control.height).toBeLessThanOrEqual(composer.y + composer.height);
+        expect(control.y + control.height).toBeLessThanOrEqual(height);
+      }
+      expect(await page.locator('.composer-wrap').evaluate(e => e.scrollHeight - e.clientHeight)).toBeLessThanOrEqual(1);
+      await page.screenshot({ path: `test-results/keyboard-hidden-${theme.id}-${path.split('/')[1]}-${width}-${height}.png` });
+      await page.evaluate(() => {
+        delete (window.visualViewport as any).height;
+        window.visualViewport!.dispatchEvent(new Event('resize'));
+      });
+      await expect(page.locator('body')).not.toHaveClass(/keyboard-open/);
+      if (width <= 1000) await expect(nav).toBeVisible();
+      await expect(editor).toHaveValue(draft);
+    }
   }
 });
 

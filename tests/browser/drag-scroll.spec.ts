@@ -7,11 +7,10 @@ for (const width of [390,1280]) test(`list drop targets remain accurate while dr
   await page.goto(`/#/spaces/${spaceId}/inbox`);
   const source=page.locator(`[data-task-id="${ids[5]}"]`);await source.scrollIntoViewIfNeeded();const start=await page.evaluate(()=>scrollY);expect(start).toBeGreaterThan(300);
   const box=(await source.boundingBox())!;await page.mouse.move(box.x+box.width/2,box.y+box.height/2);await page.mouse.down();await page.waitForTimeout(550);await expect(page.locator('.task-drag-overlay')).toBeVisible();
-  // Move towards the top and let automatic scrolling change the document
-  // position while the list tabs remain pinned beneath the app's top bar.
-  await page.mouse.move(box.x+box.width/2,12,{steps:10});await expect.poll(()=>page.evaluate(()=>scrollY)).toBeLessThan(start-150);
+  // Scroll to the top before moving onto the list tab.
+  await page.mouse.move(box.x+box.width/2,12,{steps:10});await expect.poll(()=>page.evaluate(()=>scrollY)).toBe(0);
   const target=page.locator(`${width > 1000 ? '.sidebar' : '.mobile-lists'} [data-drop-list="waiting"]`);
-  // Use current target bounds after automatic scrolling.
+  // Use the target bounds after automatic scrolling stops.
   await target.hover();await expect(target).toHaveClass(/task-drop-over/);await page.mouse.up();
   await expect(source).toHaveCount(0);await expect(page.locator('.save-state')).toContainText('Changes synced');
   const snapshot=(await(await request.get('/api/v1/state')).json()).snapshot;expect(snapshot.tasks.find((t:any)=>t.id===ids[5]).status).toBe('waiting');

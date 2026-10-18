@@ -40,7 +40,7 @@
 .reading-split .reading-article-pane { border-right:var(--border-width, 1px) solid var(--color-border); padding-right:16px; }
 .reading-workspace .conversation-panel .composer-collapse { display:inline-flex; }
 .reading-workspace .conversation-panel .composer-docked.is-collapsed .composer-expanded { display:none; }
-.reading-workspace .conversation-panel .composer-wrap { max-height:50%; overflow:auto; margin-inline:-6px; padding:6px; }
+.reading-workspace .conversation-panel .composer-wrap { margin-inline:-6px; padding:6px; }
 
 .conversation-page-header { position:sticky; top:0; }
 .conversation-toolbar { flex-wrap:nowrap; align-items:center; }
@@ -84,7 +84,6 @@
 
 
 @media(max-height:600px) {
-  .reading-workspace .conversation-panel .composer-wrap { max-height:calc(100% - 32px); }
   .reading-workspace .conversation-scroll { min-height:24px; padding-block:0; }
   .reading-workspace .conversation-heading { display:none; }
   .reading-workspace .history-empty { margin-block:0; }

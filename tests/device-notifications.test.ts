@@ -111,6 +111,25 @@ describe('durable plugin notifications', () => {
     await f.command('retry', { key: f.input.key });
     expect([...f.records.values()][0].displayError).toBeUndefined(); expect(f.visible.size).toBe(1);
   });
+  it('recovers when the browser acknowledges a replacement without retaining its display', async () => {
+    const f = await fixture(); const saved = (await f.pin()).result;
+    f.self.registration.showNotification.mockResolvedValueOnce(undefined);
+    await f.command('reconcile', { redisplay: true });
+    expect(f.visible.size).toBe(1);
+    expect([...f.records.values()][0]).toEqual(saved);
+    expect(f.self.registration.showNotification).toHaveBeenCalledTimes(3);
+  });
+  it('limits display recovery and retains the pin for an explicit retry', async () => {
+    const f = await fixture(); const saved = (await f.pin()).result;
+    f.self.registration.showNotification.mockResolvedValueOnce(undefined).mockResolvedValueOnce(undefined).mockResolvedValueOnce(undefined);
+    await f.command('reconcile', { redisplay: true });
+    expect(f.visible.size).toBe(0);
+    expect([...f.records.values()][0]).toMatchObject({ ...saved, displayError: expect.stringContaining('Select Retry') });
+    expect(f.self.registration.showNotification).toHaveBeenCalledTimes(4);
+    await f.command('retry', { key: f.input.key });
+    expect(f.visible.size).toBe(1);
+    expect([...f.records.values()][0]).toEqual(saved);
+  });
   it('removes a notification after a delayed dismissal restore and rejects a stale title update', async () => {
     const f = await fixture(), saved = (await f.pin()).result;
     let release!: () => void, entered!: () => void;
