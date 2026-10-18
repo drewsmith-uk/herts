@@ -23,7 +23,7 @@ import { ConversationContributions } from './plugins';
 
 const finished = (a?: Action) => !!a && ['finished','failed','ready','unknown'].includes(a.state);
 
-export function ConversationPanel({ context: task, initialText = '', showActions = true, showHeading = false, readOnly = false, saveDraftAction, refreshVersion = 0, fullTitle }: { fullTitle?: string; context: ConversationContext; initialText?: string; showActions?: boolean; showHeading?: boolean; showEmptyNotice?: boolean; readOnly?: boolean; saveDraftAction?: () => void; refreshVersion?: string | number }) {
+export function ConversationPanel({ context: task, initialText = '', showActions = true, showHeading = true, readOnly = false, saveDraftAction, refreshVersion = 0, fullTitle }: { fullTitle?: string; context: ConversationContext; initialText?: string; showActions?: boolean; showHeading?: boolean; showEmptyNotice?: boolean; readOnly?: boolean; saveDraftAction?: () => void; refreshVersion?: string | number }) {
   const state = useApp(); const [error, setError] = useState(''), [busy, setBusy] = useState(false);
   const [statusHost, setStatusHost] = useState<HTMLDivElement | null>(null), [savedHost, setSavedHost] = useState<HTMLDivElement | null>(null);
   const main = state.actions.find(a => !a.cancelled && a.taskId === task.id && ['send','continue'].includes(a.kind)); const binding = state.bindings[task.id];

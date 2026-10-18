@@ -107,7 +107,15 @@ test('unread reorder controls and shared drafts survive reload across reading an
   await closePageActions(page); await page.getByLabel(/^(Message Hermes|Add a task)$/).fill('Shared follow-up draft'); await page.goto(readingUrl); await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toHaveValue('Shared follow-up draft');
   await closePageActions(page); await page.getByLabel(/^(Message Hermes|Add a task)$/).fill('Revised from reading'); await page.goto(taskUrl); await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toHaveValue('Revised from reading');
   await add(page,'Reading order second'); await page.goto('/#/reading');
-  await page.getByRole('button',{name:'Drag Reading order second',exact:true}).focus(); await page.keyboard.press('Space'); await page.keyboard.press('ArrowDown'); await page.keyboard.press('Space'); await expect(page.locator('.reading-row .task-title').first()).toHaveText('Reading order first');
+  const firstRow = page.getByRole('group', {name:'Reading order first',exact:true});
+  const secondRow = page.getByRole('group', {name:'Reading order second',exact:true});
+  await page.getByRole('button',{name:'Drag Reading order second',exact:true}).focus();
+  await page.keyboard.press('Space');
+  await expect(secondRow).toHaveClass(/dragging/);
+  await expect(page.locator('[id^=DndLiveRegion]')).toContainText('over droppable area');
+  await page.keyboard.press('ArrowDown');
+  await expect(firstRow).toHaveClass(/task-insertion-after/);
+  await page.keyboard.press('Space'); await expect(page.locator('.reading-row .task-title').first()).toHaveText('Reading order first');
   await expect(page.locator('.save-state')).toContainText('Changes synced'); await page.reload(); await expect(page.locator('.reading-row .task-title').first()).toHaveText('Reading order first');
 });
 

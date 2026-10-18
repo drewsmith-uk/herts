@@ -17,7 +17,15 @@ test('phone spaces keep captures, ordering and drafts separate; moving Done reop
   await page.goto('/#/tasks/inbox');await closePageActions(page); await page.getByLabel(/^(Message Hermes|Add a task)$/, {exact:true}).fill('Personal draft');
   await spaceTab(page,work).click();await expect(page.getByLabel(/^(Message Hermes|Add a task)$/, {exact:true})).toHaveValue('');
   await capture(page,'Work first');await capture(page,'Work second');
-  await page.getByRole('button',{name:'Drag Work second',exact:true}).focus();await page.keyboard.press('Space');await page.keyboard.press('ArrowDown');await page.keyboard.press('Space');await expect(page.locator('.task-title').first()).toHaveText('Work first');
+  await expect(page.getByLabel('Add a task', {exact:true})).toBeEditable();
+  const firstId = await page.getByRole('group', {name:'Work first',exact:true}).getAttribute('data-task-id');
+  const secondId = await page.getByRole('group', {name:'Work second',exact:true}).getAttribute('data-task-id');
+  const dragStatus = page.locator('[id^=DndLiveRegion]');
+  await page.getByRole('button',{name:'Drag Work second',exact:true}).focus();await page.keyboard.press('Space');
+  await expect(dragStatus).toContainText(`over droppable area ${secondId}`);
+  await page.keyboard.press('ArrowDown');
+  await expect(dragStatus).toContainText(`over droppable area ${firstId}`);
+  await page.keyboard.press('Space');await expect(page.locator('.task-title').first()).toHaveText('Work first');
   await closePageActions(page); await page.getByLabel(/^(Message Hermes|Add a task)$/, {exact:true}).fill('Work draft');await spaceTab(page,originalSpaceId).click();await expect(page.getByLabel(/^(Message Hermes|Add a task)$/, {exact:true})).toHaveValue('Personal draft');
   await capture(page,'Personal existing');await expect(page.getByRole('link',{name:'Work first',exact:true})).toHaveCount(0);
   await spaceTab(page,work).click();await expect(page.getByLabel(/^(Message Hermes|Add a task)$/, {exact:true})).toHaveValue('Work draft');

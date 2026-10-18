@@ -112,7 +112,7 @@ export function ReadingDetail({ id, initialMode = 'discussion' }: { id: string; 
           <ArticleContent key={id} item={item} active={showArticle}/>
         </section>
         <section className="reading-discussion-pane" aria-label="Discussion pane" hidden={!showDiscussion} onFocusCapture={() => { if (alongside) setMode('discussion'); }} onPointerDown={() => { if (alongside) setMode('discussion'); }}>
-          {context && <ConversationPanel fullTitle={item.title} key={context.id} context={context} initialText={!context.link && !hasSubmission ? item.url : ''} showActions={false}/>}
+          {context && <ConversationPanel fullTitle={item.title} key={context.id} context={context} initialText={!context.link && !hasSubmission ? item.url : ''} showActions={false} showHeading={false}/>}
         </section>
       </div>
     </div>;

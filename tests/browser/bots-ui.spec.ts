@@ -335,3 +335,30 @@ test('bot editor loading failures have one alert with page actions open or close
   await more.click();
   await expect(alerts).toHaveCount(1);
 });
+
+for (const width of [390, 1280]) test(`bot activity clears after viewing and returns for a newer update at ${width}px`, async ({ page }) => {
+  let updatedAt = Date.now();
+  await page.route('**/api/v1/state', async route => {
+    const response = await route.fetch(), data = await response.json();
+    for (const bot of data.pluginData?.bots?.records?.roster || []) if (bot.name === 'research') bot.updatedAt = updatedAt;
+    await route.fulfill({ response, json: data });
+  });
+  await page.setViewportSize({ width, height: 844 });
+  await page.goto('/#/plugins/bots');
+  const row = page.getByRole('link', { name: 'Researcher', exact: true });
+  const marker = row.getByText('Updated', { exact: true });
+  await expect(marker).toBeVisible();
+  await row.click();
+  await expect(page.getByLabel('Message Researcher')).toBeEditable();
+  await page.getByRole('link', { name: 'Back to Bots' }).click();
+  await expect(marker).toHaveCount(0);
+  await expect(row.locator('time')).toBeVisible();
+  await page.reload();
+  await expect(row.locator('time')).toBeVisible();
+  await expect(marker).toHaveCount(0);
+  updatedAt += 60000;
+  await page.reload();
+  await expect(marker).toBeVisible();
+  await expect(row.locator('time')).toHaveAttribute('datetime', new Date(updatedAt).toISOString());
+  await page.screenshot({ path: `test-results/bot-unread-${width}.png` });
+});

@@ -58,7 +58,7 @@ function TaskDetail({ task }: {
         <FormField label={moving === 'list' ? 'Task list' : 'Task space'}><select disabled={busy} value={destination} onChange={event => setDestination(event.target.value)}>{moving === 'list' ? statuses.filter(s => s !== 'snoozed' || ['inbox', 'snoozed'].includes(task.status)).map(s => <option key={s} value={s}>{labels[s]}</option>) : state.snapshot.spaces?.map(space => <option key={space.id} value={space.id}>{space.name}</option>)}</select></FormField>
         {moving === 'space' && <p>Move to Inbox in this space.</p>}
       </FormDialog>}
-    </ConversationHeader><ConversationPanel fullTitle={task.title} context={contextForTask(task.id)!} showActions={false}/></div>;
+    </ConversationHeader><ConversationPanel fullTitle={task.title} context={contextForTask(task.id)!} showActions={false} showHeading={false}/></div>;
 }
 export function TasksScreen({ path, parts, recordRequest, shared }: RouteProps) {
     const state = useApp();

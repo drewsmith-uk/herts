@@ -835,6 +835,7 @@ for (const theme of builtinThemes) for (const width of [320, 390, 768, 1280]) te
   for (const path of [`/reading-item/${itemId}`, `/task/${taskId}`, '/conversation/existing']) {
     await page.goto('/#' + path);
     const editor = page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ });
+    await expect(page.locator('.conversation-heading')).toHaveCount(0);
     const draft = `Keep this draft when the keyboard changes: ${path}\n` + 'A long draft with a source https://example.com/research.\n'.repeat(12);
     if (theme.id === 'press') await expect(page.locator('.composer')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
     await editor.fill(draft);
@@ -886,4 +887,27 @@ for (const width of [320, 390, 768, 1280]) test(`Press task capture becomes whit
   await editor.focus();
   await expect(composer).toHaveCSS('background-color', 'rgb(255, 255, 255)');
   await expect(editor).toHaveValue('Preserve the task draft while changing its presentation');
+});
+
+test('plugin callers retain the default Conversation section heading', async ({ page, request }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(globalThis, '__HERTS_PLUGIN_RUNTIME__', {
+      configurable: true,
+      set(runtime) {
+        const Panel = runtime.sdk.ConversationPanel;
+        const DefaultPanel = ({ showHeading, ...props }: any) => runtime.React.createElement(Panel, props);
+        Object.defineProperty(globalThis, '__HERTS_PLUGIN_RUNTIME__', { configurable: true, writable: true,
+          value: { ...runtime, sdk: { ...runtime.sdk, ConversationPanel: DefaultPanel } } });
+      },
+    });
+  });
+  const taskId = crypto.randomUUID();
+  await request.post('/api/v1/sync', { headers: { 'x-herts-request': '1' }, data: { id: crypto.randomUUID(), taskId, kind: 'create', title: 'Plugin heading compatibility', at: Date.now() } });
+  for (const width of [390, 1280]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto('/#/task/' + taskId);
+    await expect(page.locator('.conversation-heading')).toHaveText('Conversation');
+    await expect(page.locator('.conversation-heading')).toBeVisible();
+    await expect(page.getByLabel('Message Hermes', { exact: true })).toBeEditable();
+  }
 });
