@@ -1,5 +1,5 @@
 import {ModelPicker} from './ModelPicker';
-import { SettingsSection, DialogFrame, FormField } from './ui';
+import { SettingsSection, DialogFrame, DialogHeading, FormField } from './ui';
 import { useEffect, useRef, useState } from 'react';
 import { ChevronRight, Folder, RefreshCw, SlidersHorizontal, X } from 'lucide-react';
 import type { ConversationContext } from '../shared/conversations';
@@ -107,10 +107,10 @@ function SettingsDialog({ context, initial, reload, close }: { context?: Convers
   }
   const inheritedSource = (key: keyof SessionValues) => context?.link ? 'Current session setting' : !defaults && view.defaults.values[key] !== undefined ? 'Herts default' : 'Hermes default';
   const inheritLabel = (key: keyof SessionValues) => context?.link ? 'Keep current session setting' : `Use ${inheritedSource(key)}`;
-  return <DialogFrame className="session-settings-dialog" size="wide" aria-labelledby="session-settings-title" close={close} busy={busy}>
+  return <DialogFrame className="session-settings-dialog form-dialog" size="wide" aria-labelledby="session-settings-title" close={close} busy={busy}>
     <form onSubmit={event => { event.preventDefault(); void work(save()); }}>
-      <div className="session-dialog-heading"><h2 id="session-settings-title">{defaults ? 'New conversation defaults' : 'Conversation settings'}</h2><button className="icon-button" type="button" aria-label="Close settings" disabled={busy} onClick={close}><X size={20}/></button></div>
-      {!defaults && <p>Changes apply on your next Send.</p>}
+      <DialogHeading id="session-settings-title" close={close} busy={busy} description={!defaults ? 'Changes apply on your next Send.' : undefined}>{defaults ? 'New conversation defaults' : 'Conversation settings'}</DialogHeading>
+      <div className="form-dialog-body">
       {context?.link && view.source !== 'live' && <p className="subtle-note">{currentSettingsLabel(view)}</p>}
       {view.uncertain && <p role="alert" className="error-banner">An earlier settings change is unconfirmed. Refresh and review the current values. Applying reviewed choices allows them to be tried again only when you next press Send.</p>}
       <ModelPicker models={view.models} value={values.model} onChange={value=>set('model',value)} search={search} setSearch={setSearch} disabled={busy} ariaLabel="Conversation model" inheritedLabel={`${inheritLabel('model')}${inherited.model ? ` (${inherited.model.id})` : ' (model unknown)'}`}/>
@@ -122,16 +122,19 @@ function SettingsDialog({ context, initial, reload, close }: { context?: Convers
         <option value="">{inheritLabel('fast')}{inherited.fast === undefined ? ' (unknown)' : ` (${inherited.fast ? 'On' : 'Off'})`}</option><option value="false">Off</option><option value="true" disabled={selected?.fast !== true}>On</option>
       </select></FormField></div>
       <FormField label="Working folder on Hermes"><input aria-label="Working folder" value={values.cwd ?? inherited.cwd ?? ''} disabled={busy} onChange={e => set('cwd', e.target.value)} placeholder="Full path on the Hermes server"/></FormField>
-      <p className="subtle-note">{values.cwd !== undefined ? defaults ? 'Herts default' : 'Applies on next Send' : inheritedSource('cwd')}</p>
-      <div className="button-row"><button type="button" disabled={busy || !state.online || !state.gateway.online} onClick={() => void work(browse(effective.cwd))}><Folder size={16}/> Browse folders</button>{values.cwd && <button type="button" className="text-button" disabled={busy} onClick={() => set('cwd', undefined)}>{inheritLabel('cwd')}</button>}</div>
+      <div className="session-folder-actions"><p className="subtle-note">{values.cwd !== undefined ? defaults ? 'Herts default' : 'Applies on next Send' : inheritedSource('cwd')}</p>
+      <div className="button-row"><button type="button" disabled={busy || !state.online || !state.gateway.online} onClick={() => void work(browse(effective.cwd))}><Folder size={16}/> Browse folders</button>{values.cwd && <button type="button" className="text-button" disabled={busy} onClick={() => set('cwd', undefined)}>{inheritLabel('cwd')}</button>}</div></div>
       {browsing && folder && <div className="session-folder-browser"><div className="settings-path">{folder.path}</div><div className="button-row">{folder.parent && <button type="button" disabled={busy} onClick={() => void work(browse(folder.parent!))}>Parent folder</button>}<button type="button" disabled={busy} onClick={() => { set('cwd', folder.path); setBrowsing(false); }}>Use this folder</button><button type="button" disabled={busy} onClick={() => setBrowsing(false)}>Close browser</button></div><ul>{folder.directories.map(dir => <li key={dir.path}><button type="button" disabled={busy} onClick={() => void work(browse(dir.path))}><Folder size={16}/>{dir.name}</button></li>)}</ul>{!folder.directories.length && <p>No subfolders.</p>}</div>}
+      {((defaults && hasSettings(values)) || (!defaults && hasSettings(view.pending.values))) && <div className="session-reset-actions">
+        {!defaults && <button type="button" className="text-button" disabled={busy} onClick={() => void work(save({}))}>Discard pending changes</button>}
+        {defaults && <button type="button" className="text-button" disabled={busy} onClick={() => setValues({})}>Use Hermes defaults for all</button>}
+      </div>}
       {unsupported && <p role="alert" className="inline-error">{unsupported}</p>}
       {view.error && <p className="subtle-note">{view.error}</p>}
       {!state.online && <p className="subtle-note">Choices are saved on this device until synced.</p>}
       {error && <p className="inline-error" role="alert">{error}</p>}
-      <div className="session-dialog-actions"><button type="button" className="text-button" disabled={busy || !state.online} onClick={() => void work(refreshView())}><RefreshCw size={15}/> Refresh current settings</button>
-        {!defaults && hasSettings(view.pending.values) && <button type="button" disabled={busy} onClick={() => void work(save({}))}>Discard pending changes</button>}
-        {defaults && hasSettings(values) && <button type="button" disabled={busy} onClick={() => setValues({})}>Use Hermes defaults for all</button>}
+      </div>
+      <div className="session-dialog-actions form-dialog-footer"><button type="button" className="text-button" aria-label="Refresh current settings" disabled={busy || !state.online} onClick={() => void work(refreshView())}><RefreshCw size={15}/> Refresh<span className="session-refresh-detail"> current settings</span></button>
         <div className="button-row"><button type="button" disabled={busy} onClick={close}>Cancel</button><button className="primary-button" disabled={busy || !!unsupported || (view.uncertain && !reviewed)}>{busy ? 'Saving…' : defaults ? 'Save defaults' : view.uncertain ? 'Save reviewed choices' : 'Apply'}</button></div>
       </div>
     </form>

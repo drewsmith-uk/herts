@@ -261,10 +261,16 @@ test('startup automatically redisplays saved pins offline despite stale browser 
     await expect.poll(tag).not.toBe(previous);
     await expect.poll(() => notices(page)).toHaveLength(1);
     expect(await savedPins(page)).toEqual(saved);
-    const restored = await tag();
-    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-    await expect.poll(tag).not.toBe(restored);
-    await expect.poll(() => notices(page)).toHaveLength(1);
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const restored = await tag();
+      await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+      await expect.poll(async () => {
+        const current = await tag();
+        return !!current && current !== restored;
+      }).toBe(true);
+      await expect.poll(() => notices(page)).toHaveLength(1);
+      expect(await savedPins(page)).toEqual(saved);
+    }
   } finally { await context.setOffline(false); }
 });
 

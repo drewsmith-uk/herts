@@ -1,23 +1,9 @@
-// Preserve the cache namespace used by installed clients during upgrades.
-// Theme fonts use immutable content hashes, including when a theme is updated.
-self.addEventListener('fetch', event => {
- const url = new URL(event.request.url);
- if (url.origin !== self.location.origin || event.request.method !== 'GET' || !/^\/_themes\/[a-f0-9]{64}\.woff2$/.test(url.pathname)) return;
- event.respondWith((async () => {
-  const cache = await caches.open('herts-theme-fonts-v1');
-  const saved = await cache.match(event.request);
-  if (saved) return saved;
-  const response = await fetch(event.request);
-  if (response.ok) await cache.put(event.request, response.clone());
-  return response;
- })());
-});
 const CACHE='tasks-shell-dev';
 const PRECACHE=['/index.html','/icon.svg','/manifest.webmanifest'];
 self.addEventListener('install',event=>{event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(PRECACHE)));});
 self.addEventListener('message',event=>{if(event.data?.type==='ACTIVATE_UPDATE')event.waitUntil(self.skipWaiting());});
 self.addEventListener('message',event=>{if(event.data?.type==='GET_VERSION')event.ports[0]?.postMessage({version:CACHE});});
-self.addEventListener('activate',event=>{event.waitUntil((async()=>{const keys=(await caches.keys()).filter(k=>k.startsWith('tasks-shell-'));for(const k of keys.slice(0,-2))if(k!==CACHE)await caches.delete(k);await self.clients.claim();})());});
+self.addEventListener('activate',event=>{event.waitUntil((async()=>{await caches.delete('herts-theme-fonts-v1');const keys=(await caches.keys()).filter(k=>k.startsWith('tasks-shell-'));for(const k of keys.slice(0,-2))if(k!==CACHE)await caches.delete(k);await self.clients.claim();})());});
 self.addEventListener('fetch',event=>{
  const url=new URL(event.request.url);if(url.origin!==self.location.origin||event.request.method!=='GET'||url.pathname.startsWith('/api/'))return;
  if(url.pathname==='/THIRD_PARTY_NOTICES.txt'){event.respondWith(caches.open(CACHE).then(c=>c.match(url.pathname)).then(cached=>cached||fetch(event.request)));return;}
@@ -181,17 +167,20 @@ async function displayPluginNotification(data, record, onlyMissing = false, dism
  try {
   const current = await readPluginNotification(data);
   if (!current || current.revision !== record.revision) return;
-  const all = await matchingPluginNotifications(data);
-  const present = all.filter(notification => notification.tag !== dismissedTag);
-  if (!onlyMissing || !present.some(notification => notification.data?.revision === record.revision)) {
-   // Browser cleanup can delete the dismissed tag after this handler completes.
-   const tag = (!replace && present[0]?.tag) || `${pluginNotificationTag(data)}:${crypto.randomUUID()}`;
+  for (let attempt = 0; attempt < 3; attempt++) {
+   const all = await matchingPluginNotifications(data);
+   const present = all.filter(notification => notification.tag !== dismissedTag);
+   if (onlyMissing && present.some(notification => notification.data?.revision === record.revision)) break;
+   const tag = (!replace && attempt === 0 && present[0]?.tag) || `${pluginNotificationTag(data)}:${crypto.randomUUID()}`;
    await self.registration.showNotification(record.title, {
     body: record.body || '', icon: '/icon-192.png', tag,
     silent: true, renotify: false, requireInteraction: true,
     data: { kind: 'device-plugin', pluginId: data.pluginId, generation: data.generation, key: data.key, revision: record.revision },
    });
    for (const notification of all) if (notification.tag !== tag) notification.close();
+   // The browser can acknowledge display without retaining the notification.
+   if ((await matchingPluginNotifications(data)).some(notification => notification.tag === tag)) break;
+   if (attempt === 2) throw new Error('Notification display was not confirmed.');
   }
  } catch {
   error = typeof Notification !== 'undefined' && Notification.permission !== 'granted'

@@ -8,7 +8,7 @@ async function resetDefault(request: APIRequestContext) { const s=await state(re
 test.afterEach(async ({request})=>resetDefault(request));
 async function addSpace(page: Page, name: string) { await page.goto('/#/settings/plugins');await page.getByRole('textbox',{name:'New space name',exact:true}).fill(name);await page.getByRole('button',{name:'Create space',exact:true}).click();await expect(page.getByRole('textbox',{name:`Name of ${name} space`,exact:true})).toBeVisible(); }
 async function capture(page: Page,title:string) { await page.getByRole('textbox',{name:/^(Message Hermes|Add a task)$/,exact:true}).fill(title);await page.getByRole('button',{name:'Save to Inbox',exact:true}).click();await expect(page.getByRole('link',{name:title,exact:true})).toBeVisible(); }
-async function idFor(page:Page,name:string) { return page.getByRole('combobox',{name:'Default space',exact:true}).locator('option').filter({hasText:name}).getAttribute('value') as Promise<string>; }
+async function idFor(page:Page,name:string) { return page.getByRole('radio',{name:`Default space: ${name}`,exact:true}).getAttribute('value') as Promise<string>; }
 const agentCalls=async(request:APIRequestContext)=>(await(await request.get('http://127.0.0.1:8791/calls')).json() as string[]).filter(m=>['session.create','session.resume','prompt.submit','session.interrupt'].includes(m));
 
 test('phone spaces keep captures, ordering and drafts separate; moving Done reopens at the destination top',async({page,request})=>{
@@ -17,7 +17,16 @@ test('phone spaces keep captures, ordering and drafts separate; moving Done reop
   await page.goto('/#/tasks/inbox');await closePageActions(page); await page.getByLabel(/^(Message Hermes|Add a task)$/, {exact:true}).fill('Personal draft');
   await spaceTab(page,work).click();await expect(page.getByLabel(/^(Message Hermes|Add a task)$/, {exact:true})).toHaveValue('');
   await capture(page,'Work first');await capture(page,'Work second');
-  await page.getByRole('button',{name:'Edit list',exact:true}).click();await page.getByRole('button',{name:'Move Work second down',exact:true}).click();await page.getByRole('button',{name:'Finish editing',exact:true}).click();await expect(page.locator('.task-title').first()).toHaveText('Work first');
+  await expect(page.getByLabel('Add a task', {exact:true})).toBeEditable();
+  const firstId = await page.getByRole('group', {name:'Work first',exact:true}).getAttribute('data-task-id');
+  const secondId = await page.getByRole('group', {name:'Work second',exact:true}).getAttribute('data-task-id');
+  const dragStatus = page.locator('[id^=DndLiveRegion]');
+  await page.getByRole('button',{name:'Drag Work second',exact:true}).focus();await page.keyboard.press('Space');
+  await expect(dragStatus).toContainText(`over droppable area ${secondId}`);
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  await page.keyboard.press('ArrowDown');
+  await expect(dragStatus).toContainText(`over droppable area ${firstId}`);
+  await page.keyboard.press('Space');await expect(page.locator('.task-title').first()).toHaveText('Work first');
   await closePageActions(page); await page.getByLabel(/^(Message Hermes|Add a task)$/, {exact:true}).fill('Work draft');await spaceTab(page,originalSpaceId).click();await expect(page.getByLabel(/^(Message Hermes|Add a task)$/, {exact:true})).toHaveValue('Personal draft');
   await capture(page,'Personal existing');await expect(page.getByRole('link',{name:'Work first',exact:true})).toHaveCount(0);
   await spaceTab(page,work).click();await expect(page.getByLabel(/^(Message Hermes|Add a task)$/, {exact:true})).toHaveValue('Work draft');
@@ -31,7 +40,7 @@ test('phone spaces keep captures, ordering and drafts separate; moving Done reop
 });
 
 test('conversation conversion uses the default Inbox and a fresh-device voice shortcut does too',async({page,browser,request})=>{
-  await page.setViewportSize({width:390,height:844});await addSpace(page,'Default work');const work=await idFor(page,'Default work');await page.getByLabel('Default space',{exact:true}).selectOption(work);await expect(page.locator('.save-state')).toContainText('Changes synced');
+  await page.setViewportSize({width:390,height:844});await addSpace(page,'Default work');const work=await idFor(page,'Default work');await page.locator(`input[name=default-space][value="${work}"]`).check();await expect(page.locator('.save-state')).toContainText('Changes synced');
   await page.goto('/#/tasks/next');await closePageActions(page); await page.getByLabel(/^(Message Hermes|Add a task)$/, {exact:true}).fill('Capture stays personal');await page.getByRole('button',{name:'Save to Inbox',exact:true}).click();await page.goto('/#/tasks/inbox');await expect(page.getByRole('link',{name:'Capture stays personal',exact:true})).toBeVisible();
   await page.goto('/#/conversations');await page.getByRole('link',{name:/Shared spaces conversation/}).click();await (await pageAction(page, 'button', 'Make a task')).click();await expect(page.locator('.create-from-chat')).toContainText('Default work Inbox');await page.getByRole('button',{name:'Create task',exact:true}).click();await expect((await detailsField(page, 'Task space'))).toHaveValue(work);await expect((await detailsField(page, 'Task list'))).toHaveValue('inbox');
   // Other tests add enough conversations to move this fixture beyond page one.
@@ -43,7 +52,7 @@ test('conversation conversion uses the default Inbox and a fresh-device voice sh
 
 test('offline-created spaces and tasks survive reload and sync in dependency order',async({page,context,request})=>{
   await page.setViewportSize({width:390,height:844});await page.goto('/#/settings/plugins');await expect(page.locator('.save-state')).toContainText('Changes synced');await page.evaluate(()=>navigator.serviceWorker.ready);await page.reload();
-  await context.setOffline(true);await page.getByLabel('New space name',{exact:true}).fill('Offline work');await page.getByRole('button',{name:'Create space',exact:true}).click();const work=await idFor(page,'Offline work');await page.getByLabel('Default space',{exact:true}).selectOption(work);
+  await context.setOffline(true);await page.getByLabel('New space name',{exact:true}).fill('Offline work');await page.getByRole('button',{name:'Create space',exact:true}).click();const work=await idFor(page,'Offline work');await page.locator(`input[name=default-space][value="${work}"]`).check();
   await page.goto(`#${spacePath(work)}`);await capture(page,'Saved in offline space');await page.reload();await expect(page.getByRole('link',{name:'Saved in offline space',exact:true})).toBeVisible();
   // Reconnection plus three dependent writes can span more than one poll cycle.
   await context.setOffline(false);await expect(page.locator('.save-state')).toContainText('Changes synced',{timeout:30000});const s=await state(request);expect(s.defaultSpaceId).toBe(work);expect(s.tasks.find((t:any)=>t.title==='Saved in offline space').spaceId).toBe(work);
@@ -94,7 +103,7 @@ test('version-two device migration retains capture audio, context drafts and exa
 });
 
 test('an unconfirmed conversion keeps and displays its saved destination after the default changes',async({page,request})=>{
-  await addSpace(page,'Pinned destination');const work=await idFor(page,'Pinned destination');await page.getByLabel('Default space',{exact:true}).selectOption(work);await expect(page.locator('.save-state')).toContainText('Changes synced');
+  await addSpace(page,'Pinned destination');const work=await idFor(page,'Pinned destination');await page.locator(`input[name=default-space][value="${work}"]`).check();await expect(page.locator('.save-state')).toContainText('Changes synced');
   await page.goto('/#/conversations');await page.getByRole('link',{name:/Space retry conversation/}).click();await (await pageAction(page, 'button', 'Make a task')).click();
   const payloads:any[]=[];await page.route('**/api/v1/plugins/tasks/commands',route=>{payloads.push(route.request().postDataJSON());return payloads.length===1?route.abort():route.continue();});
   await page.getByRole('button',{name:'Create task',exact:true}).click();await expect(page.getByRole('alert')).toContainText('request is saved');await resetDefault(request);await page.reload();await expect(page.locator('.save-state')).toContainText('Changes synced');await (await pageAction(page, 'button', 'Open task')).click();await expect((await detailsField(page, 'Task space'))).toHaveValue(work);

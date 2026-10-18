@@ -154,10 +154,10 @@ test('a phone keyboard leaves the message and Send usable, and collapsing keeps 
   const composer = page.getByLabel(/^(Message Hermes|Add a task)$/), send = page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true });
   expect((await composer.boundingBox())!.height).toBeLessThanOrEqual(121);
   expect((await send.boundingBox())!.y + (await send.boundingBox())!.height).toBeLessThanOrEqual(480);
-  await expect(page.locator('.mobile-nav > a:not(.navigation-end)').first()).toBeHidden();
-  await expect(page.locator('.mobile-nav .navigation-end')).toBeVisible();
+  await expect(page.locator('.mobile-nav')).toBeHidden();
   expect(await page.locator('.conversation-scroll').evaluate(el => el.clientHeight)).toBeGreaterThanOrEqual(64);
   await page.evaluate(() => { Object.defineProperty(window.visualViewport, 'height', { configurable: true, value: 844 }); window.visualViewport!.dispatchEvent(new Event('resize')); });
+  await expect(page.locator('.mobile-nav')).toBeVisible();
   await page.getByRole('button', { name: 'Collapse message box' }).click();
   await expect(page.locator('.composer-docked')).toHaveClass(/is-collapsed/);
   await expect(composer).toHaveValue(text);

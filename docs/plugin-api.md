@@ -4,7 +4,7 @@ Develop against the software development kit (SDK) in a Herts source checkout. `
 
 Tasks and Reading under `plugins/` are full examples. `examples/notes/` is deliberately independent: it stores notes in its own namespace and embeds core conversations, including other enabled plugins’ actions and link buttons. It is built for tests but is not installed by default.
 
-Use Herts' [shared theme variables](../themes/README.md#plugin-styling) for colours, typography, borders and shadows. Core components and shared classes already follow the selected theme. Use the same variables in plugin UI to support light, dark, and custom themes.
+Use Herts' [shared theme variables](../themes/README.md#plugin-styling) for colours, typography, borders and shadows. Core components and shared classes already follow the selected theme. Use the same variables in plugin UI to support all built-in themes.
 
 ## Start a package
 

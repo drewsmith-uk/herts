@@ -47,9 +47,10 @@ test('bot forms validate identifiers, preserve drafts and lock every field throu
   await page.getByRole('button', { name: 'Discard draft' }).click(); await page.getByRole('button', {name:'Discard changes',exact:true}).click(); await expect(page.getByLabel('Bot name', { exact: true })).toHaveValue('');
   await page.keyboard.press('Escape');
   await page.getByRole('link', { name: 'Researcher', exact: true }).click(); await expect(page.getByLabel('Message Researcher')).toBeVisible();
-  await page.locator('.conversation-page-header').getByRole('button', { name: 'More', exact: true }).click();
-  await expect(page.locator('.conversation-content-title').filter({hasText:'Researcher'})).toBeVisible();
-  if (!await page.getByRole('button', {name:'Edit bot',exact:true}).isVisible()) await page.locator('.conversation-page-header').getByRole('button',{name:'More',exact:true}).click(); await page.getByRole('button', { name: 'Edit bot', exact: true }).click();
+  await page.locator('.conversation-page-header').getByRole('button', { name: 'Actions', exact: true }).click();
+  await expect(page.locator('.conversation-compact-title')).toContainText('Researcher');
+  await expect(page.locator('.conversation-content-title')).toHaveCount(0);
+  if (!await page.getByRole('button', {name:'Edit bot',exact:true}).isVisible()) await page.locator('.conversation-page-header').getByRole('button',{name:'Actions',exact:true}).click(); await page.getByRole('button', { name: 'Edit bot', exact: true }).click();
   await page.getByRole('textbox', { name: 'Description', exact: true }).fill('Saved without losing a later edit');
   let release!: () => void; const gate = new Promise<void>(resolve => release = resolve);
   await page.route('**/api/v1/plugins/bots/actions', async route => { const response = await route.fetch(); await gate; await route.fulfill({ response }); });
@@ -60,7 +61,7 @@ test('bot forms validate identifiers, preserve drafts and lock every field throu
     await expect(page.getByRole('button', { name: 'Close', exact: true })).toBeDisabled();
   } finally { release(); }
   await expect(page.locator('.form-dialog:visible')).toHaveCount(0);
-  if (!await page.getByRole('button', {name:'Edit bot',exact:true}).isVisible()) await page.locator('.conversation-page-header').getByRole('button',{name:'More',exact:true}).click(); await page.getByRole('button', { name: 'Edit bot', exact: true }).click();
+  if (!await page.getByRole('button', {name:'Edit bot',exact:true}).isVisible()) await page.locator('.conversation-page-header').getByRole('button',{name:'Actions',exact:true}).click(); await page.getByRole('button', { name: 'Edit bot', exact: true }).click();
   await expect(page.getByRole('textbox', { name: 'Description', exact: true })).toHaveValue('Saved without losing a later edit');
 });
 
@@ -84,7 +85,7 @@ test('routines distinguish loading and show readable schedules and formatted res
 test('action history is bounded outside the chat and invalid links remain navigable', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 480 });
   await page.goto('/#/plugins/bots/research'); await expect(page.getByLabel('Message Researcher')).toBeVisible();
-  await page.locator('.conversation-page-header').getByRole('button', { name: 'More', exact: true }).click(); await page.getByRole('button', { name: 'Recent actions' }).click();
+  await page.locator('.conversation-page-header').getByRole('button', { name: 'Actions', exact: true }).click(); await page.getByRole('button', { name: 'Recent actions' }).click();
   const dialog = page.getByRole('dialog', {name:'Recent actions',exact:true}); await expect(dialog).toBeVisible();
   expect(await dialog.evaluate(e => e.getBoundingClientRect().bottom)).toBeLessThanOrEqual(480);
   await page.keyboard.press('Escape');
@@ -96,19 +97,19 @@ test('action history is bounded outside the chat and invalid links remain naviga
 
 test('offline bot and routine drafts can be reopened and edited without submitting', async ({ page, context }) => {
   await page.goto('/#/plugins/bots/research'); await expect(page.getByLabel('Message Researcher')).toBeVisible();
-  await page.locator('.conversation-page-header').getByRole('button', { name: 'More', exact: true }).click(); if (!await page.getByRole('button', {name:'Edit bot',exact:true}).isVisible()) await page.locator('.conversation-page-header').getByRole('button',{name:'More',exact:true}).click(); await page.getByRole('button', { name: 'Edit bot', exact: true }).click();
+  await page.locator('.conversation-page-header').getByRole('button', { name: 'Actions', exact: true }).click(); if (!await page.getByRole('button', {name:'Edit bot',exact:true}).isVisible()) await page.locator('.conversation-page-header').getByRole('button',{name:'Actions',exact:true}).click(); await page.getByRole('button', { name: 'Edit bot', exact: true }).click();
   await page.getByRole('textbox', { name: 'Description', exact: true }).fill('Saved offline editor draft');
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await context.setOffline(true);
   try {
     await expect(page.getByText('Offline. Saved messages and drafts remain available.', { exact: true })).toBeVisible();
-    if (!await page.getByRole('button', {name:'Edit bot',exact:true}).isVisible()) await page.locator('.conversation-page-header').getByRole('button',{name:'More',exact:true}).click(); await page.getByRole('button', { name: 'Edit bot', exact: true }).click();
+    if (!await page.getByRole('button', {name:'Edit bot',exact:true}).isVisible()) await page.locator('.conversation-page-header').getByRole('button',{name:'Actions',exact:true}).click(); await page.getByRole('button', { name: 'Edit bot', exact: true }).click();
     await expect(page.getByRole('textbox', { name: 'Description', exact: true })).toHaveValue('Saved offline editor draft');
     await page.getByRole('textbox', { name: 'Description', exact: true }).fill('Continued while offline');
     await expect(page.getByRole('button', { name: 'Save bot', exact: true })).toBeDisabled();
     await page.getByRole('button', { name: 'Close', exact: true }).click();
     await expect(page.getByRole('dialog',{name:'Page actions',exact:true})).toBeHidden();
-    await expect(page.locator('.conversation-page-header').getByRole('button',{name:'More',exact:true})).toBeFocused();
+    await expect(page.locator('.conversation-page-header').getByRole('button',{name:'Actions',exact:true})).toBeFocused();
     await page.getByRole('link', { name: 'Routines', exact: true }).click();
     await page.getByRole('button', { name: 'New routine', exact: true }).click();
     await page.getByLabel('Name', { exact: true }).fill('An offline routine draft');
@@ -158,8 +159,8 @@ test('a successful routine save survives cleanup failure, navigation and retry w
 });
 
 test('cached editors survive read failures and discard uses the reloaded baseline',async({page,request})=>{
- await page.goto('/#/plugins/bots/research');if (!await page.getByRole('button', {name:'Edit bot',exact:true}).isVisible()) await page.locator('.conversation-page-header').getByRole('button',{name:'More',exact:true}).click(); await page.getByRole('button',{name:'Edit bot',exact:true}).click();await page.getByRole('textbox',{name:'Description',exact:true}).fill('Preserved local work');await page.getByRole('button',{name:'Close',exact:true}).click();
- await page.route('**/api/v1/plugins/bots/queries/describe',route=>route.fulfill({status:503,json:{error:'Synthetic read failure'}}));if (!await page.getByRole('button', {name:'Edit bot',exact:true}).isVisible()) await page.locator('.conversation-page-header').getByRole('button',{name:'More',exact:true}).click(); await page.getByRole('button',{name:'Edit bot',exact:true}).click();await expect(page.getByRole('textbox',{name:'Description',exact:true})).toHaveValue('Preserved local work');await expect(page.getByText(/Showing saved settings/)).toBeVisible();
+ await page.goto('/#/plugins/bots/research');if (!await page.getByRole('button', {name:'Edit bot',exact:true}).isVisible()) await page.locator('.conversation-page-header').getByRole('button',{name:'Actions',exact:true}).click(); await page.getByRole('button',{name:'Edit bot',exact:true}).click();await page.getByRole('textbox',{name:'Description',exact:true}).fill('Preserved local work');await page.getByRole('button',{name:'Close',exact:true}).click();
+ await page.route('**/api/v1/plugins/bots/queries/describe',route=>route.fulfill({status:503,json:{error:'Synthetic read failure'}}));if (!await page.getByRole('button', {name:'Edit bot',exact:true}).isVisible()) await page.locator('.conversation-page-header').getByRole('button',{name:'Actions',exact:true}).click(); await page.getByRole('button',{name:'Edit bot',exact:true}).click();await expect(page.getByRole('textbox',{name:'Description',exact:true})).toHaveValue('Preserved local work');await expect(page.getByText(/Showing saved settings/)).toBeVisible();
  await page.unroute('**/api/v1/plugins/bots/queries/describe');await configure(request,{description:'New baseline on Hermes'});await page.getByRole('button',{name:'Reload saved values'}).click();await page.getByRole('button',{name:'Replace draft',exact:true}).click();await expect(page.getByRole('textbox',{name:'Description',exact:true})).toHaveValue('New baseline on Hermes');
  await page.getByRole('textbox',{name:'Description',exact:true}).fill('Discard this part');await page.getByRole('button',{name:'Discard draft',exact:true}).click();await page.getByRole('button',{name:'Keep draft',exact:true}).click();await expect(page.getByRole('textbox',{name:'Description',exact:true})).toHaveValue('Discard this part');
  await page.getByRole('button',{name:'Discard draft',exact:true}).click();await page.getByRole('button',{name:'Discard changes',exact:true}).click();await expect(page.getByRole('textbox',{name:'Description',exact:true})).toHaveValue('New baseline on Hermes');
@@ -255,7 +256,7 @@ test('a delayed bot editor replaces reopened page actions and restores focus', a
   await page.route('**/api/v1/plugins/bots/queries/describe', async route => {
     started = true; await held; await route.continue();
   });
-  const more = page.locator('.conversation-page-header').getByRole('button', { name: 'More', exact: true });
+  const more = page.locator('.conversation-page-header').getByRole('button', { name: 'Actions', exact: true });
   try {
     await more.click();
     await page.getByRole('button', { name: 'Edit bot', exact: true }).click();
@@ -324,7 +325,7 @@ test('bot editor loading failures have one alert with page actions open or close
   await page.goto('/#/plugins/bots/research');
   await expect(page.getByLabel('Message Researcher')).toBeVisible();
   await page.route('**/api/v1/plugins/bots/queries/describe', route => route.fulfill({ status: 503, json: { error: 'Synthetic read failure' } }));
-  const more = page.locator('.conversation-page-header').getByRole('button', { name: 'More', exact: true });
+  const more = page.locator('.conversation-page-header').getByRole('button', { name: 'Actions', exact: true });
   await more.click();
   await page.getByRole('button', { name: 'Edit bot', exact: true }).click();
   const alerts = page.locator('[role="alert"]').filter({ hasText: 'Settings could not be loaded. Reconnect and try again.' });
@@ -333,4 +334,31 @@ test('bot editor loading failures have one alert with page actions open or close
   await expect(alerts).toBeVisible();
   await more.click();
   await expect(alerts).toHaveCount(1);
+});
+
+for (const width of [390, 1280]) test(`bot activity clears after viewing and returns for a newer update at ${width}px`, async ({ page }) => {
+  let updatedAt = Date.now();
+  await page.route('**/api/v1/state', async route => {
+    const response = await route.fetch(), data = await response.json();
+    for (const bot of data.pluginData?.bots?.records?.roster || []) if (bot.name === 'research') bot.updatedAt = updatedAt;
+    await route.fulfill({ response, json: data });
+  });
+  await page.setViewportSize({ width, height: 844 });
+  await page.goto('/#/plugins/bots');
+  const row = page.getByRole('link', { name: 'Researcher', exact: true });
+  const marker = row.getByText('Updated', { exact: true });
+  await expect(marker).toBeVisible();
+  await row.click();
+  await expect(page.getByLabel('Message Researcher')).toBeEditable();
+  await page.getByRole('link', { name: 'Back to Bots' }).click();
+  await expect(marker).toHaveCount(0);
+  await expect(row.locator('time')).toBeVisible();
+  await page.reload();
+  await expect(row.locator('time')).toBeVisible();
+  await expect(marker).toHaveCount(0);
+  updatedAt += 60000;
+  await page.reload();
+  await expect(marker).toBeVisible();
+  await expect(row.locator('time')).toHaveAttribute('datetime', new Date(updatedAt).toISOString());
+  await page.screenshot({ path: `test-results/bot-unread-${width}.png` });
 });

@@ -1,19 +1,15 @@
-import { builtinThemes, defaultTheme, themeProperties, isTheme, themeStorageKey, maxThemeCount, type Theme } from '../shared/themeValues';
+import { builtinThemes, defaultTheme, themeProperties, themeStorageKey, type Theme } from '../shared/themeValues';
 
-export function readAppearance(): { theme: Theme; catalogue: Theme[] } {
+export function readAppearance(): { theme: Theme; catalogue: Theme[]; notice: string } {
+  const fallback = { theme: defaultTheme, catalogue: builtinThemes, notice: '' };
   try {
     const raw = localStorage.getItem(themeStorageKey);
-    if (!raw || raw.length > 512 * 1024) throw new Error('No saved appearance');
+    if (!raw || raw.length > 512 * 1024) return fallback;
     const saved = JSON.parse(raw);
-    if (!isTheme(saved.theme) || saved.id !== saved.theme.id) throw new Error('Invalid saved appearance');
-    const custom: Theme[] = [];
-    if (Array.isArray(saved.catalogue)) for (const value of saved.catalogue.slice(0, maxThemeCount)) {
-      if (isTheme(value) && !builtinThemes.some(t => t.id === value.id) && !custom.some(t => t.id === value.id)) custom.push(value);
-    }
-    const theme = builtinThemes.find(t => t.id === saved.id) || saved.theme;
-    if (!builtinThemes.some(t => t.id === theme.id) && !custom.some(t => t.id === theme.id)) custom.push(theme);
-    return { theme, catalogue: [...builtinThemes, ...custom] };
-  } catch { return { theme: defaultTheme, catalogue: builtinThemes }; }
+    const theme = builtinThemes.find(theme => theme.id === saved?.id);
+    if (theme) return { ...fallback, theme };
+    return { ...fallback, notice: typeof saved?.id === 'string' ? 'This theme is no longer available. Press is selected.' : '' };
+  } catch { return fallback; }
 }
 
 export function applyTheme(theme: Theme) {
@@ -24,7 +20,5 @@ export function applyTheme(theme: Theme) {
   root.style.backgroundColor = theme.colors.background;
   root.style.color = theme.colors.text;
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme.colors.background);
-  let fonts = document.getElementById('herts-theme-fonts');
-  if (!fonts) { fonts = document.createElement('style'); fonts.id = 'herts-theme-fonts'; document.head.append(fonts); }
-  fonts.textContent = theme.fonts.map(font => `@font-face{font-family:"${font.family}";src:url("${font.href}") format("woff2");font-weight:${font.weight};font-style:${font.style};font-display:swap}`).join('\n');
+  document.getElementById('herts-theme-fonts')?.remove();
 }

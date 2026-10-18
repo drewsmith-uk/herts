@@ -1,6 +1,6 @@
-import { createContext, useContext, useCallback, useState, useId, useLayoutEffect, useRef, type ComponentProps, type ReactNode } from 'react';
+import { createContext, useContext, useCallback, useState, useId, useLayoutEffect, useRef, useImperativeHandle, type ComponentProps, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, X, ChevronDown } from 'lucide-react';
+import { Search, X, ChevronDown, GripVertical, Circle, Check } from 'lucide-react';
 
 const classes = (...values: (string | false | undefined)[]) => values.filter(Boolean).join(' ');
 
@@ -26,12 +26,16 @@ export function IconButton({ className, ...props }: ComponentProps<typeof Button
   return <Button {...props} className={classes('icon-button', className)}/>;
 }
 
+export function DragHandle({ className, ...props }: ComponentProps<typeof IconButton>) {
+  return <IconButton {...props} className={classes('list-drag-handle', className)}><GripVertical size={18} aria-hidden="true"/></IconButton>;
+}
+
 export function SearchField({ label, value, onChange, placeholder = label, disabled = false }: { label: string; value: string; onChange(value: string): void; placeholder?: string; disabled?: boolean }) {
   return <div className="search-field"><Search size={19} aria-hidden="true"/><input type="search" aria-label={label} placeholder={placeholder} value={value} disabled={disabled} onChange={event => onChange(event.target.value)}/>{value && <IconButton aria-label={`Clear ${label.toLowerCase()}`} disabled={disabled} onClick={() => onChange('')}><X size={16}/></IconButton>}</div>;
 }
 
-export function DialogHeading({ id, children, close, busy = false }: { id: string; children: ReactNode; close(): void; busy?: boolean }) {
-  return <div className="dialog-heading"><h2 id={id}>{children}</h2><IconButton aria-label="Close dialog" disabled={busy} onClick={close}><X size={20}/></IconButton></div>;
+export function DialogHeading({ id, children, close, busy = false, description }: { id: string; children: ReactNode; close(): void; busy?: boolean; description?: ReactNode }) {
+  return <div className="dialog-heading"><div className="dialog-heading-copy"><h2 id={id}>{children}</h2>{description && <p>{description}</p>}</div><IconButton aria-label="Close dialog" disabled={busy} onClick={close}><X size={20}/></IconButton></div>;
 }
 
 export function FormDialog({ id, title, close, busy, onSubmit, children, footer, error }: { id:string; title:ReactNode;close():void;busy?:boolean;onSubmit:ComponentProps<'form'>['onSubmit'];children:ReactNode;footer:ReactNode;error?:string }) {
@@ -45,8 +49,24 @@ export function FormDialog({ id, title, close, busy, onSubmit, children, footer,
   </DialogFrame>;
 }
 
-export function SectionNav({ variant = 'filters', className, ...props }: ComponentProps<'nav'> & { variant?: 'filters' | 'sections'; 'aria-label': string }) {
-  return <nav {...props} className={classes('section-nav', `section-nav--${variant}`, className)}/>;
+function revealNavItem(nav: HTMLElement, item: Element | null) {
+  if (!item || nav.scrollWidth <= nav.clientWidth) return;
+  const bounds = nav.getBoundingClientRect(), target = item.getBoundingClientRect();
+  if (target.left < bounds.left + 4) nav.scrollLeft += target.left - bounds.left - 4;
+  else if (target.right > bounds.right - 4) nav.scrollLeft += target.right - bounds.right + 4;
+}
+export function SectionNav({ variant = 'filters', className, onFocusCapture, ref, ...props }: ComponentProps<'nav'> & { variant?: 'filters' | 'sections'; 'aria-label': string }) {
+  const nav = useRef<HTMLElement>(null), selectedHref = useRef<string | null>(null);
+  useImperativeHandle(ref, () => nav.current!);
+  useLayoutEffect(() => {
+    const selected = nav.current?.querySelector('[aria-current="page"]'), href = selected?.getAttribute('href') || null;
+    if (nav.current && href !== selectedHref.current) revealNavItem(nav.current, selected || null);
+    selectedHref.current = href;
+  });
+  return <nav {...props} ref={nav} className={classes('section-nav', `section-nav--${variant}`, className)} onFocusCapture={event => {
+    revealNavItem(event.currentTarget, (event.target as HTMLElement).closest('a'));
+    onFocusCapture?.(event);
+  }}/>;
 }
 export function SectionLink({ active, className, ...props }: ComponentProps<'a'> & { active?: boolean }) {
   return <a {...props} aria-current={active ? 'page' : undefined} className={classes(active && 'active', className)}/>;
@@ -63,6 +83,10 @@ export function ItemRow({ leading, trailing, children, variant = 'card', classNa
   if (props.href !== undefined) return <a {...props as ComponentProps<'a'>} className={rowClass}>{content}</a>;
   return <div {...props as ComponentProps<'div'>} className={rowClass}>{content}</div>;
 }
+export function DragPreview({ children, complete = false, metadata }: { children: ReactNode; complete?: boolean; metadata?: ReactNode }) {
+  return <ItemRow className="task-drag-overlay" aria-hidden="true" leading={complete ? <Check size={18}/> : <Circle size={21}/>} trailing={<GripVertical size={18}/>}><span className="task-title">{children}</span>{metadata}</ItemRow>;
+}
+
 export function ItemMeta({ className, ...props }: ComponentProps<'div'>) {
   return <div {...props} className={classes('item-meta', 'task-meta', className)}/>;
 }
@@ -116,7 +140,7 @@ export function DialogFrame({ close, busy = false, dismissOnBackdrop = false, si
   return closePageActions ? createPortal(content, document.body) : content;
 }
 
-export function ActionMenu({ children, label = 'More' }: { children: ReactNode; label?: string }) {
+export function ActionMenu({ children, label = 'Actions' }: { children: ReactNode; label?: string }) {
   const [open, setOpen] = useState(false), id = useId();
   const dialog = useRef<HTMLDialogElement>(null);
   const close = useCallback(() => { dialog.current?.close(); setOpen(false); }, []);

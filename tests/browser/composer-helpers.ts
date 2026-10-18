@@ -19,7 +19,7 @@ export async function detailsField(page: Page, name: string) {
   }
   if (!await field.isVisible()) {
     await dismissEditor(page);
-    const toggle = page.locator('.conversation-page-header').getByRole('button', { name: 'More', exact: true });
+    const toggle = page.locator('.conversation-page-header').getByRole('button', { name: 'Actions', exact: true });
     if (await toggle.isVisible()) {
       if (!await page.getByRole('dialog', { name: 'Page actions', exact: true }).isVisible()) await toggle.click();
       if (names[name]) await page.getByRole('button', { name: names[name], exact: !name.match(/^Task (list|space)$/) }).click();
@@ -33,7 +33,7 @@ export async function detailsControl(page: Page, role: 'button' | 'link', name: 
   const headerControl = page.locator('.conversation-page-header').getByRole(role, { name, exact: true, includeHidden: true });
   const control = await headerControl.count() ? headerControl : page.getByRole(role, { name, exact: true, includeHidden: true });
   await expect(control).toBeAttached();
-  if (!await control.isVisible()) await page.locator('.conversation-page-header').getByRole('button', { name: 'More', exact: true }).click();
+  if (!await control.isVisible()) await page.locator('.conversation-page-header').getByRole('button', { name: 'Actions', exact: true }).click();
   return control;
 }
 
@@ -43,7 +43,7 @@ export async function pageAction(page: Page, role: 'button' | 'link', name: stri
   const headerControl = page.locator('.conversation-page-header').getByRole(role, { name, exact: true, includeHidden: true });
   const control = await headerControl.count() ? headerControl : page.getByRole(role, { name, exact: true, includeHidden: true });
   await expect(control).toBeAttached();
-  if (!await control.isVisible()) await page.locator('.conversation-page-header').getByRole('button', { name: 'More', exact: true }).click();
+  if (!await control.isVisible()) await page.locator('.conversation-page-header').getByRole('button', { name: 'Actions', exact: true }).click();
   return control;
 }
 export async function closePageActions(page: Page) {

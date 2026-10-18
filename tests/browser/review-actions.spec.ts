@@ -9,7 +9,7 @@ test('rename cancels safely and retains failed edits until an explicit retry',as
  await expect(page.getByRole('dialog',{name:'Page actions',exact:true})).toBeHidden();
  await expect(page.locator('dialog[open]')).toHaveCount(1);
  await page.keyboard.press('Escape');
- await expect(page.getByRole('button',{name:'More',exact:true}).first()).toBeFocused();
+ await expect(page.getByRole('button',{name:'Actions',exact:true}).first()).toBeFocused();
  await expect(page.locator('.conversation-compact-title')).toHaveText(original);
  let requests=0;
  await page.route('**/api/v1/contexts/*/title',async route=>{requests++;await route.fulfill({status:503,json:{error:'Title service unavailable'}})});
@@ -20,7 +20,7 @@ test('rename cancels safely and retains failed edits until an explicit retry',as
  expect(requests).toBe(1);
  await page.unroute('**/api/v1/contexts/*/title');
  await saveTitle(page);await expect(page.locator('.conversation-compact-title')).toHaveText('Retain this title');
- await expect(page.getByRole('button',{name:'More',exact:true}).first()).toBeFocused();
+ await expect(page.getByRole('button',{name:'Actions',exact:true}).first()).toBeFocused();
 });
 
 test('delayed rename locks its editor and preserves the conversation draft',async({page})=>{

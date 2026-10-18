@@ -40,3 +40,5 @@ export { messagePreview, compactDate, readingTitle } from '../shared/messagePrev
 
 export { ActionRow, ActionRowLink, SettingsGroup } from '../src/ui';
 export { RenameAction } from '../src/RenameAction';
+
+export { DragHandle, DragPreview } from '../src/ui';

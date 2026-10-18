@@ -76,5 +76,7 @@
   "ActionRow",
   "ActionRowLink",
   "SettingsGroup",
-  "RenameAction"
+  "RenameAction",
+  "DragHandle",
+  "DragPreview"
 ]

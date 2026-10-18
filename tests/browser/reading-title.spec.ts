@@ -77,32 +77,25 @@ for (const keepMine of [true, false]) test(`competing reading-title edits preser
   } finally { await second.close(); }
 });
 
-for (const width of [390, 1280]) test(`reading list Edit mode saves inline titles without dragging on ${width}px screens`, async ({ page, request }) => {
+for (const width of [390, 1280]) test(`reading titles remain editable through Actions on ${width}px screens`, async ({ page, request }) => {
   await page.setViewportSize({ width, height: 844 });
-  const original = `Inline reading ${width}`, updated = `Renamed reading ${width}`, finished = `Read title ${width}`;
+  const original = `Reading ${width}`, updated = `Renamed reading ${width}`, finished = `Read title ${width}`;
   const url = await create(request, original), before = await agentCalls(request);
   await page.goto('/#/reading');
-  await page.getByRole('button', { name: 'Edit list', exact: true }).click();
-  const row = page.getByRole('group', { name: original, exact: true }), input = row.getByLabel('Edit reading title', { exact: true });
-  await input.fill('   '); await input.press('Enter'); await expect(input).toHaveValue(original);
-  await input.hover(); await page.mouse.down(); await page.waitForTimeout(550);
-  await expect(page.locator('.reading-row.dragging')).toHaveCount(0); await page.mouse.up();
-  await input.fill(updated);
-  await page.getByRole('button', { name: 'Finish editing', exact: true }).click();
-  await expect(page.getByRole('link', { name: updated, exact: true })).toBeVisible();
-  await expect(page.locator('.save-state')).toContainText('Changes synced');
-  await page.goto(url); await expect((await detailsField(page, 'Reading title'))).toHaveValue(updated);
+  await expect(page.getByRole('button', { name: 'Edit list', exact: true })).toHaveCount(0);
+  await page.getByRole('link', { name: original, exact: true }).click();
+  const input = await detailsField(page, 'Reading title');
+  await input.fill('   '); await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
+  await input.fill(updated); await saveTitle(page);
   await (await detailsControl(page, 'button', 'Mark read')).click();
-  await expect((await detailsControl(page, 'button', 'Mark unread'))).toBeVisible();
-  await closePageActions(page); await page.getByRole('link', { name: 'Back to Reading list', exact: true }).click();
-  await page.getByRole('button', { name: 'Edit list', exact: true }).click();
-  const readRow = page.getByRole('group', { name: updated, exact: true });
-  await expect(readRow.locator('.reorder-controls')).toHaveCount(0);
-  await readRow.getByLabel('Edit reading title', { exact: true }).fill(finished);
-  await readRow.getByLabel('Edit reading title', { exact: true }).press('Enter');
-  await expect(page.getByRole('group', { name: finished, exact: true }).getByLabel('Edit reading title', { exact: true })).toHaveValue(finished);
+  await closePageActions(page); await page.goto('/#/reading/read');
+  const row = page.getByRole('group', { name: updated, exact: true });
+  await expect(row.locator('.list-drag-handle')).toHaveCount(0);
+  await row.getByRole('link', { name: updated, exact: true }).click();
+  await (await detailsField(page, 'Reading title')).fill(finished); await saveTitle(page);
   await expect(page.locator('.save-state')).toContainText('Changes synced');
-  await page.reload(); await expect(page.getByRole('link', { name: finished, exact: true })).toBeVisible();
+  await page.goto('/#/reading/read'); await page.reload();
+  await expect(page.getByRole('link', { name: finished, exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(await agentCalls(request)).toEqual(before);
 });

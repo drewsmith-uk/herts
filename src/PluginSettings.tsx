@@ -1,12 +1,12 @@
 import { TabOrderSettings } from './TabOrderSettings';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { RefreshCw, Trash2 } from 'lucide-react';
 import { api, useApp, acceptPlugins, refresh } from './data';
 import { prepareForUpdate } from './updateSafety';
 import { PluginContent, pluginError, usePlugins } from './plugins';
 import type { PluginEntry } from '../shared/plugins';
 import { SettingsSection, Button, DialogFrame, FormField, StatusMessage } from './ui';
-export function PluginSettings() {
+export function PluginSettings({ navigation }: { navigation: ReactNode }) {
     const state = useApp(), loaded = usePlugins();
     const [busy, setBusy] = useState(''), [error, setError] = useState(''), [reset, setReset] = useState<PluginEntry>();
     async function run(id: string, action: string, confirmation?: string) {
@@ -36,19 +36,20 @@ export function PluginSettings() {
     finally {
         setBusy('');
     } }
-    return <><TabOrderSettings/><div className="plugin-rescan">
+    return <><div className="settings-toolbar">{navigation}
       <Button disabled={!state.online || !!busy} onClick={() => void rescan()}><RefreshCw size={16}/> Rescan plugins</Button>
     </div>
+    <div className="plugin-settings-groups"><TabOrderSettings/>
     {state.plugins.entries.map(entry => {
       const id = entry.manifest.id, p = loaded.find(p => p.id === id), Settings = p?.definition.Settings;
-      return <SettingsSection className="plugin-card" key={id} collapsible title={entry.manifest.name} actions={<><label className="plugin-heading"><input type="checkbox" aria-label={`Enable ${entry.manifest.name}`} checked={entry.enabled} disabled={!state.online || !!busy || !entry.available || entry.status === 'incompatible'} onChange={e => void run(id, e.target.checked ? 'enable' : 'disable')}/></label><span>{entry.manifest.version}{!(entry.enabled && entry.status === 'enabled') && <> · {entry.status}</>}</span></>} description={entry.manifest.description}>
+      return <SettingsSection className="plugin-card" key={id} collapsible title={<span className="plugin-title">{entry.manifest.name}<small>{entry.manifest.version}{!(entry.enabled && entry.status === 'enabled') && <> · {entry.status}</>}</small></span>} actions={<><label className="plugin-heading"><input type="checkbox" aria-label={`Enable ${entry.manifest.name}`} checked={entry.enabled} disabled={!state.online || !!busy || !entry.available || entry.status === 'incompatible'} onChange={e => void run(id, e.target.checked ? 'enable' : 'disable')}/></label></>} description={entry.manifest.description}>
         {(entry.error || pluginError(id)) && <StatusMessage>{entry.error || pluginError(id)}</StatusMessage>}
         {entry.candidateHash && <Button disabled={!state.online || !!busy} onClick={() => void run(id, 'update')}>Apply update {entry.candidateVersion}</Button>}
         {Settings && p && <PluginContent plugin={p}><Settings /></PluginContent>}
         <div className="settings-danger-actions"><Button variant="danger" disabled={!state.online || !!busy} onClick={() => setReset(entry)}><Trash2 size={15}/> Reset data</Button></div>
       </SettingsSection>;
     })}
-    {error && <StatusMessage>{error}</StatusMessage>}{reset && <ResetDialog entry={reset} close={() => setReset(undefined)} confirm={name => { const id = reset.manifest.id; setReset(undefined); setTimeout(() => void run(id, 'reset', name), 0); }}/>}</>;
+    </div>{error && <StatusMessage>{error}</StatusMessage>}{reset && <ResetDialog entry={reset} close={() => setReset(undefined)} confirm={name => { const id = reset.manifest.id; setReset(undefined); setTimeout(() => void run(id, 'reset', name), 0); }}/>}</>;
 }
 function ResetDialog({ entry, close, confirm }: {
     entry: PluginEntry;

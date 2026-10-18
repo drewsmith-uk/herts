@@ -18,13 +18,12 @@ function TaskList({ spaceId, status, recordRequest }: {
 }) {
     const { snapshot } = useApp();
     const lists = spaceLists(snapshot, spaceId);
-    const [edit, setEdit] = useState(false);
     const tasks = lists[status].ids.map(id => snapshot.tasks.find(t => t.id === id)!).filter(Boolean);
     const emptyDescription = { inbox: 'Add a task above, or find a conversation worth returning to.', next: 'Move tasks here when you want to work on them next.', waiting: 'Keep tasks here while waiting on someone or something.', parked: 'Keep tasks here until you want to return to them.', snoozed: 'Tasks with reminders appear here until they return to Inbox.', done: 'Completed tasks will appear here.' }[status];
-    return <><SpaceTabs spaceId={spaceId}/><PageHeader title={labels[status]} count={tasks.length} actions={(tasks.length > 0 || edit) && <Button variant="quiet" className={edit ? 'selected' : ''} onClick={() => setEdit(!edit)}><Pencil size={15}/>{edit ? 'Finish editing' : 'Edit list'}</Button>}/>
+    return <><SpaceTabs spaceId={spaceId}/><PageHeader title={labels[status]} count={tasks.length}/>
     <SectionNav className="mobile-lists" aria-label="Task lists" data-list-position={`tasks:${spaceId}:${status}`}>{statuses.map(s => <TaskDropLink key={s} surface="tabs" spaceId={spaceId} status={s} current={s === status} className={s === status ? 'active' : ''}>{labels[s]} <small>{lists[s].ids.length}</small></TaskDropLink>)}</SectionNav>
     <TaskCapture spaceId={spaceId} recordRequest={recordRequest}/>
-    <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}><ItemList className="task-list">{tasks.map((t, i) => <TaskRow key={t.id} task={t} edit={edit} index={i} tasks={tasks}/>)}</ItemList></SortableContext>
+    <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}><ItemList className="task-list">{tasks.map((t, i) => <TaskRow key={t.id} task={t} index={i} tasks={tasks}/>)}</ItemList></SortableContext>
     {!tasks.length && <EmptyState className="list-empty" icon={status === 'done' ? <CheckCheck size={30}/> : <Inbox size={30}/>} title={status === 'inbox' ? 'A clear Inbox' : `Nothing ${status === 'next' ? 'up next' : status === 'done' ? 'completed yet' : `in ${labels[status]}`}`} description={emptyDescription}>{status === 'inbox' && <a className="text-link" href="#/conversations">Browse Hermes conversations <ArrowRight size={15}/></a>}</EmptyState>}
   </>;
 }
@@ -59,7 +58,7 @@ function TaskDetail({ task }: {
         <FormField label={moving === 'list' ? 'Task list' : 'Task space'}><select disabled={busy} value={destination} onChange={event => setDestination(event.target.value)}>{moving === 'list' ? statuses.filter(s => s !== 'snoozed' || ['inbox', 'snoozed'].includes(task.status)).map(s => <option key={s} value={s}>{labels[s]}</option>) : state.snapshot.spaces?.map(space => <option key={space.id} value={space.id}>{space.name}</option>)}</select></FormField>
         {moving === 'space' && <p>Move to Inbox in this space.</p>}
       </FormDialog>}
-    </ConversationHeader><ConversationPanel fullTitle={task.title} context={contextForTask(task.id)!} showActions={false}/></div>;
+    </ConversationHeader><ConversationPanel fullTitle={task.title} context={contextForTask(task.id)!} showActions={false} showHeading={false}/></div>;
 }
 export function TasksScreen({ path, parts, recordRequest, shared }: RouteProps) {
     const state = useApp();

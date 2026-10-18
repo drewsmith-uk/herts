@@ -1,5 +1,5 @@
-import { SettingsSection, DialogFrame, FormField } from '@herts/plugin-api/client';
-import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
+import { SettingsSection, DialogFrame, FormField, ButtonLink } from '@herts/plugin-api/client';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import { Layers, Plus, Trash2 } from 'lucide-react';
 import { liveQuery } from '@herts/plugin-api/client';
 import { useDroppable } from '@dnd-kit/core';
@@ -83,8 +83,14 @@ function CreateSpaceDialog({ close }: {
   </form></DialogFrame>;
 }
 export function SpaceSettings() {
+    const defaultForm = useId(), [pendingDefault, setPendingDefault] = useState<string>();
     const state = useApp(), [name, setName] = useState(''), [error, setError] = useState(''), [busy, setBusy] = useState(false);
-    useUpdatePreparation({ blocked: () => name || busy ? 'Save or clear the new space name before updating.' : undefined });
+    useUpdatePreparation({ blocked: () => pendingDefault ? 'Wait for the default space change before updating.' : name || busy ? 'Save or clear the new space name before updating.' : undefined });
+    async function makeDefault(id: string) {
+      if (pendingDefault || id === state.snapshot.defaultSpaceId) return;
+      setPendingDefault(id); setError('');
+      try { await setDefaultSpace(id); } catch (error) { setError((error as Error).message); } finally { setPendingDefault(undefined); }
+    }
     async function add(e: FormEvent) {
         e.preventDefault();
         setBusy(true);
@@ -101,20 +107,26 @@ export function SpaceSettings() {
         }
     }
     return <SettingsSection className="spaces-settings" title="Task spaces" icon={<Layers size={22}/>}>
-    <FormField className="default-space-label" label="Default space"><select aria-label="Default space" value={state.snapshot.defaultSpaceId} onChange={e => { setError(''); void setDefaultSpace(e.target.value).catch(e => setError(e.message)); }}>{state.snapshot.spaces?.map(space => <option key={space.id} value={space.id}>{space.name}</option>)}</select></FormField>
-    <div className="space-management-list">{state.snapshot.spaces?.map(space => <SpaceName key={space.id} space={space}/>)}</div>
-    <form className="new-space-form" onSubmit={add}><FormField label="New space"><input aria-label="New space name" placeholder="e.g. Work" value={name} onChange={e => setName(e.target.value)} maxLength={80}/></FormField><button disabled={busy || !name.trim()}><Plus size={16}/> Create space</button></form>
+
+    <form id={defaultForm} hidden/>
+    <div className="space-management-list">{state.snapshot.spaces?.map(space => <SpaceName key={space.id} space={space} defaultForm={defaultForm} isDefault={space.id === (pendingDefault || state.snapshot.defaultSpaceId)} defaultBusy={!!pendingDefault} makeDefault={() => makeDefault(space.id)}/>)}</div>
+    <form className="new-space-form" onSubmit={add}><FormField label="New space"><input aria-label="New space name" placeholder="e.g. Work" value={name} onChange={e => setName(e.target.value)} maxLength={80} disabled={busy}/></FormField><button disabled={busy || !name.trim()}><Plus size={16}/> Create space</button></form>
     {error && <p role="alert" className="inline-error">{error}</p>}
   </SettingsSection>;
 }
-function SpaceName({ space }: {
+function SpaceName({ space, defaultForm, isDefault, defaultBusy, makeDefault }: {
     space: Space;
+    defaultForm: string;
+    isDefault: boolean;
+    defaultBusy: boolean;
+    makeDefault(): Promise<void>;
 }) {
     const { snapshot } = useApp();
     const [name, setName] = useState(space.name), [error, setError] = useState(''), [busy, setBusy] = useState(false), [deleting, setDeleting] = useState(false);
     const hasTasks = snapshot.tasks.some(task => taskSpaceId(task) === space.id);
     useUpdatePreparation({ blocked: () => name !== space.name || busy ? 'Save the space name before updating.' : undefined });
-    useEffect(() => setName(space.name), [space.name]);
+    const previousName = useRef(space.name);
+    useEffect(() => { const previous = previousName.current; previousName.current = space.name; setName(current => current === previous ? space.name : current); }, [space.name]);
     async function save(e: FormEvent) { e.preventDefault(); setBusy(true); setError(''); try {
         await renameSpace(space.id, name);
     }
@@ -124,8 +136,13 @@ function SpaceName({ space }: {
     finally {
         setBusy(false);
     } }
-    return <div><form className="space-name-form" onSubmit={save}><input aria-label={`Name of ${space.name} space`} value={name} onChange={e => setName(e.target.value)} maxLength={80}/><button disabled={busy || !name.trim() || name.trim() === space.name}>Rename</button><a className="text-link" href={`#${spacePath(space.id)}`}>Open</a></form>
-    {space.id !== originalSpaceId && <><button className="quiet-button danger-button" disabled={busy || hasTasks || name !== space.name} onClick={() => setDeleting(true)} aria-label={`Delete ${space.name} space`}><Trash2 size={15}/> Delete space</button>{hasTasks && <p className="subtle-note">Move all tasks out first, including Done and Snoozed items.</p>}</>}
+    return <div className="space-management-block" data-space-id={space.id}><form className="space-name-form" onSubmit={save}>
+      <input aria-label={`Name of ${space.name} space`} value={name} disabled={busy} onChange={e => setName(e.target.value)} maxLength={80}/>
+      <div className="space-actions"><label className="space-default"><input type="radio" form={defaultForm} name="default-space" value={space.id} checked={isDefault} disabled={busy || defaultBusy} aria-label={`Default space: ${space.name}`} onChange={() => void makeDefault()}/>{isDefault ? 'Default space' : 'Set as default'}</label>
+      <div className="button-row"><button disabled={busy || !name.trim() || name.trim() === space.name}>Rename</button><ButtonLink href={`#${spacePath(space.id)}`}>Open</ButtonLink>
+      {space.id !== originalSpaceId && <button type="button" className="quiet-button danger-button" disabled={busy || hasTasks || name !== space.name} onClick={() => setDeleting(true)} aria-label={`Delete ${space.name} space`}><Trash2 size={15}/></button>}</div></div>
+    </form>
+    {space.id !== originalSpaceId && hasTasks && <p className="subtle-note">Move all tasks out first, including Done and Snoozed items.</p>}
     {error && <p role="alert" className="inline-error">{error}</p>}{deleting && <DeleteSpaceDialog space={space} close={() => setDeleting(false)}/>}</div>;
 }
 function DeleteSpaceDialog({ space, close }: { space: Space; close: () => void }) {

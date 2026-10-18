@@ -418,3 +418,19 @@ test('slow activation completes once and keeps drafts without another update cli
   await expect(draft).toHaveValue('Keep this draft during slow activation.');
   await expect(toast(page)).toHaveCount(0);
 });
+
+test('an update removes obsolete theme fonts and preserves task drafts and other caches', async ({ page }) => {
+  await oldPage(page, '/#/tasks/inbox', async () => {
+    await page.getByRole('textbox', { name: 'Add a task', exact: true }).fill('Keep this task draft after the theme update');
+    await page.evaluate(async () => {
+      await (await caches.open('herts-theme-fonts-v1')).put('/_themes/old.woff2', new Response('old font'));
+      await (await caches.open('fixture-retained-download')).put('/fixture-note', new Response('saved note'));
+    });
+  });
+  const previous = await version(page);
+  await toast(page).getByRole('button', { name: 'Update now', exact: true }).click();
+  await expect.poll(() => version(page)).not.toBe(previous);
+  await expect(page.getByRole('textbox', { name: 'Add a task', exact: true })).toHaveValue('Keep this task draft after the theme update');
+  expect(await page.evaluate(() => caches.has('herts-theme-fonts-v1'))).toBe(false);
+  expect(await page.evaluate(async () => (await (await caches.open('fixture-retained-download')).match('/fixture-note'))?.text())).toBe('saved note');
+});

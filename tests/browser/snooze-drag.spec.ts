@@ -21,7 +21,7 @@ test('phone snooze, change time, unsnooze and due reminders persist across devic
   await page.setViewportSize({width:390,height:844});const before=await agentCalls(request),{spaceId,ids,path}=await seed(request,'Snooze work');await page.goto(path);
   await row(page,ids[1]).getByRole('link').click();await (await detailsControl(page, 'button', 'Snooze')).click();await expect(page.getByRole('dialog',{name:/^(Snooze task|Change reminder)$/})).toBeVisible();
   const at=await chooseTime(page,Date.now()+3600_000);await page.getByRole('dialog',{name:/^(Snooze task|Change reminder)$/}).getByRole('button',{name:'Snooze',exact:true}).click();await expect((await detailsField(page, 'Task list'))).toHaveValue('snoozed');await expect(page.locator('.save-state')).toContainText('Changes synced');
-  await page.goto(path);await expect(row(page,ids[1])).toHaveCount(0);await page.locator('.mobile-lists [data-drop-list="snoozed"]').click();await expect(row(page,ids[1])).toBeVisible();await expect(page.locator('.drag-handle')).toHaveCount(0);
+  await page.goto(path);await expect(row(page,ids[1])).toHaveCount(0);await page.locator('.mobile-lists [data-drop-list="snoozed"]').click();await expect(row(page,ids[1])).toBeVisible();await expect(row(page,ids[1]).getByRole('button',{name:/^Drag /})).toBeVisible();
   const second=await browser.newContext({viewport:{width:1280,height:844}}),other=await second.newPage();
   try{
     await other.goto(`/#/task/${ids[1]}`);await expect((await detailsField(other, 'Task list'))).toHaveValue('snoozed');await (await detailsControl(other, 'button', 'Change reminder')).click();const later=await chooseTime(other,at+3600_000);await other.getByRole('button',{name:'Save reminder',exact:true}).click();await expect.poll(async()=>(await snapshot(request)).tasks.find((t:any)=>t.id===ids[1]).snoozedUntil).toBe(later);await expect(other.locator('.save-state')).toContainText('Changes synced');
@@ -55,7 +55,7 @@ test('offline snooze survives reload; a lost receipt and a conflicting device ca
 
 test('mouse dragging requires holding, keeps taps usable, and drops into list tabs or the sidebar',async({page,request})=>{
   await page.setViewportSize({width:1280,height:844});const {spaceId,ids,path}=await seed(request,'Hold mouse');await page.goto(path);
-  await expect(page.locator('.drag-handle')).toHaveCount(0);await mouseDrag(page,row(page,ids[0]),row(page,ids[2]),false);await expect(page.locator('.task-item').first()).toHaveAttribute('data-task-id',ids[0]);await expect(page.getByRole('dialog',{name:/^(Snooze task|Change reminder)$/})).toHaveCount(0);
+  await expect(row(page,ids[0]).getByRole('button',{name:/^Drag /})).toBeVisible();await mouseDrag(page,row(page,ids[0]),row(page,ids[2]),false);await expect(page.locator('.task-item').first()).toHaveAttribute('data-task-id',ids[0]);await expect(page.getByRole('dialog',{name:/^(Snooze task|Change reminder)$/})).toHaveCount(0);
   await mouseDrag(page,row(page,ids[0]),row(page,ids[2]));await expect(page.locator('.task-item').last()).toHaveAttribute('data-task-id',ids[0]);await expect(page).toHaveURL(new RegExp(`/spaces/${spaceId}/inbox$`));
   await mouseDrag(page,row(page,ids[0]),page.locator('.sidebar [data-drop-list="next"]'));await expect(row(page,ids[0])).toHaveCount(0);
   await mouseDrag(page,row(page,ids[1]),page.locator('.sidebar [data-drop-list="done"]'));await expect(row(page,ids[1])).toHaveCount(0);
@@ -67,7 +67,7 @@ test('mouse dragging requires holding, keeps taps usable, and drops into list ta
   await page.evaluate(()=>new Promise<void>(resolve=>setTimeout(resolve,100)));
   await page.getByRole('button',{name:'Cancel',exact:true}).click();await expect(row(page,ids[2])).toBeVisible();
   await expect(page.getByRole('dialog',{name:/^(Snooze task|Change reminder)$/})).toHaveCount(0);await expect(page.locator('.task-drag-overlay')).toHaveCount(0);
-  await row(page,ids[2]).focus();await expect(row(page,ids[2])).toBeFocused();
+  const grip=row(page,ids[2]).getByRole('button',{name:/^Drag /});await grip.focus();await expect(grip).toBeFocused();
   await page.keyboard.press('Space');await expect(page.locator('.task-drag-overlay')).toBeVisible();
   // dnd-kit renders the overlay before its deferred keydown listener is attached.
   // Drain that timer before sending the single Escape that must cancel the drag.
@@ -80,7 +80,7 @@ test('mouse dragging requires holding, keeps taps usable, and drops into list ta
 test('reading items also require a hold to reorder and keep their ordinary links and controls',async({page,request})=>{
   const ids:string[]=[];
   for(const title of ['Hold reading A','Hold reading B']){const itemId=crypto.randomUUID();ids.unshift(itemId);await request.post('/api/v1/reading/sync',{headers,data:{id:crypto.randomUUID(),itemId,contextId:crypto.randomUUID(),kind:'create',url:`https://example.com/${itemId}`,title,at:Date.now()}});}
-  await page.goto('/#/reading');await expect(page.locator('.reading-row .drag-handle')).toHaveCount(0);const first=page.locator('.reading-row').filter({hasText:'Hold reading B'}),second=page.locator('.reading-row').filter({hasText:'Hold reading A'});
+  await page.goto('/#/reading');await expect(page.locator('.reading-row .list-drag-handle').first()).toBeVisible();const first=page.locator('.reading-row').filter({hasText:'Hold reading B'}),second=page.locator('.reading-row').filter({hasText:'Hold reading A'});
   await first.scrollIntoViewIfNeeded();const from=(await first.boundingBox())!,to=(await second.boundingBox())!;
   await page.mouse.move(from.x+from.width/2,from.y+from.height/2);await page.mouse.down();await page.mouse.move(to.x+to.width/2,to.y+to.height/2,{steps:8});await page.mouse.up();await expect(page.locator('.reading-row .task-title').first()).toHaveText('Hold reading B');
   await page.mouse.move(from.x+from.width/2,from.y+from.height/2);await page.mouse.down();await page.waitForTimeout(550);await expect(first).toHaveClass(/dragging/);await page.mouse.move(to.x+to.width/2,to.y+to.height/2,{steps:8});await page.mouse.up();await expect(page.locator('.reading-row .task-title').first()).toHaveText('Hold reading A');await expect(page.locator('.save-state')).toContainText('Changes synced');
@@ -95,9 +95,13 @@ test('touch swiping opens snooze, scrolling stays native, and a held item can mo
     await touch(row(page,ids[0]),30);await expect(page.getByRole('dialog',{name:/^(Snooze task|Change reminder)$/})).toHaveCount(0);
     await touch(row(page,ids[0]),-130,0,false,true);await expect(page.getByRole('dialog',{name:/^(Snooze task|Change reminder)$/})).toHaveCount(0);
     const start=await page.evaluate(()=>scrollY);await touch(row(page,ids[0]),0,-140);await expect.poll(()=>page.evaluate(()=>scrollY)).toBeGreaterThan(start);await expect(page.locator('.task-drag-overlay')).toHaveCount(0);
+    await page.evaluate(()=>scrollTo(0,0));
+    await touch(row(page,ids[2]).getByRole('button',{name:/^Drag /}),0,-140);
+    await expect.poll(()=>page.evaluate(()=>scrollY)).toBeGreaterThan(0);
+    await expect(page.locator('.task-drag-overlay')).toHaveCount(0);
     await touch(row(page,ids[0]),-130);await expect(page.getByRole('dialog',{name:/^(Snooze task|Change reminder)$/})).toBeVisible();await page.screenshot({path:'test-results/snooze-picker-phone.png'});await page.getByRole('button',{name:'Cancel',exact:true}).click();
     await touch(row(page,ids[0]),130);await chooseTime(page,Date.now()+3600_000);await page.getByRole('dialog',{name:/^(Snooze task|Change reminder)$/}).getByRole('button',{name:'Snooze',exact:true}).click();await expect(row(page,ids[0])).toHaveCount(0);
-    await page.evaluate(()=>scrollTo(0,0));await row(page,ids[1]).scrollIntoViewIfNeeded();const from=(await row(page,ids[1]).boundingBox())!;
+    await page.evaluate(()=>scrollTo(0,0));await row(page,ids[1]).scrollIntoViewIfNeeded();const from=(await row(page,ids[1]).getByRole('button',{name:/^Drag /}).boundingBox())!;
     const x=from.x+from.width/2,y=from.y+from.height/2;
     await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y}]});
     await expect(page.locator('.task-drag-overlay')).toBeVisible();
@@ -106,4 +110,38 @@ test('touch swiping opens snooze, scrolling stays native, and a held item can mo
     await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await expect(row(page,ids[1])).toHaveCount(0);await expect(page.getByRole('dialog',{name:/^(Snooze task|Change reminder)$/})).toHaveCount(0);
     expect((await snapshot(request)).tasks.find((t:any)=>t.id===ids[1]).status).toBe('waiting');expect(await agentCalls(request)).toEqual(before);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await page.screenshot({path:'test-results/hold-drag-phone.png'});
   }finally{await context.close();}
+});
+
+test('reading handles allow scrolling and preserve card content during a held drag', async ({ browser, request }) => {
+  const ids: string[] = [];
+  for (let i = 0; i < 18; i++) {
+    const itemId = crypto.randomUUID(); ids.unshift(itemId);
+    await request.post('/api/v1/reading/sync', { headers, data: { id: crypto.randomUUID(), itemId, contextId: crypto.randomUUID(), kind: 'create', title: `Scroll reading ${i}`, url: `https://example.com/${itemId}`, at: Date.now() } });
+  }
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  try {
+    const page = await context.newPage(), cdp = await context.newCDPSession(page);
+    await page.goto('/#/reading');
+    const handle = page.getByRole('button', { name: 'Drag Scroll reading 15', exact: true });
+    await handle.scrollIntoViewIfNeeded();
+    const before = await page.evaluate(() => scrollY), box = (await handle.boundingBox())!;
+    const x = box.x + box.width / 2, y = box.y + box.height / 2;
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+    for (let i = 1; i <= 8; i++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y - i * 20 }] });
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(before);
+    await expect(page.locator('.task-drag-overlay')).toHaveCount(0);
+    await handle.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(300);
+    const held = (await handle.boundingBox())!, card = handle.locator('xpath=ancestor::*[contains(@class,"reading-row")]');
+    const height = (await card.boundingBox())!.height;
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: held.x + held.width / 2, y: held.y + held.height / 2 }] });
+    const preview = page.locator('.task-drag-overlay');
+    await expect(preview).toBeVisible();
+    await expect(preview).toContainText('example.com');
+    expect(Math.abs((await preview.boundingBox())!.height - height)).toBeLessThanOrEqual(1);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] });
+    await expect(preview).toHaveCount(0);
+    expect((await snapshot(request)).reading.unread.ids.slice(0, 18)).toEqual(ids);
+  } finally { await context.close(); }
 });

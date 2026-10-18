@@ -30,12 +30,8 @@ export function useNavigationPreferences() {
   return useSyncExternalStore(listener => { listeners.add(listener); return () => { listeners.delete(listener); }; }, () => snapshot);
 }
 export function fitNavigation(widths: number[], available: number): number {
-  let used = 0, count = 0;
-  for (const width of widths) {
-    if (count === 5 || used + width > available) break;
-    used += width;
-    count++;
-  }
+  let count = 0;
+  while (count < Math.min(5, widths.length) && Math.max(72, ...widths.slice(0, count + 1)) * (count + 2) <= available) count++;
   return count;
 }
 

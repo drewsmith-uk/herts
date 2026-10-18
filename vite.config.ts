@@ -23,6 +23,6 @@ export default defineConfig({
     configureServer(server) { server.middlewares.use(`/${bootstrapFile}`, (_req, response) => { response.setHeader('Content-Type', 'text/javascript'); response.end(bootstrap); }); },
     transformIndexHtml() { return [{ tag: 'script', attrs: { src: `/${bootstrapFile}` }, injectTo: 'head' }]; },
   }],
-  server: { port: 5173, proxy: { '/api': 'http://127.0.0.1:8787', '/_plugins':'http://127.0.0.1:8787', '/_themes':'http://127.0.0.1:8787' } },
+  server: { port: 5173, proxy: { '/api': 'http://127.0.0.1:8787', '/_plugins':'http://127.0.0.1:8787' } },
   build: { sourcemap: false, rollupOptions: { output: { manualChunks: { markdown: ['react-markdown', 'remark-gfm'], storage: ['dexie'] } } } },
 });

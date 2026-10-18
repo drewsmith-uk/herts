@@ -1,7 +1,7 @@
 import { readingTitle, MessageComposer, useEntryDraft, type Draft } from '@herts/plugin-api/client';
-import { ActionRow, ActionRowLink, RenameAction, PageHeader, Button, ButtonLink, IconButton, SectionNav, SectionLink, ItemList, ItemRow, ItemMeta, EmptyState, StatusMessage, SettingsSection, SettingRow, FormField } from '@herts/plugin-api/client';
-import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { BookOpen, Bookmark, BookmarkCheck, Plus, Check, Circle, ArrowUp, ArrowDown, Pencil, ChevronLeft, ExternalLink, Download, Trash2, LoaderCircle, Send } from 'lucide-react';
+import { DragPreview, DragHandle, ActionRow, ActionRowLink, RenameAction, PageHeader, Button, ButtonLink, IconButton, SectionNav, SectionLink, ItemList, ItemRow, ItemMeta, EmptyState, StatusMessage, SettingsSection, SettingRow, FormField } from '@herts/plugin-api/client';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { BookOpen, Bookmark, BookmarkCheck, Plus, Check, Circle, ExternalLink, Download, Trash2, LoaderCircle } from 'lucide-react';
 import { DndContext, DragOverlay, closestCenter, type DragEndEvent } from '@dnd-kit/core';
 import { useHoldSensors, holdListeners, useDragClickGuard } from '@herts/plugin-api/client';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
@@ -10,7 +10,6 @@ import { emptyReading, normalizeUrl, sharedUrls, type ReadingItem, type Article 
 import { useApp, addReading, readingChange, changeReadingWithUndo, db, sync, publish, getArticle } from './data';
 import { ConversationPanel } from '@herts/plugin-api/client';
 import { ConversationHeader } from '@herts/plugin-api/client';
-import { useDraftPersistence, useUpdatePreparation, useUpdateWork } from '@herts/plugin-api/client';
 const navigate = (path: string) => { location.hash = path; };
 const date = (at: number) => new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(at);
 function useReadingAction() {
@@ -27,9 +26,10 @@ export function ReadingList({ read }: {
 }) {
     const state = useApp(), reading = state.snapshot.reading || emptyReading();
     const [activeId, setActiveId] = useState<string>();
-    const [edit, setEdit] = useState(false), { run, error } = useReadingAction();
+    const { run, error } = useReadingAction();
     const items = read ? reading.items.filter(i => i.readAt !== null).sort((a, b) => b.readAt! - a.readAt! || a.id.localeCompare(b.id)) : reading.unread.ids.map(id => reading.items.find(i => i.id === id)!).filter(Boolean);
     const sensors = useHoldSensors(), clickGuard = useDragClickGuard();
+    const activeItem = items.find(item => item.id === activeId);
     function drag({ active, over }: DragEndEvent) {
         clickGuard.end(); setActiveId(undefined);
         if (read || !over || active.id === over.id)
@@ -37,28 +37,29 @@ export function ReadingList({ read }: {
         const from = items.findIndex(i => i.id === active.id), to = items.findIndex(i => i.id === over.id);
         run(() => readingChange(String(active.id), { kind: 'reorder', beforeId: from < to ? items[to + 1]?.id || null : String(over.id) }));
     }
-    return <><PageHeader title="Reading list" count={items.length} actions={(items.length > 0 || edit) && <Button variant="quiet" className={edit ? 'selected' : ''} onClick={() => setEdit(!edit)}><Pencil size={15}/>{edit ? 'Finish editing' : 'Edit list'}</Button>}/>
+    return <><PageHeader title="Reading list" count={items.length}/>
     <div className="reading-toolbar"><SectionNav className="reading-tabs" aria-label="Reading lists"><SectionLink href="#/reading" active={!read}>Unread <small>{reading.unread.ids.length}</small></SectionLink><SectionLink href="#/reading/read" active={read}>Read <small>{reading.items.length - reading.unread.ids.length}</small></SectionLink></SectionNav><ButtonLink variant="primary" className="reading-add" href="#/reading/add"><Plus size={17}/> Add link</ButtonLink></div>
     {error && <StatusMessage>{error}</StatusMessage>}
-    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={drag} onDragStart={({active}) => { clickGuard.start(); setActiveId(String(active.id)); }} onDragCancel={() => { clickGuard.end(); setActiveId(undefined); }}><SortableContext items={items.map(i => i.id)} strategy={verticalListSortingStrategy}><ItemList className="task-list">{items.map((item, index) => <ReadingRow key={item.id} item={item} index={index} items={items} edit={edit}/>)}</ItemList></SortableContext><DragOverlay dropAnimation={null}>{activeId && <div className="task-drag-overlay">{items.find(item => item.id === activeId)?.title}</div>}</DragOverlay></DndContext>
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={drag} onDragStart={({active}) => { clickGuard.start(); setActiveId(String(active.id)); }} onDragCancel={() => { clickGuard.end(); setActiveId(undefined); }}><SortableContext items={items.map(i => i.id)} strategy={verticalListSortingStrategy}><ItemList className="task-list">{items.map((item, index) => <ReadingRow key={item.id} item={item} index={index} items={items}/>)}</ItemList></SortableContext><DragOverlay dropAnimation={null}>{activeItem && <DragPreview metadata={<ReadingMetadata item={activeItem}/>}>{readingTitle(activeItem.title, activeItem.url)}</DragPreview>}</DragOverlay></DndContext>
     {!items.length && <EmptyState icon={<BookOpen size={30}/>} title={read ? 'Nothing marked read yet' : 'Your next good read'} description={read ? 'Finished articles will appear here.' : 'Add a link, share one from another app, or bookmark a link in a conversation.'}/>}
   </>;
 }
-function ReadingRow({ item, index, items, edit }: {
+function ReadingMetadata({ item }: { item: ReadingItem }) {
+    const state = useApp(), article = state.articleCopies[item.id], pending = state.readingPending.some(p => p.op.itemId === item.id);
+    return <ItemMeta><span>{new URL(item.url).hostname}</span>{pending && <span>Saved on device</span>}{item.readAt !== null ? <span>{date(item.readAt)}</span> : article?.html ? <span><Download size={11}/> Available offline{article.status === 'excerpt' ? ' · excerpt' : ''}</span> : null}</ItemMeta>;
+}
+function ReadingRow({ item, index, items }: {
     item: ReadingItem;
     index: number;
     items: ReadingItem[];
-    edit: boolean;
 }) {
-    const state = useApp(), { run, error } = useReadingAction(), title = useReadingTitle(item);
-    const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver, activeIndex, overIndex } = useSortable({ id: item.id, disabled: item.readAt !== null });
-    const article = state.articleCopies[item.id], pending = state.readingPending.some(p => p.op.itemId === item.id);
-    return <div><ItemRow ref={setNodeRef} className={`task-row reading-row ${isDragging ? 'dragging' : ''} ${isOver && !isDragging ? activeIndex < overIndex ? 'task-insertion-after' : 'task-insertion-before' : ''}`} style={{ transform: CSS.Transform.toString(transform), transition }} {...(item.readAt === null ? attributes : {})} {...holdListeners(listeners)} role="group" aria-label={item.title} aria-roledescription={item.readAt === null ? 'sortable reading item' : undefined} onDragStart={e => e.preventDefault()} leading={<IconButton className="completion-button" aria-label={`${item.readAt === null ? 'Mark read' : 'Mark unread'}: ${item.title}`} onClick={() => void changeReadingWithUndo(item, items[index + 1]?.id || null)}>{item.readAt === null ? <Circle size={21}/> : <Check size={18}/>}</IconButton>} trailing={edit && item.readAt === null && <div className="reorder-controls"><IconButton aria-label={`Move ${item.title} up`} disabled={!index} onClick={() => run(() => readingChange(item.id, { kind: 'reorder', beforeId: items[index - 1].id }))}><ArrowUp size={16}/></IconButton><IconButton aria-label={`Move ${item.title} down`} disabled={index === items.length - 1} onClick={() => run(() => readingChange(item.id, { kind: 'reorder', beforeId: items[index + 2]?.id || null }))}><ArrowDown size={16}/></IconButton></div>}>
+    const state = useApp();
+    const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging, isOver, activeIndex, overIndex } = useSortable({ id: item.id, disabled: item.readAt !== null });
+    const article = state.articleCopies[item.id];
+    return <div><ItemRow ref={setNodeRef} className={`task-row reading-row ${isDragging ? 'dragging' : ''} ${isOver && !isDragging ? activeIndex < overIndex ? 'task-insertion-after' : 'task-insertion-before' : ''}`} style={{ transform: CSS.Transform.toString(transform), transition }} {...(item.readAt === null ? attributes : {})} {...holdListeners(listeners)} role="group" tabIndex={-1} aria-label={item.title} aria-roledescription={item.readAt === null ? 'sortable reading item' : undefined} onDragStart={e => e.preventDefault()} leading={<IconButton className="completion-button" aria-label={`${item.readAt === null ? 'Mark read' : 'Mark unread'}: ${item.title}`} onClick={() => void changeReadingWithUndo(item, items[index + 1]?.id || null)}>{item.readAt === null ? <Circle size={21}/> : <Check size={18}/>}</IconButton>} trailing={item.readAt === null && <DragHandle ref={setActivatorNodeRef} {...attributes} {...listeners} aria-label={`Drag ${item.title}`}/>}>
+    <a className="task-title" title={item.title || item.url} aria-label={item.title || item.url} draggable={false} href={readingEntry(item, !!article?.html)}>{readingTitle(item.title, item.url)}</a><ReadingMetadata item={item}/>
 
-    {edit ? <input className="inline-title" aria-label="Edit reading title" value={title.text} maxLength={2000} onChange={e => title.setText(e.target.value)} onBlur={() => void title.save()} onKeyDown={e => { if (e.key === 'Enter')
-        e.currentTarget.blur(); }}/> : <a className="task-title" title={item.title || item.url} aria-label={item.title || item.url} draggable={false} href={readingEntry(item, !!article?.html)}>{readingTitle(item.title, item.url)}</a>}<ItemMeta><span>{new URL(item.url).hostname}</span>{pending && <span>Saved on device</span>}{item.readAt !== null ? <span>{date(item.readAt)}</span> : article?.html ? <span><Download size={11}/> Available offline{article.status === 'excerpt' ? ' · excerpt' : ''}</span> : null}</ItemMeta>
-
-  </ItemRow>{(error || title.error) && <StatusMessage>{error || title.error}</StatusMessage>}</div>;
+  </ItemRow></div>;
 }
 export function ReadingCapture({ sharedContent, id }: { sharedContent?: import('@herts/plugin-api/types').SharedContent; id?: string }) {
     const shared = !!sharedContent;
@@ -111,36 +112,10 @@ export function ReadingDetail({ id, initialMode = 'discussion' }: { id: string; 
           <ArticleContent key={id} item={item} active={showArticle}/>
         </section>
         <section className="reading-discussion-pane" aria-label="Discussion pane" hidden={!showDiscussion} onFocusCapture={() => { if (alongside) setMode('discussion'); }} onPointerDown={() => { if (alongside) setMode('discussion'); }}>
-          {context && <ConversationPanel fullTitle={item.title} key={context.id} context={context} initialText={!context.link && !hasSubmission ? item.url : ''} showActions={false}/>}
+          {context && <ConversationPanel fullTitle={item.title} key={context.id} context={context} initialText={!context.link && !hasSubmission ? item.url : ''} showActions={false} showHeading={false}/>}
         </section>
       </div>
     </div>;
-}
-function useReadingTitle(item: ReadingItem) {
-    const [draft, setDraft] = useState<{
-        text: string;
-        baseTitle: string;
-    } | null>(null), [error, setError] = useState('');
-    const savingTitle = useUpdateWork();
-    useUpdatePreparation({ blocked: () => draft && draft.text.trim() !== draft.baseTitle ? 'The reading title is still being saved. Please try updating again after it is saved.' : undefined });
-    async function save() {
-        if (!draft)
-            return;
-        const title = draft.text.trim();
-        setError('');
-        if (!title || title === draft.baseTitle) {
-            setDraft(null);
-            return;
-        }
-        try {
-            await savingTitle(readingChange(item.id, { kind: 'title', title, baseTitle: draft.baseTitle }));
-            setDraft(current => current === draft ? null : current && current.baseTitle === draft.baseTitle ? { ...current, baseTitle: title } : current);
-        }
-        catch {
-            setError('The title could not be saved. Your edit is still here; tap the title and leave the field to try again.');
-        }
-    }
-    return { text: draft?.text ?? item.title, setText: (text: string) => setDraft(current => ({ text, baseTitle: current?.baseTitle ?? item.title })), save, error };
 }
 function ReadingTitle({ item }: {
     item: ReadingItem;
@@ -235,5 +210,5 @@ export function BookmarkLink({ href, conversationId, children }: {
 }
 export function ReadingSettings() {
     const state = useApp(), { run, error } = useReadingAction();
-    return <SettingsSection title="Offline reading" icon={<Download size={22}/>}><SettingRow label="Automatically download unread articles" htmlFor="reading-auto-download" control={<input id="reading-auto-download" type="checkbox" checked={state.snapshot.reading?.autoDownload ?? true} onChange={e => run(() => readingChange(crypto.randomUUID(), { kind: 'settings', autoDownload: e.target.checked }))}/>}/><p>Marking an item read removes its offline download.</p>{error && <StatusMessage>{error}</StatusMessage>}</SettingsSection>;
+    return <SettingsSection title="Offline reading" icon={<Download size={22}/>}><SettingRow label="Automatically download unread articles" htmlFor="reading-auto-download" description="Marking an item read removes its offline download." control={<input id="reading-auto-download" type="checkbox" checked={state.snapshot.reading?.autoDownload ?? true} onChange={e => run(() => readingChange(crypto.randomUUID(), { kind: 'settings', autoDownload: e.target.checked }))}/>}/>{error && <StatusMessage>{error}</StatusMessage>}</SettingsSection>;
 }

@@ -47,10 +47,8 @@ main:has(.conversation-panel) { height: 100%; display: flex; flex-direction: col
   main:has(.conversation-panel) { padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
   .page-content:has(.conversation-panel) { padding: 0 18px 6px; }
   .app-shell:has(.conversation-panel) .mobile-nav { bottom: calc(100dvh - var(--viewport-top, 0px) - var(--viewport-height, 100dvh)); }
-  body.keyboard-open .app-shell:has(.conversation-panel) main { padding-bottom: calc(44px + env(safe-area-inset-bottom)); }
-  body.keyboard-open .app-shell:has(.conversation-panel) .mobile-nav { min-height:44px; padding:0 8px env(safe-area-inset-bottom); }
-  body.keyboard-open .app-shell:has(.conversation-panel) .mobile-nav > :not(.navigation-end) { display:none; }
-  body.keyboard-open .app-shell:has(.conversation-panel) .mobile-nav > .navigation-end { flex-direction:row; gap:12px; flex-basis:auto; }
+  body.keyboard-open .app-shell:has(.conversation-panel) main { padding-bottom:0; }
+  body.keyboard-open .app-shell:has(.conversation-panel) .mobile-nav { display:none; }
 }
 /* Short desktop windows need the same compact reply bar as phones. */
 @media(max-width:1000px), (max-height:600px) {
@@ -71,7 +69,7 @@ main:has(.conversation-panel) { height: 100%; display: flex; flex-direction: col
 
 @media(max-height:600px) {
   .conversation-scroll { min-height:64px; }
-  .conversation-panel .composer-wrap { max-height:calc(100% - 72px); overflow-y:auto; overflow-x:hidden; margin-inline:-6px; padding:6px; }
+  .conversation-panel .composer-wrap { margin-inline:-6px; padding:6px; }
   .conversation-panel .composer-docked.is-expanded textarea { min-height:64px; max-height:64px; }
 }
 
@@ -87,3 +85,9 @@ main:has(.conversation-panel) { height: 100%; display: flex; flex-direction: col
 /* Update notices float above the navigation without reserving layout space. */
 body:has(.conversation-panel) .update-toast { max-height: min(40dvh, 260px); overflow: auto; }
 @media(max-width:1000px) { body.keyboard-open:has(.conversation-panel) .update-toast { display: none; } }
+
+body.keyboard-open .conversation-panel .composer textarea { min-height:44px; max-height:clamp(44px, calc(var(--viewport-height, 100dvh) - 360px), 156px); }
+body.keyboard-open .conversation-scroll { min-height:24px; padding-block:0; }
+body.keyboard-open .conversation-panel .composer-expanded { padding-block:0; }
+body.keyboard-open .conversation-panel .session-settings-controls { margin-bottom:4px; }
+body.keyboard-open .conversation-panel .composer-note { margin-block:4px; }

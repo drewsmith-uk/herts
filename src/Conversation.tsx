@@ -48,7 +48,7 @@ export function ConversationPanel({ context: task, initialText = '', showActions
   const attention = !!(needsInput || main?.promptWarning || failedControls.length || main?.error || main?.state === 'failed' || main?.state === 'unknown' || main?.receipt === 'unknown' || uncertainControls.length || error || modelConfirmation);
   const statusLabel = needsInput ? 'Needs your input' : modelConfirmation ? 'Confirm model switch' : attention ? main?.sendStage === 'preparing' || main?.receipt === 'rejected' ? 'Message not sent' : main?.state === 'failed' ? 'Conversation failed' : 'Check conversation' : main?.state === 'stopping' ? 'Stopping…' : main?.phase === 'stopped' ? 'Stopped' : main?.state === 'preparing' ? 'Preparing…' : `Working${main?.phase && !['working','streaming'].includes(main.phase) ? ` · ${main.phase}` : '…'}`;
   return <section className="conversation-panel" data-phase={main?.phase || 'idle'}>
-    <div className="conversation-scroll" tabIndex={0} aria-label="Conversation messages">{fullTitle && <h2 className="conversation-content-title">{fullTitle}</h2>}
+    <div className="conversation-scroll" tabIndex={0} aria-label="Conversation messages">
     {showActions&&<ConversationContributions context={task}/>}
     {showHeading && <div className="conversation-heading"><span><MessageSquare size={17}/> Conversation</span></div>}
     <HistoryView assistantName={task.botChat ? task.title : undefined} key={task.link?.storedId || task.id} conversationId={task.link?.storedId || ''} version={historyChange} liveText={main?.liveText} working={active} phase={main?.phase} outgoing={outgoing} outgoingAction={outgoingAction} sendVersion={sendVersion}/>

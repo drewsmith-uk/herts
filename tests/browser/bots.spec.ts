@@ -64,11 +64,11 @@ test('bot forms retain drafts, shared hiding is reversible, and a lost routine r
   await manage(request, 'enable'); await page.goto('/#/plugins/bots');
   await page.getByRole('link', { name: /Researcher/ }).click();
   await expect(page.getByText('Hello from research.', { exact: true })).toBeVisible();
-  await page.locator('.conversation-page-header').getByRole('button', { name: 'More', exact: true }).click();
-  if (!await page.getByRole('button', {name:'Edit bot',exact:true}).isVisible()) await page.locator('.conversation-page-header').getByRole('button',{name:'More',exact:true}).click(); await page.getByRole('button', { name: 'Edit bot', exact: true }).click();
+  await page.locator('.conversation-page-header').getByRole('button', { name: 'Actions', exact: true }).click();
+  if (!await page.getByRole('button', {name:'Edit bot',exact:true}).isVisible()) await page.locator('.conversation-page-header').getByRole('button',{name:'Actions',exact:true}).click(); await page.getByRole('button', { name: 'Edit bot', exact: true }).click();
   await page.getByRole('textbox', { name: 'Description', exact: true }).fill('Browser-edited researcher');
   await page.getByRole('button', { name: 'Close', exact: true }).click();
-  if (!await page.getByRole('button', {name:'Edit bot',exact:true}).isVisible()) await page.locator('.conversation-page-header').getByRole('button',{name:'More',exact:true}).click(); await page.getByRole('button', { name: 'Edit bot', exact: true }).click();
+  if (!await page.getByRole('button', {name:'Edit bot',exact:true}).isVisible()) await page.locator('.conversation-page-header').getByRole('button',{name:'Actions',exact:true}).click(); await page.getByRole('button', { name: 'Edit bot', exact: true }).click();
   await expect(page.getByRole('textbox', { name: 'Description', exact: true })).toHaveValue('Browser-edited researcher');
   const { catalogue } = await (await request.get('/api/v1/plugins')).json();
   const detail = await (await request.post('/api/v1/plugins/bots/queries/describe', { headers, data: { name: 'research' } })).json();
@@ -89,7 +89,7 @@ test('bot forms retain drafts, shared hiding is reversible, and a lost routine r
   const row = page.locator('.conversation-item').filter({ has: page.getByRole('link', { name: /Researcher/ }) });
   const hide=row.getByRole('button',{name:'Hide Researcher',exact:true});await hide.focus();await hide.press('Enter');
   await expect(page.getByRole('link', { name: /Researcher/ })).toHaveCount(0);
-  await page.getByRole('checkbox', { name: 'Show hidden bots', exact: true }).check();
+  await page.getByRole('checkbox', { name: 'Show hidden', exact: true }).check();
   const unhide=row.getByRole('button',{name:'Unhide Researcher',exact:true});await expect(unhide).toBeEnabled();await unhide.focus();await unhide.press('Enter');
   await expect(row.getByRole('button',{name:'Hide Researcher',exact:true})).toBeEnabled();
   await page.getByRole('link', { name: /Researcher/ }).click();

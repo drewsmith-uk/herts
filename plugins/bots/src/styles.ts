@@ -18,9 +18,9 @@ export const styles = `
 .bot-list-item .item-row-leading { padding-top:4px; }
 .bots .item-title,.bots .item-preview,.bots .form-hint { overflow-wrap:anywhere; }
 .bots .item-title { margin:0; }
-.bots-roster { grid-auto-rows:1fr; }
+.bots-roster { grid-auto-rows:auto; }
 .bots-roster .conversation-item-content,.bots-roster .item-row { height:100%; }
-.bots-roster .item-preview { min-height:1lh; }
+.bots-roster .item-row { align-items:center; }
 .bot-description { margin-top:4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;font-size:var(--text-secondary);color:var(--color-text-secondary); }
 .bots-avatar { display:grid;place-items:center;flex-shrink:0;width:40px;height:40px;border-radius:50%;object-fit:cover;background:var(--color-surface-muted);border:var(--border-width,1px) solid var(--color-border);font-weight:600; }
 .bot-identity { display:flex;gap:12px;align-items:center;min-width:0; }

@@ -13,7 +13,7 @@ test('an empty added space can be deleted with confirmation and a default fallba
   const id = await createSpace(request, 'Accidental space');
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/#/settings/plugins');
-  await page.getByLabel('Default space', { exact: true }).selectOption(id);
+  await page.locator(`input[name=default-space][value="${id}"]`).check();
   await expect.poll(async () => (await state(request)).defaultSpaceId).toBe(id);
   await page.getByRole('button', { name: 'Delete Accidental space space', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Delete “Accidental space”?' });
@@ -23,7 +23,7 @@ test('an empty added space can be deleted with confirmation and a default fallba
   await page.getByRole('button', { name: 'Delete Accidental space space', exact: true }).click();
   await dialog.getByRole('button', { name: 'Delete space', exact: true }).click();
   await expect.poll(async () => (await state(request)).spaces.some((space: any) => space.id === id)).toBe(false);
-  await page.reload(); await expect(page.getByLabel('Default space', { exact: true })).toHaveValue(original);
+  await page.reload(); await expect(page.locator('input[name=default-space]:checked')).toHaveValue(original);
   await page.goto(`/#/spaces/${id}/inbox`); await page.getByRole('link', { name: /^Go to .* Inbox$/ }).click();
   await expect(page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true })).toBeEditable();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -77,4 +77,41 @@ test('an otherwise empty space retains its saved dictation until it is transcrib
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.goto(`/#/spaces/${id}/inbox`);
   await expect(page.getByRole('button', { name: 'Transcribe saved recording', exact: true })).toBeVisible();
+});
+
+test('space controls preserve a local name during remote changes and offline default selection', async ({ page, request, context }) => {
+  const id = await createSpace(request, 'Shared space name');
+  await page.goto('/#/settings/plugins');
+  const block = page.locator(`[data-space-id="${id}"]`), input = block.getByRole('textbox');
+  await input.fill('My unsaved space name');
+  const operation = { id: crypto.randomUUID(), spaceId: id, kind: 'rename', name: 'Remote space name', baseName: 'Shared space name', at: Date.now() };
+  expect((await request.post('/api/v1/plugins/tasks/commands', { headers, data: { id: operation.id, generation: 0, command: 'space', input: operation } })).ok()).toBe(true);
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await expect(input).toHaveAttribute('aria-label', 'Name of Remote space name space');
+  await expect(input).toHaveValue('My unsaved space name');
+  await context.setOffline(true);
+  await block.getByRole('radio').check();
+  await expect(block.getByRole('radio')).toBeChecked();
+  await expect(input).toHaveValue('My unsaved space name');
+  await block.getByRole('button', { name: 'Rename', exact: true }).click();
+  await expect(input).toHaveAttribute('aria-label', 'Name of My unsaved space name space');
+  await context.setOffline(false);
+  await expect.poll(async () => (await state(request)).defaultSpaceId).toBe(id);
+  await expect.poll(async () => (await state(request)).spaces.find((space: any) => space.id === id).name).toBe('My unsaved space name');
+});
+
+test('default space radios support arrow keys without submitting a name edit', async ({ page, request }) => {
+  const id = await createSpace(request, 'Keyboard default space');
+  await page.goto('/#/settings/plugins');
+  const block = page.locator(`[data-space-id="${id}"]`), input = block.getByRole('textbox');
+  await input.fill('Unsaved keyboard edit');
+  const radios = page.locator('input[name=default-space]');
+  await radios.first().check();
+  await expect(radios.first()).toBeEnabled();
+  await radios.first().focus();
+  await page.keyboard.press('ArrowLeft');
+  await expect(block.getByRole('radio')).toBeChecked();
+  await expect(input).toHaveValue('Unsaved keyboard edit');
+  await expect.poll(async () => (await state(request)).defaultSpaceId).toBe(id);
+  expect((await state(request)).spaces.find((space: any) => space.id === id).name).toBe('Keyboard default space');
 });

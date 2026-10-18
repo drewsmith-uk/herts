@@ -7,6 +7,11 @@ describe('plain-text previews', () => {
     expect(messagePreview(original)).toBe('A clear title Read the source and file_name.');
     expect(original).toContain('**clear**');
   });
+  it('cleans truncated emphasis while preserving code and ordinary punctuation', () => {
+    expect(messagePreview('**Give them ongoing responsibilities…')).toBe('Give them ongoing responsibilities…');
+    expect(messagePreview('__An unfinished preview')).toBe('An unfinished preview');
+    expect(messagePreview('Use `**literal**` and my_file_name')).toBe('Use **literal** and my_file_name');
+  });
   it('summarizes transport attachments without leaking paths', () => {
     expect(messagePreview('@file:/tmp/private.txt MEDIA:"/tmp/image one.png"')).toBe('2 attachments');
     expect(messagePreview('', 1)).toBe('1 attachment');
