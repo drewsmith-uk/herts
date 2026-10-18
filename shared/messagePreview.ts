@@ -9,7 +9,7 @@ export function messagePreview(text: string, attachments = 0): string {
   function content(node: Node): string {
     if (node.type === 'image') { files++; return node.alt || ''; }
     if (node.type === 'html') return '';
-    if (node.value !== undefined) return node.value;
+    if (node.value !== undefined) return node.type === 'text' ? node.value.replace(/(?<!\w)(?:\*{2,}|_{2,}|~~)(?=\S)|(?<=\S)(?:\*{2,}|_{2,}|~~)(?!\w)/g, '') : node.value;
     const separator = ['paragraph', 'heading', 'emphasis', 'strong', 'delete', 'link'].includes(node.type) ? '' : ' ';
     return (node.children || []).map(content).join(separator);
   }

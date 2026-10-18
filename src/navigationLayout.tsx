@@ -23,7 +23,7 @@ export function useNavigationLayout(tabs: NavigationTab[]) {
     const update = () => {
       if (disposed || !measure.current) return;
       const widths = Array.from(measure.current.children, node => node.getBoundingClientRect().width);
-      const capacity = fitNavigation(widths, Math.max(0, document.documentElement.clientWidth - 88));
+      const capacity = fitNavigation(widths, Math.max(0, document.documentElement.clientWidth - 16));
       setLayout(previous => previous.capacity === capacity && JSON.stringify(previous.widths) === JSON.stringify(widths) ? previous : { capacity, widths });
     };
     const observer = new ResizeObserver(update);

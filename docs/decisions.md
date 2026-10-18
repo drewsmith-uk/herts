@@ -108,5 +108,5 @@ The fixed header shows a compact title. Scrolling content contains the full titl
 
 Appearance uses one radio group with theme previews.
 Selection and keyboard focus have separate indicators.
-Custom theme refresh remains available under **Custom themes**. Refresh errors show a visible retry action.
+Appearance includes only the six built-in themes. Older custom selections use Press after an update.
 Settings uses expandable groups for voice, notifications, connection, and updates.

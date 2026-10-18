@@ -201,7 +201,8 @@ Install the matching Playwright browsers and host libraries before these checks.
 Browser-engine tests do not replace real-device checks.
 
 The normal task-position fixture uses 390×844 pixels, default text size, short names, no warnings, and collapsed capture.
-All six list destinations must remain visible. The first task must start above the bottom navigation.
+All six list destinations must remain accessible in the horizontal strip. Keyboard focus must show each complete destination.
+The first task must start above the bottom navigation.
 Long titles and warnings can move the list down. Task cards expand naturally for their content.
 
 Run `npm run compare:fonts` to generate the Press heading comparison.

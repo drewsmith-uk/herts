@@ -13,9 +13,9 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 describe('adaptive navigation', () => {
   it('uses exact available widths without tiny scroll regions', () => {
-    expect(fitNavigation([64, 92, 64], 219)).toBe(2);
-    expect(fitNavigation([64, 92, 64], 220)).toBe(3);
-    expect(fitNavigation([64, 92, 64], 221)).toBe(3);
+    expect(fitNavigation([64, 92, 64], 367)).toBe(2);
+    expect(fitNavigation([64, 92, 64], 368)).toBe(3);
+    expect(fitNavigation([64, 92, 64], 369)).toBe(3);
     expect(fitNavigation([64, 92, 64], 0)).toBe(0);
     expect(fitNavigation(Array(8).fill(64), 1000)).toBe(5);
   });

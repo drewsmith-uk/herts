@@ -106,8 +106,8 @@ test('unread reorder controls and shared drafts survive reload across reading an
   const taskUrl=page.url();
   await closePageActions(page); await page.getByLabel(/^(Message Hermes|Add a task)$/).fill('Shared follow-up draft'); await page.goto(readingUrl); await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toHaveValue('Shared follow-up draft');
   await closePageActions(page); await page.getByLabel(/^(Message Hermes|Add a task)$/).fill('Revised from reading'); await page.goto(taskUrl); await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toHaveValue('Revised from reading');
-  await add(page,'Reading order second'); await page.goto('/#/reading'); await page.getByRole('button',{name:'Edit list',exact:true}).click();
-  await page.getByRole('button',{name:'Move Reading order second down',exact:true}).click(); await expect(page.getByLabel('Edit reading title',{exact:true}).first()).toHaveValue('Reading order first');
+  await add(page,'Reading order second'); await page.goto('/#/reading');
+  await page.getByRole('button',{name:'Drag Reading order second',exact:true}).focus(); await page.keyboard.press('Space'); await page.keyboard.press('ArrowDown'); await page.keyboard.press('Space'); await expect(page.locator('.reading-row .task-title').first()).toHaveText('Reading order first');
   await expect(page.locator('.save-state')).toContainText('Changes synced'); await page.reload(); await expect(page.locator('.reading-row .task-title').first()).toHaveText('Reading order first');
 });
 

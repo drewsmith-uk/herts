@@ -14,7 +14,6 @@ node --env-file=/private/path/app.env --import tsx server/index.ts
 | `HERTS_IDENTITY` | Required exact Tailscale user login. |
 | `HERTS_DATA_DIR` | Persistent private data directory; default `./data`. Prefer an absolute path for services. |
 | `HERTS_PLUGINS_DIR` | Prepared plugin folder directory; default `./plugins`. The installer also accepts `--plugins-dir`. |
-| `HERTS_THEMES_DIR` | Custom theme JSON/font directory; default `./themes`. Adding or editing files needs no rebuild or restart. |
 | `HERTS_PORT` | Loopback port; default `8787`. |
 | `HERTS_DEV` | `1` bypasses Tailscale identity on loopback for development only; default off. |
 | `HERMES_BASE_URL` | Backend HTTP(S) origin. HTTP is allowed only on loopback. |

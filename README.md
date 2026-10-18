@@ -220,7 +220,7 @@ Server upgrades use the separate [maintenance instructions](docs/maintenance.md)
 - [Installation](docs/installation.md) and [configuration](docs/configuration.md)
 - [Backups, upgrades, and troubleshooting](docs/maintenance.md)
 - [Plugins](docs/plugins.md) and [Bots](docs/bots.md)
-- [Themes and local fonts](themes/README.md)
+- [Themes](themes/README.md)
 - [Offline behaviour, data storage, and privacy](docs/decisions.md)
 - [Hermes compatibility](docs/hermes-compatibility.md)
 

@@ -88,7 +88,7 @@ test('page actions support Escape and restore keyboard focus', async ({page,requ
   const taskId=crypto.randomUUID();
   await request.post('/api/v1/sync',{headers,data:{id:crypto.randomUUID(),taskId,kind:'create',title:'Task actions',at:Date.now()}});
   await page.goto(`/#/task/${taskId}`);
-  const more=page.locator('.conversation-page-header').getByRole('button',{name:'More',exact:true});
+  const more=page.locator('.conversation-page-header').getByRole('button',{name:'Actions',exact:true});
   await more.focus();await more.press('Enter');
   await expect(page.getByRole('dialog',{name:'Page actions'})).toBeVisible();
   await page.keyboard.press('Escape');await expect(more).toBeFocused();
@@ -160,7 +160,7 @@ test('remote task titles update clean fields and preserve unfinished edits', asy
   const taskId=crypto.randomUUID();
   await request.post('/api/v1/sync',{headers,data:{id:crypto.randomUUID(),taskId,kind:'create',title:'Original task title',at:Date.now()}});
   await page.goto(`/#/task/${taskId}`);
-  await page.locator('.conversation-page-header').getByRole('button',{name:'More',exact:true}).click();
+  await page.locator('.conversation-page-header').getByRole('button',{name:'Actions',exact:true}).click();
   const title=await detailsField(page,'Task title');
   await expect(title).toHaveValue('Original task title');
   await request.post('/api/v1/sync',{headers,data:{id:crypto.randomUUID(),taskId,kind:'title',title:'Remote task title',baseTitle:'Original task title',at:Date.now()}});

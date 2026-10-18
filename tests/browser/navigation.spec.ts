@@ -33,6 +33,7 @@ test('device placement switches More to direct Settings and preserves offline dr
   await expect(page.locator('.tab-order-divider')).toHaveText('More');
   await page.getByLabel('Enable Reading', { exact: true }).click();
   await expect(page.getByLabel('Enable Reading', { exact: true })).not.toBeChecked();
+  await page.setViewportSize({ width: 320, height: 844 });
   await expect(nav.getByRole('link', { name: 'Settings', exact: true })).toBeVisible();
   await page.getByLabel('Enable Reading', { exact: true }).click();
   await expect(page.getByLabel('Enable Reading', { exact: true })).toBeChecked();
@@ -53,7 +54,7 @@ test('device placement switches More to direct Settings and preserves offline dr
   await details.getByRole('button', { name: 'Check again', exact: true }).click();
   await closeDetails();
   await expect(editor).toHaveValue('Keep this local draft through connection checks and navigation changes.');
-  await page.setViewportSize({ width: 320, height: 560 });
+  await page.setViewportSize({ width: 390, height: 560 });
   await expect(nav.getByRole('link', { name: 'Settings', exact: true })).toBeVisible();
   await page.setViewportSize({ width: 280, height: 560 });
   await expect(nav.getByRole('button', { name: 'More', exact: true })).toBeVisible();
@@ -110,7 +111,7 @@ test('a failed order write keeps the saved choice and permits retry', async ({ p
 });
 
 test('keyboard dragging swaps overflow tabs and preserves offline order', async ({ page, context }) => {
-  await page.setViewportSize({width: 280, height: 844});
+  await page.setViewportSize({width: 320, height: 844});
   await page.goto('/#/settings/plugins');
   const rows = page.locator('.tab-order-row');
   await expect(rows).toHaveCount(3);
@@ -222,7 +223,7 @@ test('More and direct Settings carry live status and keep a single navigation ta
   await expect(end.locator('button,a')).toHaveCount(0);
   await context.setOffline(true);
   await expect(end).toHaveAccessibleDescription('Connection status: Disconnected');
-  await expect(end.locator('.connection-dot')).toBeVisible();
+  await expect(end.locator('.connection-badge.status-offline svg')).toBeVisible();
   await end.click();
   const more = page.getByRole('dialog', { name: 'More', exact: true });
   const row = more.getByRole('button', { name: 'Connection status: Disconnected', exact: true });
@@ -267,7 +268,7 @@ test('touch dragging moves a tab across the More divider', async ({ page, contex
 
 test('plugin sections collapse without losing edits or changing enabled state', async ({ page }) => {
   await page.goto('/#/settings/plugins');
-  await expect(page.locator('.page-content > .settings-section').first()).toHaveClass(/tab-order/);
+  await expect(page.locator('.plugin-settings-groups > .settings-section').first()).toHaveClass(/tab-order/);
   const tabOrder = page.getByRole('button', {name: 'Tab order', exact: true});
   await tabOrder.click();
   await expect(page.getByRole('button', {name: 'Drag Reading', exact: true})).toBeHidden();
@@ -276,7 +277,7 @@ test('plugin sections collapse without losing edits or changing enabled state', 
   await expect(page.getByRole('button', {name: 'Drag Reading', exact: true})).toBeVisible();
   const input = page.getByLabel('New space name', {exact: true});
   await input.fill('Keep this unfinished edit');
-  const tasks = page.getByRole('button', {name: 'Tasks', exact: true});
+  const tasks = page.getByRole('button', {name: /^Tasks /});
   await tasks.click();
   await expect(input).toBeHidden();
   await expect(page.getByLabel('Enable Tasks', {exact: true})).toBeChecked();

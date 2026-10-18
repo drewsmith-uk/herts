@@ -23,7 +23,7 @@ import { ConversationContributions } from './plugins';
 
 const finished = (a?: Action) => !!a && ['finished','failed','ready','unknown'].includes(a.state);
 
-export function ConversationPanel({ context: task, initialText = '', showActions = true, showHeading = true, readOnly = false, saveDraftAction, refreshVersion = 0, fullTitle }: { fullTitle?: string; context: ConversationContext; initialText?: string; showActions?: boolean; showHeading?: boolean; showEmptyNotice?: boolean; readOnly?: boolean; saveDraftAction?: () => void; refreshVersion?: string | number }) {
+export function ConversationPanel({ context: task, initialText = '', showActions = true, showHeading = false, readOnly = false, saveDraftAction, refreshVersion = 0, fullTitle }: { fullTitle?: string; context: ConversationContext; initialText?: string; showActions?: boolean; showHeading?: boolean; showEmptyNotice?: boolean; readOnly?: boolean; saveDraftAction?: () => void; refreshVersion?: string | number }) {
   const state = useApp(); const [error, setError] = useState(''), [busy, setBusy] = useState(false);
   const [statusHost, setStatusHost] = useState<HTMLDivElement | null>(null), [savedHost, setSavedHost] = useState<HTMLDivElement | null>(null);
   const main = state.actions.find(a => !a.cancelled && a.taskId === task.id && ['send','continue'].includes(a.kind)); const binding = state.bindings[task.id];
@@ -48,7 +48,7 @@ export function ConversationPanel({ context: task, initialText = '', showActions
   const attention = !!(needsInput || main?.promptWarning || failedControls.length || main?.error || main?.state === 'failed' || main?.state === 'unknown' || main?.receipt === 'unknown' || uncertainControls.length || error || modelConfirmation);
   const statusLabel = needsInput ? 'Needs your input' : modelConfirmation ? 'Confirm model switch' : attention ? main?.sendStage === 'preparing' || main?.receipt === 'rejected' ? 'Message not sent' : main?.state === 'failed' ? 'Conversation failed' : 'Check conversation' : main?.state === 'stopping' ? 'Stopping…' : main?.phase === 'stopped' ? 'Stopped' : main?.state === 'preparing' ? 'Preparing…' : `Working${main?.phase && !['working','streaming'].includes(main.phase) ? ` · ${main.phase}` : '…'}`;
   return <section className="conversation-panel" data-phase={main?.phase || 'idle'}>
-    <div className="conversation-scroll" tabIndex={0} aria-label="Conversation messages">{fullTitle && <h2 className="conversation-content-title">{fullTitle}</h2>}
+    <div className="conversation-scroll" tabIndex={0} aria-label="Conversation messages">
     {showActions&&<ConversationContributions context={task}/>}
     {showHeading && <div className="conversation-heading"><span><MessageSquare size={17}/> Conversation</span></div>}
     <HistoryView assistantName={task.botChat ? task.title : undefined} key={task.link?.storedId || task.id} conversationId={task.link?.storedId || ''} version={historyChange} liveText={main?.liveText} working={active} phase={main?.phase} outgoing={outgoing} outgoingAction={outgoingAction} sendVersion={sendVersion}/>

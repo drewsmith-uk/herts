@@ -12,29 +12,24 @@ beforeEach(() => {
 });
 afterEach(() => { dom.window.close(); vi.unstubAllGlobals(); });
 
-it('preserves a newer theme choice before its storage event arrives', async () => {
-  localStorage.clear();
+it('applies cross-tab choices without requesting a server catalogue', async () => {
   vi.resetModules();
-  let release!: (value: unknown) => void;
-  const json = new Promise(resolve => { release = resolve; });
-  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: () => json })));
-  const { refreshThemes, selectTheme } = await import('../src/themes');
-  selectTheme('press');
-  const refresh = refreshThemes();
+  const fetch = vi.fn(); vi.stubGlobal('fetch', fetch);
+  const { initialiseThemes, selectTheme } = await import('../src/themes');
+  initialiseThemes(); selectTheme('press');
   localStorage.setItem(themeStorageKey, JSON.stringify({ id: 'nocturne', theme: theme('nocturne') }));
-  release({ defaultThemeId: defaultTheme.id, themes: builtinThemes, errors: [] });
-  await refresh;
+  window.dispatchEvent(new dom.window.StorageEvent('storage', { key: themeStorageKey }));
   expect(document.documentElement.dataset.theme).toBe('nocturne');
   expect(JSON.parse(localStorage.getItem(themeStorageKey)!).id).toBe('nocturne');
+  expect(fetch).not.toHaveBeenCalled();
+  selectTheme('custom');
+  expect(document.documentElement.dataset.theme).toBe('nocturne');
 });
 
-it('keeps a local choice when storage rejects writes during refresh', async () => {
-  const raw = JSON.stringify({ id: 'press', theme: theme('press') });
-  vi.stubGlobal('localStorage', { getItem: () => raw, setItem: () => { throw new Error('Storage unavailable'); } });
+it('keeps the current choice when storage rejects writes', async () => {
+  vi.stubGlobal('localStorage', { getItem: () => JSON.stringify({ id: 'press' }), setItem: () => { throw new Error('Storage unavailable'); } });
   vi.resetModules();
-  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ defaultThemeId: defaultTheme.id, themes: builtinThemes, errors: [] }) })));
-  const { refreshThemes, selectTheme } = await import('../src/themes');
-  selectTheme('nocturne');
-  await refreshThemes();
+  const { initialiseThemes, selectTheme } = await import('../src/themes');
+  initialiseThemes(); selectTheme('nocturne');
   expect(document.documentElement.dataset.theme).toBe('nocturne');
 });

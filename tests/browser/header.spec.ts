@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { saveTitle, detailsField, pageAction, closePageActions } from './composer-helpers';
 
-for (const width of [390, 1280]) test(`conversation header preserves title edits and exposes actions through More at ${width}px`, async ({ page, request }) => {
+for (const width of [390, 1280]) test(`conversation header preserves title edits and exposes actions through Actions at ${width}px`, async ({ page, request }) => {
   await page.setViewportSize({ width, height: 844 });
   const before = await (await request.get('http://127.0.0.1:8791/calls')).json();
   await page.goto('/#/conversation/header-history');
@@ -11,7 +11,7 @@ for (const width of [390, 1280]) test(`conversation header preserves title edits
   await expect(header).not.toHaveClass(/is-compact/);
   await viewport.hover(); await page.mouse.wheel(0,-600);
   await expect(header).toHaveClass(/is-compact/);
-  await page.locator('.conversation-page-header').getByRole('button', { name: 'More', exact: true }).click();
+  await page.locator('.conversation-page-header').getByRole('button', { name: 'Actions', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Rename conversation', exact: true })).toBeVisible();
   await viewport.evaluate(el => { el.scrollTop += 200; });
   await closePageActions(page);

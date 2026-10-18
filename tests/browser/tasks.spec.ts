@@ -2,14 +2,16 @@ import { pageAction, closePageActions } from './composer-helpers';
 import { saveTitle, detailsField, detailsControl } from './composer-helpers';
 import { test, expect, type Page } from '@playwright/test';
 async function capture(page: Page, title: string) { await page.goto('/'); await page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ }).fill(title); await page.getByRole('button', { name: 'Save to Inbox', exact: true }).click(); await expect(page.getByRole('link', { name: title, exact: true })).toBeVisible(); await expect(page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ })).toHaveValue(''); }
-test('phone capture, edit mode, priority, completion and offline reload', async ({ page, context }) => {
+test('phone capture, title editing, priority, completion and offline reload', async ({ page, context }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await capture(page, 'Book the train'); await capture(page, 'Prepare for Friday');
   await expect(page.locator('.task-title').first()).toHaveText('Prepare for Friday');
-  await page.getByRole('button', { name: 'Edit list', exact: true }).click();
-  await page.getByRole('textbox', { name: 'Edit task title' }).first().fill('Prepare for Monday'); await page.getByRole('textbox', { name: 'Edit task title' }).first().press('Enter');
-  await page.getByRole('button', { name: 'Move Prepare for Monday down', exact: true }).click();
-  await page.getByRole('button', { name: 'Finish editing' }).click(); await expect(page.locator('.task-title').first()).toHaveText('Book the train');
+  await page.getByRole('link', { name: 'Prepare for Friday', exact: true }).click();
+  await (await detailsField(page, 'Task title')).fill('Prepare for Monday'); await saveTitle(page);
+  await page.goto('/#/tasks/inbox');
+  await page.getByRole('button', { name: 'Drag Prepare for Monday', exact: true }).focus();
+  await page.keyboard.press('Space'); await page.keyboard.press('ArrowDown'); await page.keyboard.press('Space');
+  await expect(page.locator('.task-title').first()).toHaveText('Book the train');
   await page.getByRole('link', { name: 'Prepare for Monday', exact: true }).click(); await (await detailsField(page, 'Task list')).selectOption('next');await page.getByRole('button', { name: 'Move', exact: true }).click();
   await page.goto('/#/tasks/next'); await expect(page.locator('.task-title').first()).toHaveText('Prepare for Monday');
   await page.evaluate(() => navigator.serviceWorker.ready); await page.reload(); await expect(page.locator('.save-state')).toContainText('Changes synced');

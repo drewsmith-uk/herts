@@ -1,42 +1,11 @@
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { DndContext, DragOverlay, MouseSensor, TouchSensor, KeyboardSensor, useSensor, useSensors, useDroppable, closestCenter, type CollisionDetection, type DragEndEvent } from '@dnd-kit/core';
-import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
+import { DragPreview, useHoldSensors, useDragClickGuard } from '@herts/plugin-api/client';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { DndContext, DragOverlay, useDroppable, closestCenter, type CollisionDetection, type DragEndEvent } from '@dnd-kit/core';
 import { labels, taskSpaceId, spaceLists, spacePath, type Status, type Task } from './model';
 import { moveTask, useApp } from './data';
+import { TaskMetadata } from './TaskMetadata';
 import { SnoozeDialog } from './SnoozeDialog';
-export function useHoldSensors() {
-    return useSensors(useSensor(MouseSensor, { activationConstraint: { delay: 450, tolerance: 8 } }), useSensor(TouchSensor, { activationConstraint: { delay: 450, tolerance: 8 } }), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
-}
-export function useDragClickGuard() {
-    const guard = useRef({ active: false, until: 0 });
-    useEffect(() => {
-        const down = () => { if (!guard.current.active)
-            guard.current.until = 0; };
-        const click = (event: MouseEvent) => {
-            if (event.detail !== 0 && (guard.current.active || Date.now() < guard.current.until)) {
-                event.preventDefault();
-                event.stopPropagation();
-            }
-        };
-        // dnd-kit stops click propagation at the document after activation, so a
-        // React click handler never gets to cancel an anchor's default navigation.
-        // Register before the sensor and suppress only the release click; a fresh
-        // pointer gesture immediately restores normal links and buttons.
-        document.addEventListener('pointerdown', down, true);
-        document.addEventListener('click', click, true);
-        return () => { document.removeEventListener('pointerdown', down, true); document.removeEventListener('click', click, true); };
-    }, []);
-    return { start: () => { guard.current = { active: true, until: 0 }; }, end: () => { guard.current = { active: false, until: Date.now() + 700 }; } };
-}
-// Buttons and editable fields keep their ordinary gestures. A title link opens
-// on a tap and can start a drag only after a stationary hold.
-export function holdListeners(listeners: Record<string, Function> | undefined) {
-    return Object.fromEntries(Object.entries(listeners || {}).map(([name, listener]) => [name, (event: any) => {
-            if (event.target instanceof Element && (event.target.closest('button,input,textarea,select,[contenteditable="true"]') || (name === 'onKeyDown' && event.target.closest('a'))))
-                return;
-            listener(event);
-        }]));
-}
+export { useHoldSensors, useDragClickGuard, holdListeners } from '@herts/plugin-api/client';
 const Interactions = createContext<{
     snooze: (task: Task) => void;
     activeTask?: Task;
@@ -107,8 +76,8 @@ export function TaskDragging({ children }: {
             return;
         void moveTask(task.id, task.status, from < to ? ids[to + 1] || null : String(over.id));
     }
-    return <Interactions.Provider value={{ snooze: setSnoozing, activeTask }}><DndContext sensors={sensors} collisionDetection={collision} onDragStart={({ active }) => { clickGuard.start(); setActiveId(String(active.id)); }} onDragCancel={() => { clickGuard.end(); setActiveId(undefined); }} onDragEnd={end} accessibility={{ screenReaderInstructions: { draggable: 'Hold still to drag. With the keyboard, press Space to pick up a task, use the arrow keys to reorder, and press Space to drop or Escape to cancel. Edit list also provides reorder buttons.' } }}>
-    {children}<DragOverlay dropAnimation={null}>{activeTask && <div className="task-drag-overlay">{activeTask.title}</div>}</DragOverlay>
+    return <Interactions.Provider value={{ snooze: setSnoozing, activeTask }}><DndContext sensors={sensors} collisionDetection={collision} onDragStart={({ active }) => { clickGuard.start(); setActiveId(String(active.id)); }} onDragCancel={() => { clickGuard.end(); setActiveId(undefined); }} onDragEnd={end} accessibility={{ screenReaderInstructions: { draggable: 'Hold still to drag. With the keyboard, press Space to pick up a task, use the arrow keys to reorder, and press Space to drop or Escape to cancel.' } }}>
+    {children}<DragOverlay dropAnimation={null}>{activeTask && <DragPreview complete={activeTask.status === 'done'} metadata={<TaskMetadata task={activeTask}/>}>{activeTask.title}</DragPreview>}</DragOverlay>
   </DndContext>{snoozing && <SnoozeDialog task={snoozing} close={() => setSnoozing(undefined)}/>}</Interactions.Provider>;
 }
 export function TaskDropLink({ status, spaceId, surface, className = '', current, destinationLabel, title, children }: {

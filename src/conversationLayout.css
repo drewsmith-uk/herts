@@ -47,10 +47,8 @@ main:has(.conversation-panel) { height: 100%; display: flex; flex-direction: col
   main:has(.conversation-panel) { padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
   .page-content:has(.conversation-panel) { padding: 0 18px 6px; }
   .app-shell:has(.conversation-panel) .mobile-nav { bottom: calc(100dvh - var(--viewport-top, 0px) - var(--viewport-height, 100dvh)); }
-  body.keyboard-open .app-shell:has(.conversation-panel) main { padding-bottom: calc(44px + env(safe-area-inset-bottom)); }
-  body.keyboard-open .app-shell:has(.conversation-panel) .mobile-nav { min-height:44px; padding:0 8px env(safe-area-inset-bottom); }
-  body.keyboard-open .app-shell:has(.conversation-panel) .mobile-nav > :not(.navigation-end) { display:none; }
-  body.keyboard-open .app-shell:has(.conversation-panel) .mobile-nav > .navigation-end { flex-direction:row; gap:12px; flex-basis:auto; }
+  body.keyboard-open .app-shell:has(.conversation-panel) main { padding-bottom:0; }
+  body.keyboard-open .app-shell:has(.conversation-panel) .mobile-nav { display:none; }
 }
 /* Short desktop windows need the same compact reply bar as phones. */
 @media(max-width:1000px), (max-height:600px) {

@@ -11,15 +11,15 @@ async function bots(request: import('@playwright/test').APIRequestContext, actio
 }
 test.afterEach(async ({ page, request }) => { await page.unrouteAll({ behavior: 'wait' }); await bots(request, 'disable'); await pinnedPlugin(request, 'disable'); });
 
-test('an older app gets an actionable plugin update message and can still open app updates', async ({ page }) => {
-  await page.addInitScript(() => {
+for (const missing of ['PageHeader', 'DragHandle', 'DragPreview']) test(`an app without ${missing} gets an actionable plugin update message`, async ({ page }) => {
+  await page.addInitScript(missing => {
     Object.defineProperty(globalThis, '__HERTS_PLUGIN_RUNTIME__', {
       configurable: true,
       set(runtime) {
-        Object.defineProperty(globalThis, '__HERTS_PLUGIN_RUNTIME__', { configurable: true, writable: true, value: { ...runtime, sdk: { ...runtime.sdk, PageHeader: undefined } } });
+        Object.defineProperty(globalThis, '__HERTS_PLUGIN_RUNTIME__', { configurable: true, writable: true, value: { ...runtime, sdk: { ...runtime.sdk, [missing]: undefined } } });
       },
     });
-  });
+  }, missing);
   await page.goto('/#/settings/plugins');
   await expect(page.getByText('Update Herts in Settings → App updates to use this version of Tasks.', { exact: true })).toBeVisible();
   await expect(page.getByText('Update Herts in Settings → App updates to use this version of Reading.', { exact: true })).toBeVisible();
@@ -59,7 +59,28 @@ for (const theme of builtinThemes) {
         await expect(page.locator('.page-header h1')).toBeVisible();
         await expect(page.locator('html')).toHaveAttribute('data-theme', theme.id);
         if (path === '/tasks/inbox') await expect(page.getByRole('link', { name: title, exact: true })).toBeVisible();
+        if (path === '/tasks/inbox' && width <= 1000) {
+          const strip = (await page.locator('.task-space-bar').boundingBox())!;
+          expect(strip.height).toBeLessThanOrEqual(50);
+          expect(strip.x).toBe(0);
+          expect(strip.width).toBe(width);
+          const tab = page.locator('.space-tab.active');
+          const underline = await tab.evaluate(e => {
+            const style = getComputedStyle(e, '::after');
+            return { left: parseFloat(style.left), right: parseFloat(style.right) };
+          });
+          expect(underline.left).toBeGreaterThan(0);
+          expect(underline.right).toBeGreaterThan(0);
+        }
+
         if (path === '/reading') await expect(page.getByRole('link', { name: title, exact: true })).toBeVisible();
+        if (path === '/tasks/inbox' || path === '/reading') {
+          const targets = await page.locator('.task-list .task-row').first().evaluate(row => ({
+            completion: row.querySelector('.completion-button')!.getBoundingClientRect().right,
+            title: row.querySelector('.task-title')!.getBoundingClientRect().left,
+          }));
+          expect(targets.completion).toBeLessThanOrEqual(targets.title);
+        }
         if (path === '/conversations') await expect(page.locator('.conversation-row').first()).toBeVisible();
         if (path === '/plugins/bots') {
           const roster = page.locator('.bots-roster');
@@ -70,7 +91,7 @@ for (const theme of builtinThemes) {
             return { height: box.height, wrapperHeight: wrapper.height, href: node.getAttribute('href'), bodyBottom: node.querySelector('.item-row-body')!.getBoundingClientRect().bottom, bottom: box.bottom };
           }));
           expect(rows.length).toBeGreaterThanOrEqual(5);
-          expect(Math.max(...rows.map(row => row.height)) - Math.min(...rows.map(row => row.height))).toBeLessThanOrEqual(1);
+          await expect(roster.getByRole('link', { name: 'New assistant', exact: true }).locator('.item-preview')).toHaveCount(0);
           for (const row of rows) {
             expect(row.wrapperHeight - row.height).toBeLessThanOrEqual(3);
             expect(row.bodyBottom).toBeLessThanOrEqual(row.bottom);
@@ -94,15 +115,15 @@ for (const theme of builtinThemes) {
         }
         if (path === '/settings/plugins') await expect(page.getByRole('heading', { name: 'Task spaces', exact: true })).toBeVisible();
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${theme.id} ${path} at ${width}px`).toBe(true);
-        const controls = await page.locator('.page-header-actions a, .page-header-actions button, .section-nav>a').evaluateAll(nodes => nodes.map(node => {
-          const { x, width, height } = node.getBoundingClientRect(); return { x, width, height };
-        }));
-        for (const bounds of controls) {
+        for (const control of await page.locator('.page-header-actions a, .page-header-actions button, .section-nav>a').all()) {
+          await control.focus();
+          const bounds = (await control.boundingBox())!;
           expect(bounds.height).toBeGreaterThanOrEqual(44);
           expect(bounds.x).toBeGreaterThanOrEqual(0);
           expect(bounds.x + bounds.width).toBeLessThanOrEqual(width + 1);
         }
-        if (['fieldwork', 'press'].includes(theme.id) && [390, 1280].includes(width)) {
+        if (path === '/tasks/inbox') await page.locator('.mobile-lists [aria-current=page]').focus();
+        if ([320, 390, 768, 1280].includes(width)) {
           await page.screenshot({ path: `test-results/ui-${theme.id}-${path.slice(1).replaceAll('/', '-')}-${width}.png`, fullPage: path.startsWith('/settings') || path === '/plugins/bots' });
         }
       }
@@ -111,7 +132,7 @@ for (const theme of builtinThemes) {
     for(const width of [320,390,768,1280]){
       await page.setViewportSize({width,height:480});
       await page.goto('/#/plugins/bots/research');await expect(page.getByLabel('Message Researcher')).toBeVisible();
-      await expect(page.getByRole('link',{name:'Routines',exact:true})).toBeVisible();await expect(page.locator('.conversation-page-header').getByRole('button',{name:'More',exact:true})).toBeVisible();
+      await expect(page.getByRole('link',{name:'Routines',exact:true})).toBeVisible();await expect(page.locator('.conversation-page-header').getByRole('button',{name:'Actions',exact:true})).toBeVisible();
       const history=await page.locator('.conversation-scroll').boundingBox(),composer=await page.locator('.composer-wrap').boundingBox();expect(history!.height).toBeGreaterThan(30);expect(history!.y+history!.height).toBeLessThanOrEqual(composer!.y+1);
       const bottom=width<=1000?await page.locator('.mobile-nav').evaluate(node=>node.getBoundingClientRect().top):480;
       expect(composer!.y+composer!.height).toBeLessThanOrEqual(bottom);
@@ -125,7 +146,7 @@ for (const theme of builtinThemes) {
       expect(expanded!.y+expanded!.height).toBeLessThanOrEqual(bottom);expect(send!.y).toBeGreaterThanOrEqual(expanded!.y);expect(send!.y+send!.height).toBeLessThanOrEqual(expanded!.y+expanded!.height-5);
       await page.screenshot({path:`test-results/ui-${theme.id}-bot-chat-expanded-${width}.png`});
       await page.getByRole('button',{name:'Collapse message box',exact:true}).click();
-      if (!await page.getByRole('button', {name:'Edit bot',exact:true}).isVisible()) await page.locator('.conversation-page-header').getByRole('button',{name:'More',exact:true}).click(); await page.getByRole('button',{name:'Edit bot',exact:true}).click();await page.getByRole('textbox',{name:'Persona',exact:true}).fill('Long persona with https://example.com/'+ 'instructions'.repeat(80));
+      if (!await page.getByRole('button', {name:'Edit bot',exact:true}).isVisible()) await page.locator('.conversation-page-header').getByRole('button',{name:'Actions',exact:true}).click(); await page.getByRole('button',{name:'Edit bot',exact:true}).click();await page.getByRole('textbox',{name:'Persona',exact:true}).fill('Long persona with https://example.com/'+ 'instructions'.repeat(80));
       await page.getByRole('textbox',{name:'Persona',exact:true}).focus();
       const field=await page.getByRole('textbox',{name:'Persona',exact:true}).boundingBox(),footer=await page.locator('.form-dialog-footer').boundingBox();expect(field!.y+field!.height).toBeLessThanOrEqual(footer!.y+1);
       await page.screenshot({path:`test-results/ui-${theme.id}-bot-form-${width}.png`});await page.keyboard.press('Escape');
@@ -173,8 +194,7 @@ for (const theme of builtinThemes) {
     await page.setViewportSize({ width: 320, height: 900 });
     for (const path of ['/tasks/inbox', '/reading']) {
       await page.goto(`/#${path}`);
-      await page.getByRole('button', { name: 'Edit list', exact: true }).click();
-      const reorderButtons = await page.locator('.reorder-controls button').evaluateAll(nodes => nodes.map(node => {
+      const reorderButtons = await page.locator('.list-drag-handle').evaluateAll(nodes => nodes.map(node => {
         const { width, height } = node.getBoundingClientRect(); return { width, height };
       }));
       expect(reorderButtons.length).toBeGreaterThan(0);
@@ -441,6 +461,7 @@ for (const theme of builtinThemes) test(`${theme.name}: adaptive navigation and 
       const boxes = await nav.locator('a,button').evaluateAll(nodes => nodes.map(node => {
         const box = node.getBoundingClientRect(); return { x: box.x, right: box.right, width: box.width, height: box.height };
       }));
+      expect(Math.max(...boxes.map(box => box.width)) - Math.min(...boxes.map(box => box.width))).toBeLessThanOrEqual(1);
       for (const box of boxes) { expect(box.x).toBeGreaterThanOrEqual(0); expect(box.right).toBeLessThanOrEqual(width); expect(box.width).toBeGreaterThanOrEqual(44); expect(box.height).toBeGreaterThanOrEqual(44); }
       expect(await nav.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
     } else {
@@ -464,13 +485,22 @@ for (const theme of builtinThemes) test(`${theme.name}: adaptive navigation and 
     await expect(status).toBeVisible();
     await page.screenshot({ path: `test-results/navigation-conversation-${theme.id}-${width}.png` });
     if (width <= 1000) {
-      await page.evaluate(() => document.body.classList.add('keyboard-open'));
-      await expect(page.locator('.mobile-nav .navigation-end')).toBeVisible();
-      await expect(page.locator('.mobile-nav > a:not(.navigation-end)').first()).toBeHidden();
-      await expect(status).toBeVisible();
-      const button = (await page.locator('.mobile-nav .navigation-end').boundingBox())!, composer = (await page.locator('.composer-wrap').boundingBox())!;
-      expect(composer.y + composer.height).toBeLessThanOrEqual(button.y + 1);
-      await page.evaluate(() => document.body.classList.remove('keyboard-open'));
+      await page.getByRole('textbox', { name: /^Message / }).focus();
+      await page.evaluate(() => {
+        Object.defineProperty(window.visualViewport!, 'height', { configurable: true, value: 400 });
+        window.visualViewport!.dispatchEvent(new Event('resize'));
+      });
+      await expect(page.locator('body')).toHaveClass(/keyboard-open/);
+      await expect(page.locator('.mobile-nav')).toBeHidden();
+      await expect(status).toHaveCount(0);
+      expect(await page.locator('main').evaluate(e => getComputedStyle(e).paddingBottom)).toBe('0px');
+      const composer = (await page.locator('.composer-wrap').boundingBox())!;
+      expect(composer.y + composer.height).toBeLessThanOrEqual(400);
+      await page.evaluate(() => {
+        delete (window.visualViewport as any).height;
+        window.visualViewport!.dispatchEvent(new Event('resize'));
+      });
+      await expect(page.locator('.mobile-nav')).toBeVisible();
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   }
@@ -515,7 +545,7 @@ for (const theme of builtinThemes) test(`${theme.name}: refined capture and read
     await expect(page.getByRole('navigation',{name:'Task spaces',exact:true})).toBeVisible();
     const destinations=page.locator('.mobile-lists [data-drop-list]');
     await expect(destinations).toHaveCount(6);
-    for(const target of await destinations.all()) await expect(target).toBeInViewport({ratio:1});
+    for(const target of await destinations.all()) { await target.focus(); await expect(target).toBeInViewport({ratio:1}); }
     await destinations.first().focus();
     await expect(destinations.first()).toBeFocused();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -542,10 +572,10 @@ for (const theme of builtinThemes) test(`${theme.name}: refined capture and read
     await expect(original).toHaveAttribute('target', '_blank');
     await original.focus();
     await expect(original).toBeFocused();
-    await page.locator('.conversation-page-header').getByRole('button', { name: 'More', exact: true }).click();
+    await page.locator('.conversation-page-header').getByRole('button', { name: 'Actions', exact: true }).click();
     await expect(page.getByRole('dialog', { name: 'Page actions' }).getByRole('button', { name: 'Remove download', exact: true })).toBeVisible();
     await page.keyboard.press('Escape');
-    await expect(page.locator('.conversation-page-header').getByRole('button', { name: 'More', exact: true })).toBeFocused();
+    await expect(page.locator('.conversation-page-header').getByRole('button', { name: 'Actions', exact: true })).toBeFocused();
     if(width===1280) await page.getByRole('button',{name:'Show alongside',exact:true}).click();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({path:`test-results/refined-${theme.id}-reading-${width}.png`});
@@ -565,7 +595,7 @@ test('normal task capture keeps visible destinations and the first task reachabl
   await expect(page.locator('.task-item').first()).toBeVisible();
   const targets=page.locator('.mobile-lists [data-drop-list]');
   await expect(targets).toHaveCount(6);
-  for(const target of await targets.all()) await expect(target).toBeInViewport({ratio:1});
+  for(const target of await targets.all()) { await target.focus(); await expect(target).toBeInViewport({ratio:1}); }
   const capture=(await page.locator('.composer-capture').boundingBox())!;
   const task=(await page.locator('.task-item').first().boundingBox())!;
   expect(task.y).toBeGreaterThanOrEqual(capture.y+capture.height);
@@ -587,7 +617,7 @@ for (const theme of builtinThemes) test(`${theme.name}: reviewed actions and one
       await expect(page.locator('.conversation-panel')).toBeVisible();
       await expect(page.locator('.conversation-compact-title')).toBeVisible();
       await expect(page.locator('html')).toHaveAttribute('data-theme',theme.id);
-      const more=page.locator('.conversation-page-header').getByRole('button',{name:'More',exact:true});
+      const more=page.locator('.conversation-page-header').getByRole('button',{name:'Actions',exact:true});
       await more.click();
       const dialog=page.getByRole('dialog',{name:'Page actions',exact:true});
       await expect(dialog.locator('.action-row').first()).toBeVisible();
@@ -652,11 +682,198 @@ for (const theme of builtinThemes.filter(t => ['press', 'fieldwork'].includes(t.
   for (const width of [320, 390, 768, 1280]) {
     await page.setViewportSize({ width, height: 844 });
     const routines = page.getByRole('link', { name: 'Routines', exact: true });
-    const more = page.locator('.conversation-page-header').getByRole('button', { name: 'More', exact: true });
+    const more = page.locator('.conversation-page-header').getByRole('button', { name: 'Actions', exact: true });
     await expect(routines).toBeVisible(); await expect(more).toBeVisible();
     const a = (await routines.boundingBox())!, b = (await more.boundingBox())!;
     expect(Math.abs(a.y - b.y)).toBeLessThanOrEqual(1);
     expect(Math.abs(a.y + a.height - b.y - b.height)).toBeLessThanOrEqual(1);
     await page.screenshot({ path: `test-results/header-alignment-${theme.id}-${width}.png` });
   }
+});
+
+for (const theme of builtinThemes) test(`${theme.name}: report sheets and plugin controls fit every viewport`, async ({ page, request }) => {
+  test.setTimeout(180_000);
+  await page.addInitScript(({ key, theme }) => {
+    localStorage.setItem(key, JSON.stringify({ id: theme.id, theme }));
+    localStorage.setItem('herts-navigation-more', JSON.stringify(['reading']));
+  }, { key: themeStorageKey, theme });
+  const taskId = crypto.randomUUID(), title = 'Review the delivery plan and https://example.com/' + 'reference/'.repeat(25);
+  await request.post('/api/v1/sync', { headers: { 'x-herts-request': '1' }, data: { id: crypto.randomUUID(), taskId, kind: 'create', title, at: Date.now() } });
+  for (const width of [320, 390, 768, 1280]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto('/#/settings/plugins');
+    const rescan = page.getByRole('button', { name: 'Rescan plugins', exact: true });
+    await expect(rescan).toBeVisible(); await expect(rescan).toBeEnabled(); await rescan.focus(); await expect(rescan).toBeFocused();
+    await expect(page.locator('.settings-toolbar')).toContainText('General');
+    const tasks = page.locator('.plugin-card').filter({ has: page.getByRole('checkbox', { name: 'Enable Tasks', exact: true }) });
+    await tasks.getByRole('button', { name: /^Tasks / }).click();
+    await expect(tasks.getByRole('checkbox', { name: 'Enable Tasks', exact: true })).toBeVisible();
+    await expect(tasks.getByRole('radio')).toBeHidden();
+    await tasks.getByRole('button', { name: /^Tasks / }).click();
+    await expect(page.locator('input[name=default-space]:checked')).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    const order = page.getByRole('button', { name: 'Tab order', exact: true });
+    await order.click();
+    expect((await page.locator('.tab-order').boundingBox())!.height).toBeLessThanOrEqual(54);
+    await order.click();
+    await page.screenshot({ path: `test-results/report-${theme.id}-plugins-${width}.png`, fullPage: true });
+    await page.goto('/#/settings');
+    await page.getByRole('button', { name: 'Edit conversation defaults' }).click();
+    const defaults = page.getByRole('dialog', { name: 'New conversation defaults', exact: true });
+    await expect(defaults.getByRole('button', { name: 'Save defaults', exact: true })).toBeInViewport();
+    await page.screenshot({ path: `test-results/report-${theme.id}-defaults-${width}.png` });
+    await page.keyboard.press('Escape');
+    await page.goto(`/#/task/${taskId}`);
+    const actions = page.locator('.conversation-page-header').getByRole('button', { name: 'Actions', exact: true });
+    await actions.click();
+    const sheet = page.getByRole('dialog', { name: 'Page actions', exact: true });
+    await expect(sheet).toBeVisible();
+    if (width <= 1000) {
+      const box = (await sheet.boundingBox())!;
+      expect(box.x).toBe(0); expect(box.width).toBe(width); expect(Math.abs(box.y + box.height - 844)).toBeLessThanOrEqual(1);
+    }
+    const rule = await sheet.locator('.action-row').first().evaluate(e => {
+      const box = e.getBoundingClientRect(), style = getComputedStyle(e, '::after');
+      return { left: box.left + parseFloat(style.left), right: box.right - parseFloat(style.right) };
+    });
+    const sheetBounds = (await sheet.boundingBox())!;
+    expect(Math.abs(rule.left - sheetBounds.x)).toBeLessThanOrEqual(2);
+    expect(Math.abs(rule.right - sheetBounds.x - sheetBounds.width)).toBeLessThanOrEqual(2);
+    await page.screenshot({ path: `test-results/report-${theme.id}-actions-${width}.png` });
+    await page.keyboard.press('Escape'); await expect(actions).toBeFocused();
+    for (const height of [844, 480]) {
+      await page.setViewportSize({ width, height });
+      await page.getByRole('button', { name: /^Conversation settings:/ }).click();
+      const dialog = page.getByRole('dialog', { name: 'Conversation settings', exact: true });
+      await expect(dialog).toBeVisible();
+      const apply = dialog.getByRole('button', { name: 'Apply', exact: true });
+      await expect(apply).toBeInViewport({ ratio: 1 });
+      const refresh = dialog.getByRole('button', { name: 'Refresh current settings', exact: true });
+      const applyBox = (await apply.boundingBox())!, refreshBox = (await refresh.boundingBox())!;
+      expect(Math.abs(applyBox.y + applyBox.height / 2 - refreshBox.y - refreshBox.height / 2)).toBeLessThanOrEqual(1);
+      const field = dialog.getByRole('textbox', { name: 'Working folder', exact: true });
+      await field.fill('/home/hermes/' + 'long-folder/'.repeat(25));
+      await field.focus(); await expect(field).toBeFocused();
+      const box = (await dialog.boundingBox())!;
+      expect(box.x).toBeGreaterThanOrEqual(0); expect(box.x + box.width).toBeLessThanOrEqual(width);
+      expect(box.y).toBeGreaterThanOrEqual(0); expect(box.y + box.height).toBeLessThanOrEqual(height);
+      if (width <= 1000) expect(Math.abs(box.y + box.height - height)).toBeLessThanOrEqual(1);
+      await page.screenshot({ path: `test-results/report-${theme.id}-settings-${width}-${height}.png` });
+      await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await expect(dialog).toHaveCount(0);
+    }
+  }
+});
+
+for (const theme of builtinThemes) test(`${theme.name}: populated defaults keep a compact footer`, async ({ page }) => {
+  await page.addInitScript(({ key, theme }) => localStorage.setItem(key, JSON.stringify({ id: theme.id, theme })), { key: themeStorageKey, theme });
+  for (const width of [320, 390, 768, 1280]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto('/#/settings');
+    await page.getByRole('button', { name: 'Edit conversation defaults' }).click();
+    const dialog = page.getByRole('dialog', { name: 'New conversation defaults', exact: true });
+    const folder = dialog.getByRole('textbox', { name: 'Working folder', exact: true });
+    const inherited = await folder.inputValue();
+    await folder.fill('/home/claw/workspace/' + 'long-folder/'.repeat(12));
+    const reset = dialog.getByRole('button', { name: 'Use Hermes defaults for all', exact: true });
+    await reset.scrollIntoViewIfNeeded();
+    const save = dialog.getByRole('button', { name: 'Save defaults', exact: true });
+    const refresh = dialog.getByRole('button', { name: 'Refresh current settings', exact: true });
+    const a = (await save.boundingBox())!, b = (await refresh.boundingBox())!;
+    expect(Math.abs(a.y + a.height / 2 - b.y - b.height / 2)).toBeLessThanOrEqual(1);
+    expect(await dialog.evaluate(e => e.scrollWidth <= e.clientWidth)).toBe(true);
+    await page.screenshot({ path: `test-results/footer-${theme.id}-${width}.png` });
+    await page.setViewportSize({ width, height: 480 });
+    await expect(save).toBeInViewport({ ratio: 1 });
+    await reset.click();
+    await expect(folder).toHaveValue(inherited);
+    await expect(reset).toHaveCount(0);
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Edit conversation defaults' })).toBeFocused();
+  }
+});
+
+for (const theme of builtinThemes) test(`${theme.name}: More connection row aligns with navigation rows`, async ({ page }) => {
+  await page.addInitScript(({ key, theme }) => {
+    localStorage.setItem(key, JSON.stringify({ id: theme.id, theme }));
+    localStorage.setItem('herts-navigation-more', JSON.stringify(['reading']));
+  }, { key: themeStorageKey, theme });
+  for (const width of [320, 390, 768]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto('/#/settings');
+    await page.locator('.mobile-nav').getByRole('button', { name: 'More', exact: true }).click();
+    const sheet = page.getByRole('dialog', { name: 'More', exact: true });
+    const connection = sheet.locator('.connection-status-row');
+    const settings = sheet.getByRole('link', { name: 'Settings', exact: true });
+    const a = (await connection.boundingBox())!, b = (await settings.boundingBox())!;
+    expect(Math.abs(a.x - b.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(a.width - b.width)).toBeLessThanOrEqual(1);
+    const caret = (await connection.locator(':scope > svg').boundingBox())!;
+    const otherCaret = (await settings.locator('.item-row-actions svg').boundingBox())!;
+    expect(Math.abs(caret.x - otherCaret.x)).toBeLessThanOrEqual(1);
+    const label = connection.locator(':scope > span:nth-child(2)');
+    const otherLabel = settings.locator('.item-row-body');
+    expect(Math.abs((await label.boundingBox())!.x - (await otherLabel.boundingBox())!.x)).toBeLessThanOrEqual(1);
+    expect(await label.evaluate(e => getComputedStyle(e).fontSize)).toBe(await otherLabel.evaluate(e => getComputedStyle(e).fontSize));
+    await page.screenshot({ path: `test-results/more-alignment-${theme.id}-${width}.png` });
+    await connection.click();
+    await expect(page.getByRole('dialog', { name: 'Connection and sync', exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(connection).toBeFocused();
+    await page.keyboard.press('Escape');
+  }
+});
+
+for (const width of [320, 390, 768, 1280]) test(`keyboard navigation releases space and preserves discussion drafts at ${width}px`, async ({ page, request }) => {
+  const itemId = crypto.randomUUID(), taskId = crypto.randomUUID();
+  const headers = { 'x-herts-request': '1' };
+  await request.post('/api/v1/reading/sync', { headers, data: { id: crypto.randomUUID(), itemId, contextId: crypto.randomUUID(), kind: 'create', title: 'Reading keyboard layout', url: 'https://example.com/keyboard-layout', at: Date.now() } });
+  await request.post('/api/v1/sync', { headers, data: { id: crypto.randomUUID(), taskId, kind: 'create', title: 'Task keyboard layout', at: Date.now() } });
+  await page.setViewportSize({ width, height: 844 });
+  for (const path of [`/reading-item/${itemId}`, `/task/${taskId}`, '/conversation/existing']) {
+    await page.goto('/#' + path);
+    const editor = page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ });
+    const draft = `Keep this draft when the keyboard changes: ${path}`;
+    await expect(page.locator('.composer')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+    await editor.fill(draft);
+    await expect(page.locator('.composer')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+    await page.evaluate(() => {
+      Object.defineProperty(window.visualViewport!, 'height', { configurable: true, value: 460 });
+      window.visualViewport!.dispatchEvent(new Event('resize'));
+    });
+    await expect(page.locator('body')).toHaveClass(/keyboard-open/);
+    await expect(editor).toHaveValue(draft);
+    const nav = page.locator('.mobile-nav');
+    await expect(nav).toBeHidden();
+    if (width <= 1000) expect(await page.locator('main').evaluate(e => getComputedStyle(e).paddingBottom)).toBe('0px');
+    const composer = (await page.locator('.composer-wrap').boundingBox())!;
+    expect(composer.y + composer.height).toBeLessThanOrEqual(460);
+    await page.screenshot({ path: `test-results/keyboard-hidden-${path.split('/')[1]}-${width}.png` });
+    await page.evaluate(() => {
+      delete (window.visualViewport as any).height;
+      window.visualViewport!.dispatchEvent(new Event('resize'));
+    });
+    await expect(page.locator('body')).not.toHaveClass(/keyboard-open/);
+    if (width <= 1000) await expect(nav).toBeVisible();
+    await expect(editor).toHaveValue(draft);
+  }
+});
+
+for (const width of [320, 390, 768, 1280]) test(`Press task capture becomes white when expanded at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 844 });
+  await page.goto('/#/tasks/inbox');
+  const composer = page.locator('.composer-capture .composer');
+  const editor = page.getByRole('textbox', { name: 'Add a task', exact: true });
+  await expect(composer).toHaveCSS('background-color', 'rgb(239, 236, 228)');
+  await page.screenshot({ path: `test-results/task-capture-closed-${width}.png` });
+  await editor.fill('Preserve the task draft while changing its presentation');
+  await expect(composer).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  await page.screenshot({ path: `test-results/task-capture-open-${width}.png` });
+  await page.getByRole('button', { name: 'Collapse message box', exact: true }).click();
+  await expect(composer).toHaveCSS('background-color', 'rgb(239, 236, 228)');
+  await expect(editor).toHaveValue('Preserve the task draft while changing its presentation');
+  await editor.focus();
+  await expect(composer).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  await expect(editor).toHaveValue('Preserve the task draft while changing its presentation');
 });

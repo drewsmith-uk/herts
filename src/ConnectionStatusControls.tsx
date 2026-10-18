@@ -1,14 +1,15 @@
 import { useId, useState } from 'react';
-import { Check, ChevronRight, Clock, LoaderCircle, RefreshCw, TriangleAlert, WifiOff } from 'lucide-react';
+import { CircleAlert, Check, ChevronRight, Clock, LoaderCircle, RefreshCw, TriangleAlert, WifiOff } from 'lucide-react';
 import { Button, DialogFrame, DialogHeading, StatusMessage } from './ui';
 import { refresh, useApp } from './data';
 import { connectionStatus } from './connectionStatus';
 
 function StatusIcon({ badge = false }: { badge?: boolean }) {
   const status = connectionStatus(useApp());
-  const Icon = { checking: LoaderCircle, offline: WifiOff, warning: TriangleAlert, syncing: RefreshCw, waiting: Clock, synced: Check }[status.kind];
+  const DetailIcon = { checking: LoaderCircle, offline: WifiOff, warning: TriangleAlert, syncing: RefreshCw, waiting: Clock, synced: Check }[status.kind];
+  const Icon = badge ? status.kind === 'synced' ? Check : ['checking', 'syncing', 'waiting'].includes(status.kind) ? RefreshCw : CircleAlert : DetailIcon;
   return <span className={`connection-icon status-${status.kind}${badge ? ' connection-badge' : ''}`} aria-hidden="true">
-    {badge && status.kind === 'offline' ? <span className="connection-dot"/> : <Icon size={badge ? 12 : 18} className={['syncing', 'checking'].includes(status.kind) ? 'spin' : ''}/>}
+    <Icon size={badge ? 12 : 18} className={['syncing', 'checking'].includes(status.kind) ? 'spin' : ''}/>
   </span>;
 }
 export function ConnectionBadge() { return <StatusIcon badge/>; }
