@@ -72,6 +72,41 @@ test('phone swipes respect scrolling and cancellation, hide with undo, and creat
   } finally { await context.close(); }
 });
 
+for (const width of [390, 1280]) test(`Undo refreshes the list after a delayed visibility acknowledgement at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 844 });
+  await page.goto('/#/conversations');
+  await page.getByLabel('Search conversations').fill('Swipe conversation');
+  const item = page.locator('[data-conversation-key="swipe-first"]');
+  await expect(item).toBeVisible();
+  const hidden = page.waitForResponse(response => response.url().endsWith('/api/v1/conversations/visibility')
+    && response.request().postDataJSON().hidden === true);
+  await mouseSwipe(page, item, -150);
+  expect((await hidden).ok()).toBe(true);
+  await expect(item).toHaveCount(0);
+  await expect(page.locator('.loading')).toHaveCount(0);
+  let release!: () => void, held = false;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/v1/conversations/visibility', async route => {
+    if (route.request().postDataJSON().hidden === false) { held = true; await gate; }
+    await route.continue();
+  });
+  try {
+    const staleList = page.waitForResponse(response => {
+      const url = new URL(response.url());
+      return url.pathname === '/api/v1/conversations' && url.searchParams.get('q') === 'Swipe conversation';
+    });
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
+    await expect.poll(() => held).toBe(true);
+    expect((await (await staleList).json()).conversations.some((row: any) => row.key === 'swipe-first')).toBe(false);
+    await expect(page.locator('.loading')).toHaveCount(0);
+    release();
+    await expect(item).toBeVisible();
+    const link = item.getByRole('link');
+    await link.focus(); await expect(link).toBeFocused();
+    await page.screenshot({ path: `test-results/undo-acknowledgement-${width}.png`, fullPage: true });
+  } finally { release(); await page.unroute('**/api/v1/conversations/visibility'); }
+});
+
 test('hidden items survive offline reload, search saved results and sync between devices', async ({ page, context, browser }) => {
   await page.setViewportSize({ width: 1280, height: 844 });
   await page.goto('/#/conversations'); await page.getByLabel('Search conversations').fill('Offline triage');

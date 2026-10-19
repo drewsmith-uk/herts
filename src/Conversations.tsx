@@ -41,7 +41,9 @@ export function Conversations() {
     }
     const filterPlugins = plugins.filter(p => p.definition.filter), swipes = plugins.filter(p => p.definition.swipe);
     const activeFilterPlugins = showAll ? [] : filterPlugins;
-    const filterKey = activeFilterPlugins.map(p => `${p.id}:${p.definition.filter!.id}`).join(','), listVersion = JSON.stringify([state.snapshot.hiddenConversations, state.plugins.revision, ...plugins.map(p => state.pluginData[p.id]?.revision), state.pluginPending.map(p => p.id)]);
+    const filterKey = activeFilterPlugins.map(p => `${p.id}:${p.definition.filter!.id}`).join(',');
+    // Pending operation IDs also change when the server acknowledges visibility changes.
+    const listVersion = JSON.stringify([state.snapshot.hiddenConversations, state.visibilityPending.map(p => p.op.id), state.plugins.revision, ...plugins.map(p => state.pluginData[p.id]?.revision), state.pluginPending.map(p => p.id)]);
     // Plugin readiness changes the included rows but preserves the requested page count.
     // Only search or visibility changes reset the page count.
     const selection = JSON.stringify([query, showAll]), previousFilter = useRef(selection);
