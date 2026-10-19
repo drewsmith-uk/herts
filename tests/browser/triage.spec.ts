@@ -72,11 +72,15 @@ test('phone swipes respect scrolling and cancellation, hide with undo, and creat
   } finally { await context.close(); }
 });
 
-for (const width of [390, 1280]) test(`Undo refreshes the list after a delayed visibility acknowledgement at ${width}px`, async ({ page }) => {
+for (const width of [390, 1280]) test(`Undo refreshes the list after a delayed visibility acknowledgement at ${width}px`, async ({ page, request }) => {
+  const id = `undo-${crypto.randomUUID()}`, title = `Synthetic Undo ${id}`;
+  expect((await request.post('/__test/conversation-message', { headers: { 'x-herts-request': '1' }, data: {
+    id, title, text: 'An isolated synthetic conversation for Undo recovery.',
+  } })).ok()).toBe(true);
   await page.setViewportSize({ width, height: 844 });
   await page.goto('/#/conversations');
-  await page.getByLabel('Search conversations').fill('Swipe conversation');
-  const item = page.locator('[data-conversation-key="swipe-first"]');
+  await page.getByLabel('Search conversations').fill(title);
+  const item = page.locator(`[data-conversation-key="${id}"]`);
   await expect(item).toBeVisible();
   const hidden = page.waitForResponse(response => response.url().endsWith('/api/v1/conversations/visibility')
     && response.request().postDataJSON().hidden === true);
@@ -93,11 +97,11 @@ for (const width of [390, 1280]) test(`Undo refreshes the list after a delayed v
   try {
     const staleList = page.waitForResponse(response => {
       const url = new URL(response.url());
-      return url.pathname === '/api/v1/conversations' && url.searchParams.get('q') === 'Swipe conversation';
+      return url.pathname === '/api/v1/conversations' && url.searchParams.get('q') === title;
     });
     await page.getByRole('button', { name: 'Undo', exact: true }).click();
     await expect.poll(() => held).toBe(true);
-    expect((await (await staleList).json()).conversations.some((row: any) => row.key === 'swipe-first')).toBe(false);
+    expect((await (await staleList).json()).conversations.some((row: any) => row.key === id)).toBe(false);
     await expect(page.locator('.loading')).toHaveCount(0);
     release();
     await expect(item).toBeVisible();
