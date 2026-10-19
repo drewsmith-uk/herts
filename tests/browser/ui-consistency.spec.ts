@@ -11,7 +11,7 @@ async function bots(request: import('@playwright/test').APIRequestContext, actio
 }
 test.afterEach(async ({ page, request }) => { await page.unrouteAll({ behavior: 'wait' }); await bots(request, 'disable'); await pinnedPlugin(request, 'disable'); });
 
-for (const missing of ['PageHeader', 'DragHandle', 'DragPreview']) test(`an app without ${missing} gets an actionable plugin update message`, async ({ page }) => {
+for (const missing of ['PageHeader', 'DragHandle', 'DragPreview', 'ComposerPlaceholder']) test(`an app without ${missing} gets an actionable plugin update message`, async ({ page }) => {
   await page.addInitScript(missing => {
     Object.defineProperty(globalThis, '__HERTS_PLUGIN_RUNTIME__', {
       configurable: true,
@@ -908,4 +908,47 @@ test('plugin callers retain the default Conversation section heading', async ({ 
     await expect(page.locator('.conversation-heading')).toBeVisible();
     await expect(page.getByLabel('Message Hermes', { exact: true })).toBeEditable();
   }
+});
+
+for (const width of [320, 390, 768, 1280]) test(`Press loading composer keeps task bounds at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 844 });
+  await page.goto('/#/tasks/inbox');
+  const editor = page.getByRole('textbox', { name: 'Add a task', exact: true });
+  await expect(editor).toBeEnabled();
+  const ready = (await page.locator('.composer-capture').boundingBox())!;
+  const readyTools = await Promise.all(['Attach files', 'Dictate'].map(name => page.getByRole('button', { name, exact: true }).boundingBox()));
+  await page.screenshot({ path: `test-results/loading-composer-ready-${width}.png` });
+  await page.evaluate(() => { location.hash = '/conversations'; });
+  await expect(page.getByLabel('Search conversations')).toBeVisible();
+  await page.evaluate(() => {
+    const db = (window as any).__HERTS_PLUGIN_RUNTIME__.sdk.conversationDrafts.db;
+    const original = db.transaction.bind(db);
+    let delayed = false;
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    db.transaction = (...args: any[]) => {
+      if (!delayed && args[0] === 'rw' && args[1] === db.kv) { delayed = true; return gate.then(() => original(...args)); }
+      return original(...args);
+    };
+    (window as any).releaseEntry = () => { db.transaction = original; release(); };
+    location.hash = '/tasks/inbox';
+  });
+  try {
+    await expect(page.locator('.composer-loading')).toBeVisible();
+    await expect(editor).toBeDisabled();
+    const pending = (await page.locator('.composer-capture').boundingBox())!;
+    expect(Math.abs(pending.height - ready.height)).toBeLessThanOrEqual(1);
+    expect(Math.abs(pending.width - ready.width)).toBeLessThanOrEqual(1);
+    expect(pending.x).toBeGreaterThanOrEqual(0);
+    expect(pending.x + pending.width).toBeLessThanOrEqual(width);
+    for (const [index, name] of ['Attach files', 'Dictate'].entries()) {
+      const tool = (await page.getByRole('button', { name, exact: true }).boundingBox())!;
+      expect(Math.abs(tool.x - readyTools[index]!.x)).toBeLessThanOrEqual(1);
+      expect(Math.abs(tool.y - readyTools[index]!.y)).toBeLessThanOrEqual(1);
+    }
+    await page.screenshot({ path: `test-results/loading-composer-pending-${width}.png` });
+  } finally { await page.evaluate(() => (window as any).releaseEntry()); }
+  await expect(editor).toBeEnabled();
+  await editor.fill('A long draft with https://example.com/' + 'long-path/'.repeat(12));
+  await expect(editor).toHaveValue(/A long draft/);
 });

@@ -1,7 +1,7 @@
 import { SettingsGroup } from './ui';
 import { useNavigationTabs } from './navigationLayout';
 import { UndoToasts } from './UndoToast';
-import { PageHeader, SectionNav, SectionLink, SettingsSection, Button } from './ui';
+import { PageHeader, ListPlaceholder, SectionNav, SectionLink, SettingsSection, Button } from './ui';
 import { useListPosition } from './listState';
 import { useVisualViewport } from './useVisualViewport';
 import { useRef, useState } from 'react';
@@ -53,6 +53,8 @@ function Shell() {
         const Screen = match.component;
         page = <PluginContent plugin={plugin}><Screen {...props}/></PluginContent>;
     }
+    else if (state.plugins.entries.some(entry => entry.enabled && !plugins.some(plugin => plugin.id === entry.manifest.id) && !pluginError(entry.manifest.id) && [`/plugins/${entry.manifest.id}`, ...(entry.manifest.routes || [])].some(prefix => path === prefix || path.startsWith(prefix + '/'))))
+        page = <ListPlaceholder label="Loading screen…"/>;
     else
         page = <PluginUnavailable id={screen === 'plugins' || screen === 'plugins-unavailable' ? id : state.plugins.entries.find(e => e.manifest.routes?.some(prefix => path === prefix || path.startsWith(prefix + '/')))?.manifest.id || ''}/>;
     useListPosition(path);

@@ -48,6 +48,7 @@
   "StatusMessage",
   "DialogFrame",
   "MessageComposer",
+  "ComposerPlaceholder",
   "useEntryDraft",
   "entryDraftStatus",
   "firstLine",

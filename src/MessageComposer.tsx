@@ -2,7 +2,7 @@ import { createPortal } from 'react-dom';
 import { cleanLocalFiles } from './fileRetention';
 import { liveQuery } from 'dexie';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { ChevronDown, LoaderCircle, Paperclip, Send, X } from 'lucide-react';
+import { ChevronDown, LoaderCircle, Mic, Paperclip, Send, X } from 'lucide-react';
 import type { Action } from '../shared/core';
 import type { ConversationContext } from '../shared/conversations';
 import { addFile, createLocalConversation, db, getState, refresh, resolveSubmission, saveConversationDraft, submit, useApp, type Draft, type LocalFile } from './data';
@@ -13,6 +13,19 @@ import { Voice } from './Voice';
 import { useDraftPersistence, useUpdatePreparation } from './updateSafety';
 
 export const composerCapabilities = { taskCapture: true } as const;
+
+export function ComposerPlaceholder({ capture = false, inputLabel = 'Message Hermes' }: { capture?: boolean; inputLabel?: string }) {
+  return <div className={`composer-wrap composer-loading ${capture ? 'composer-docked composer-capture is-collapsed' : 'composer-entry is-expanded'}`} aria-busy="true" role="status" aria-label="Opening draft">
+    {!capture && <div className="composer-settings-row"><span className="composer-loading-settings">Opening draft…</span></div>}
+    <div className="composer">
+      <textarea aria-label={inputLabel} placeholder={`${inputLabel}…`} disabled rows={3}/>
+      <div className="composer-tools"><div className="button-row">
+        <button type="button" className="icon-button" aria-label="Attach files" disabled><Paperclip size={20}/></button>
+        <div className="voice-control"><button type="button" className="icon-button" aria-label="Dictate" disabled><Mic size={19}/></button></div>
+      </div></div>
+    </div>
+  </div>;
+}
 
 export interface MessageComposerProps {
   context: ConversationContext;
@@ -135,12 +148,12 @@ export function MessageComposer({ context, initialText = '', canSend = true, doc
   return <div ref={root} className={`composer-wrap ${docked ? 'composer-docked' : 'composer-entry'} ${primaryAction === 'save' ? 'composer-capture' : ''} ${expanded ? 'is-expanded' : 'is-collapsed'}`}>
     <div className="composer-expanded">
       <div className="composer-settings-row">{agentOptions ? <details className="agent-options"><summary>Agent options</summary><SessionSettingsControls context={context} onOpen={() => { void ensure(); setSettingsOpen(true); }} onClose={() => setSettingsOpen(false)}/></details> : <SessionSettingsControls context={context} onOpen={() => { void ensure(); setSettingsOpen(true); }} onClose={() => setSettingsOpen(false)}/>}{docked && <button className="icon-button composer-collapse" aria-label="Collapse message box" onClick={() => { textarea.current?.blur(); setExpanded(false); }}><ChevronDown size={20}/></button>}</div>
-      {destination && <p className="capture-destination">{destination}</p>}<fieldset className="composer-fields" disabled={busy || uncertain}>{typeof fields === 'function' ? fields(draft) : fields}</fieldset>
+      {destination && <p className="capture-destination">{destination}</p>}<fieldset className="composer-fields" disabled={!loaded || busy || uncertain}>{typeof fields === 'function' ? fields(draft) : fields}</fieldset>
     </div>
     <form className="composer" onSubmit={event => { event.preventDefault(); void commit(primarySend); }}>
       <textarea ref={textarea} onFocus={() => setExpanded(true)} aria-label={inputLabel || `Message ${context.botChat ? context.title : 'Hermes'}`} placeholder={inputLabel ? `${inputLabel}…` : `Message ${context.botChat ? context.title : 'Hermes'}…`} value={draft.text} disabled={!loaded || busy} onChange={event => { void update({ ...draftRef.current, text: event.target.value, submissionId: undefined }).catch(() => {}); }} rows={3} onKeyDown={event => { if (!event.nativeEvent.isComposing && (event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); void commit(primarySend); } }}/>
       {files.length > 0 && <div className="attachment-list">{files.map(file => <span className="attachment" key={file.id}><Paperclip size={13}/>{file.name}<small>{Math.ceil(file.blob.size / 1024)} KB</small><button type="button" className="icon-button" aria-label={`Remove ${file.name}`} disabled={busy} onClick={() => void update({ ...draftRef.current, files: draftRef.current.files.filter(id => id !== file.id), submissionId: undefined }).catch(() => {})}><X size={14}/></button></span>)}</div>}
-      <div className="composer-tools"><div className="button-row"><button type="button" className="icon-button" aria-label="Attach files" disabled={busy} onClick={() => { open(false); input.current?.click(); }}><Paperclip size={20}/></button><input type="file" ref={input} hidden multiple onChange={event => void attach(event.target.files)}/><Voice owner={voiceOwner || `chat:${context.id}`} disabled={busy || !loaded} startRequest={recordRequest} onModeChange={mode => { voiceBusy.current = mode !== 'idle'; setRecording(mode !== 'idle'); if (mode !== 'idle') open(false); }} onRecording={() => persistDraft(draftRef.current)} onTranscript={text => update({ ...draftRef.current, text: [draftRef.current.text, text].filter(Boolean).join('\n'), submissionId: undefined }).then(() => { open(false); })}/></div>
+      <div className="composer-tools"><div className="button-row"><button type="button" className="icon-button" aria-label="Attach files" disabled={!loaded || busy} onClick={() => { open(false); input.current?.click(); }}><Paperclip size={20}/></button><input type="file" ref={input} hidden multiple onChange={event => void attach(event.target.files)}/><Voice owner={voiceOwner || `chat:${context.id}`} disabled={busy || !loaded} startRequest={recordRequest} onModeChange={mode => { voiceBusy.current = mode !== 'idle'; setRecording(mode !== 'idle'); if (mode !== 'idle') open(false); }} onRecording={() => persistDraft(draftRef.current)} onTranscript={text => update({ ...draftRef.current, text: [draftRef.current.text, text].filter(Boolean).join('\n'), submissionId: undefined }).then(() => { open(false); })}/></div>
         <div className="composer-submit">{!primarySend && <button type="submit" className="primary-button" disabled={!savingAllowed || (!hasDraft && !allowSaveEmpty)}>{saveLabel}</button>}<button type={primarySend ? 'submit' : 'button'} className={primarySend ? 'primary-button send-button' : 'send-button'} disabled={!allowed || !hasDraft} onClick={primarySend ? undefined : () => void commit(true)}>{busy ? <LoaderCircle size={16} className="spin"/> : <Send size={16}/>} {sendLabel}</button>{saveLabel && primarySend && <button type="button" disabled={!savingAllowed || (!hasDraft && !allowSaveEmpty)} onClick={() => void commit(false)}>{saveLabel}</button>}</div>
       </div>
     </form>

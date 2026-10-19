@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { MessageComposer, useEntryDraft, firstLine, FormField, PageHeader, type Draft, type SharedContent } from '@herts/plugin-api/client';
+import { ComposerPlaceholder, MessageComposer, useEntryDraft, firstLine, FormField, PageHeader, type Draft, type SharedContent } from '@herts/plugin-api/client';
 import { createTask, db, useApp } from './data';
 import { spacePath } from './model';
 
@@ -16,7 +16,7 @@ function TaskEntry({ spaceId, recordRequest, shared, id, saved }: { spaceId: str
     legacy: shared ? undefined : { read: async () => { const draft = await db.drafts.get(captureKey); return draft ? { text: draft.text, files: draft.files } : undefined; }, clear: () => db.drafts.delete(captureKey), recordingOwner: `plugin:tasks:${generation}:${captureKey}` },
   });
   async function prepare(draft: Draft) { await createTask(entry.fields.title?.trim() || firstLine(draft.text) || 'Attached files', spaceId, draft.id); }
-  if (!entry.id) return <p role="status">{entry.error || 'Opening draft…'}</p>;
+  if (!entry.id) return <><ComposerPlaceholder capture inputLabel="Add a task"/>{entry.error && <p role="alert">{entry.error}</p>}</>;
   return <><MessageComposer docked context={entry.context} persist={entry.persist} prepare={prepare} owner={entry.owner}
     recordRequest={recordRequest} saveLabel="Save to Inbox" primaryAction="save" inputLabel="Add a task" sendLabel="Send to Hermes" allowSaveEmpty={!!entry.fields.title?.trim()}
     fields={<div className="entry-details"><FormField label="Title (optional)"><input aria-label="New task title" maxLength={2000} value={entry.fields.title || ''} placeholder="Uses the first line of your message" onChange={event => void entry.updateFields({ title: event.target.value })}/></FormField></div>}
