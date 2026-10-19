@@ -119,3 +119,46 @@ for (const theme of ['press']) test(`${theme} keeps the compact toolbar and pend
   await expect(page.locator('.conversation-status')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+for (const width of [390, 1280]) test(`approval controls remain reachable after a delayed history update at ${width}px`, async ({ page, request }) => {
+  await page.setViewportSize({ width, height: 844 });
+  const id = `controls-delayed-${crypto.randomUUID()}`;
+  expect((await request.post('/__test/conversation-message', { headers: { 'x-herts-request': '1' }, data: {
+    id, title: 'Synthetic delayed approval', text: 'Earlier synthetic conversation detail.\n\n'.repeat(120) + `Read [the article](https://example.com/${id}).`,
+  } })).ok()).toBe(true);
+  await page.goto(`/#/conversation/${id}`);
+  await conversationReady(page);
+  await page.getByRole('button', { name: `Save to reading list: https://example.com/${id}`, exact: true }).click();
+  await page.getByRole('button', { name: `Open reading item: https://example.com/${id}`, exact: true }).click();
+  await expect(page).toHaveURL(/#\/reading-item\//);
+  await conversationReady(page);
+  await page.getByLabel(/^(Message Hermes|Add a task)$/).fill('Please ask approval');
+  await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
+  await expect(page.locator('.conversation-status')).toContainText('Needs your input');
+  await expect(page.locator('[data-outgoing-id]')).toHaveCount(0);
+  await older(page);
+  let release!: () => void, held = false;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route(`**/api/v1/conversations/${id}/history?**`, async route => {
+    if (!held && new URL(route.request().url()).searchParams.get('offset') === '0') {
+      held = true; await gate;
+    }
+    await route.continue();
+  });
+  try {
+    expect((await request.post('/__test/conversation-message', { headers: { 'x-herts-request': '1' }, data: { id, title: 'Synthetic approval recovery', text: 'A delayed synthetic history update.' } })).ok()).toBe(true);
+    await expect.poll(() => held).toBe(true);
+    await page.getByRole('button', { name: 'Needs your input: view details', exact: true }).click();
+    const approve = page.getByRole('button', { name: 'Approve once', exact: true });
+    await usable(approve);
+    release();
+    await expect(page.getByRole('button', { name: 'Show latest messages', exact: true })).toBeVisible();
+    await usable(approve); await expect(approve).toBeFocused();
+    await page.screenshot({ path: `test-results/approval-history-update-${width}.png`, fullPage: true });
+    await older(page);
+    await page.getByRole('button', { name: 'Needs your input: view details', exact: true }).click();
+    await usable(approve);
+    await approve.click();
+    await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase', 'complete');
+  } finally { release(); await page.unroute(`**/api/v1/conversations/${id}/history?**`); }
+});
