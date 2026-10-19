@@ -30,10 +30,11 @@ export function withSpaces(input: Snapshot) {
   const spaces = input.spaces || [{ id: originalSpaceId, name: 'Personal', createdAt: 0, updatedAt: 0 }];
   // Normalize cached snapshots without changing old pending operation payloads.
   const spaceLists = Object.fromEntries(Object.entries(input.spaceLists || { [originalSpaceId]: input.lists }).map(([id, lists]) => [id, { ...newTaskLists(), ...lists }]));
-  return { ...input, tasks: input.tasks.map(t => t.spaceId ? t : { ...t, spaceId: originalSpaceId }), spaces, spaceLists, defaultSpaceId: input.defaultSpaceId || originalSpaceId, lists: spaceLists[originalSpaceId] };
+  const defaultSpaceId = spaces.some(space => space.id === input.defaultSpaceId) ? input.defaultSpaceId! : spaces[0]?.id || originalSpaceId;
+  return { ...input, tasks: input.tasks.map(t => t.spaceId ? t : { ...t, spaceId: originalSpaceId }), spaces, spaceLists, defaultSpaceId, lists: spaceLists[originalSpaceId] || spaceLists[defaultSpaceId] || newTaskLists() };
 }
 export function taskSpaceId(task: Task) { return task.spaceId || originalSpaceId; }
-export function spaceName(snapshot: Snapshot, id?: string) { return withSpaces(snapshot).spaces.find(s => s.id === (id || originalSpaceId))?.name || 'Unavailable space'; }
+export function spaceName(snapshot: Snapshot, id?: string) { return withSpaces(snapshot).spaces.find(s => s.id === (id || withSpaces(snapshot).defaultSpaceId))?.name || 'Unavailable space'; }
 export function spaceLists(snapshot: Snapshot, id: string) { return withSpaces(snapshot).spaceLists[id]; }
 export function spacePath(id: string, status: Status = 'inbox') { return id === originalSpaceId ? `/tasks/${status}` : `/spaces/${id}/${status}`; }
 export function applySpaceOp(input: Snapshot, op: SpaceOp, check = true): Snapshot {

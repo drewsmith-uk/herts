@@ -191,7 +191,6 @@ See the [Bots guide](docs/bots.md) for profile creation and routine settings.
 - **Settings → Plugins:** Enable features and change the tab order.
   Drag tabs to change their order on this device. Tabs below the **More** line appear in **More**.
   Select a section heading to hide or show its settings.
-- **Settings → General → Appearance:** Choose a theme.
 - **Settings → General → New conversation defaults:** Set defaults for new conversations.
 - **Settings → General → Notifications on this device:** Enable notifications on each device and send a test notification.
 
@@ -217,10 +216,12 @@ Server upgrades use the separate [maintenance instructions](docs/maintenance.md)
 
 ## Documentation
 
+- [Intended design](DESIGN.md) and [implementation checklist](docs/design-implementation.md)
+
 - [Installation](docs/installation.md) and [configuration](docs/configuration.md)
 - [Backups, upgrades, and troubleshooting](docs/maintenance.md)
 - [Plugins](docs/plugins.md) and [Bots](docs/bots.md)
-- [Themes](themes/README.md)
+- [Appearance](themes/README.md)
 - [Offline behaviour, data storage, and privacy](docs/decisions.md)
 - [Hermes compatibility](docs/hermes-compatibility.md)
 

@@ -9,15 +9,17 @@ async function createSpace(request: APIRequestContext, name: string) {
   expect(response.ok()).toBe(true); return spaceId;
 }
 
-test('an empty added space can be deleted with confirmation and a default fallback', async ({ page, request }) => {
+test('an empty space needs another default before deletion', async ({ page, request }) => {
   const id = await createSpace(request, 'Accidental space');
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/#/settings/plugins');
   await page.locator(`input[name=default-space][value="${id}"]`).check();
   await expect.poll(async () => (await state(request)).defaultSpaceId).toBe(id);
+  await expect(page.getByRole('button', { name: 'Delete Accidental space space', exact: true })).toHaveCount(0);
+  await page.locator(`input[name=default-space][value="${original}"]`).check();
+  await expect.poll(async () => (await state(request)).defaultSpaceId).toBe(original);
   await page.getByRole('button', { name: 'Delete Accidental space space', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Delete “Accidental space”?' });
-  await expect(dialog).toContainText('Your default space will become');
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(page.getByLabel('Name of Accidental space space', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Delete Accidental space space', exact: true }).click();

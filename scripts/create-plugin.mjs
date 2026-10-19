@@ -14,4 +14,4 @@ for(const file of ['client.tsx','server.ts']){
   const source=(await readFile(`examples/notes/src/${file}`,'utf8')).replaceAll("'notes'",JSON.stringify(id)).replaceAll('/plugins/notes',`/plugins/${id}`).replaceAll("'Notes'",JSON.stringify(name));
   await writeFile(`${root}/src/${file}`,source);
 }
-console.log(`Created plugins/${id}. Run npm run build:plugin -- plugins/${id}, then Rescan in Settings → Plugins. New plugins start disabled. Before release, follow AGENTS.md UI completion criteria, add browser coverage, and run npm run check:release.`);
+console.log(`Created plugins/${id}. Run npm run build:plugin -- plugins/${id}, then Rescan in Settings → Plugins. New plugins start disabled. Before changing the interface, read DESIGN.md and use shared components. Before release, follow AGENTS.md UI completion criteria, add browser coverage, and run npm run check:release.`);

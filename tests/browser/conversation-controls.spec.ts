@@ -96,9 +96,9 @@ for (const width of [390, 1280]) test(`one reachable activity row and task toolb
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
-for (const theme of ['fieldwork', 'press', 'nocturne']) test(`${theme} keeps the compact toolbar and pending controls usable down to 320px`, async ({ page }) => {
+for (const theme of ['press']) test(`${theme} keeps the compact toolbar and pending controls usable down to 320px`, async ({ page }) => {
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
-  await page.goto('/#/settings'); await page.locator(`input[name="appearance-theme"][value="${theme}"]`).check();
+  await page.goto('/#/settings'); await expect(page.locator('html')).toHaveAttribute('data-theme', 'press');
   await page.goto(`/#/conversation/controls-${theme}`);
   await page.getByLabel(/^(Message Hermes|Add a task)$/).fill('Please ask approval'); await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
   await expect(page.locator('.conversation-status')).toContainText('Needs your input');

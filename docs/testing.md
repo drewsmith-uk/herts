@@ -11,6 +11,15 @@ npx playwright install --with-deps chromium
 npm run test:browser
 ```
 
+## Design checks
+
+Run `npm run check:design` to validate the design format, token references, contrast, and generated files.
+Run `npm run design:generate` only after an approved design change.
+Build and release checks reject stale generated files.
+The validator version is pinned in package.json.
+Border tokens can produce unused-component warnings because the standard component schema has no border properties.
+The generator uses these tokens through semantic CSS variables.
+
 ## Documentation checks
 
 Use [ASD-STE100 Simplified Technical English](documentation-style.md) for all project documentation.

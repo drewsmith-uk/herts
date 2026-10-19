@@ -18,7 +18,6 @@ import { NewConversationDefaults } from './SessionSettings';
 import { SpeechSettings } from './SpeechSettings';
 import { ShellNavigation } from './ShellNavigation';
 import { ConnectionAnnouncement, ConnectionBadge, ConnectionStatusRow } from './ConnectionStatusControls';
-import { AppearanceSettings } from './AppearanceSettings';
 import type { RouteProps } from './pluginContract';
 import type { SharedContent } from '../shared/plugins';
 export { ConversationPanel, HistoryView } from './Conversation';
@@ -70,7 +69,7 @@ function Preferences({ plugins }: { plugins: boolean }) {
     const navigation = <SectionNav variant="sections" className="settings-tabs" aria-label="Settings sections"><SectionLink active={!plugins} href="#/settings">General</SectionLink><SectionLink active={plugins} href="#/settings/plugins">Plugins</SectionLink></SectionNav>;
     return <><PageHeader title="Settings"/><ConnectionStatusRow/>
       {plugins ? <PluginSettings navigation={navigation}/> : navigation}
-      {!plugins && <div className="settings-groups"><AppearanceSettings /><NewConversationDefaults /><SettingsGroup title="Voice and notifications"><SpeechSettings /><NotificationSettings /></SettingsGroup><SettingsGroup title="Connection and updates"><AppUpdateSettings />
+      {!plugins && <div className="settings-groups"><NewConversationDefaults /><SettingsGroup title="Voice and notifications"><SpeechSettings /><NotificationSettings /></SettingsGroup><SettingsGroup title="Connection and updates"><AppUpdateSettings />
         <SettingsSection title="Hermes connection" icon={<Link2 size={22}/>} description={state.gateway.promptError || (state.gateway.online ? `Connected to your ${state.gateway.profile || 'default'} profile.` : state.gateway.configured ? 'Hermes is currently unavailable. Saved data remains usable.' : 'The Hermes connection has not been configured yet.')} >{state.gateway.promptWarning && <p role="status">{state.gateway.promptWarning}</p>}</SettingsSection>
         <SettingsSection title="Sync" icon={<RefreshCw size={22}/>}>
           <Button onClick={() => void refresh()} disabled={!navigator.onLine}>Sync now</Button>

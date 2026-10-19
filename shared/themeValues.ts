@@ -1,8 +1,4 @@
 import fieldwork from '../themes/builtin/fieldwork.json' with { type: 'json' };
-import edition from '../themes/builtin/edition.json' with { type: 'json' };
-import signal from '../themes/builtin/signal.json' with { type: 'json' };
-import nocturne from '../themes/builtin/nocturne.json' with { type: 'json' };
-import studio from '../themes/builtin/studio.json' with { type: 'json' };
 import press from '../themes/builtin/press.json' with { type: 'json' };
 
 // Lightweight values and validation for the blocking startup script. No schema
@@ -16,12 +12,12 @@ export interface Theme {
 }
 export const defaultThemeId = 'press';
 export const themeStorageKey = 'herts:appearance:v1';
-export const builtinThemes: Theme[] = [fieldwork, edition, signal, nocturne, studio, press].map(input => ({
+export const builtinThemes: Theme[] = [press].map(input => ({
   schemaVersion: 1, id: input.id, name: input.name, description: input.description,
   mode: ('mode' in input ? input.mode : fieldwork.mode) as Theme['mode'],
-  colors: { ...fieldwork.colors, ...input.colors },
-  typography: { ...fieldwork.typography, ...('typography' in input ? input.typography : {}) },
-  radii: { ...fieldwork.radii, ...input.radii }, elevation: input.elevation as Theme['elevation'], fonts: [],
+  colors: { ...input.colors },
+  typography: { ...input.typography },
+  radii: { ...input.radii }, elevation: input.elevation as Theme['elevation'], fonts: [],
   ...('treatment' in input ? { treatment: input.treatment as Theme['treatment'] } : {}),
 }));
 export const defaultTheme = builtinThemes.find(theme => theme.id === defaultThemeId)!;

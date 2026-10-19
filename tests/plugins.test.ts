@@ -24,12 +24,15 @@ describe('public plugin framework',()=>{
     await command({ id: randomUUID(), spaceId, kind: 'create', name: 'Accidental space', at: 1 });
     await command({ id: randomUUID(), spaceId, kind: 'default', baseDefaultSpaceId: original, at: 2 });
     const deletion = { id: randomUUID(), spaceId, kind: 'delete', baseName: 'Accidental space', baseDefaultSpaceId: spaceId, at: 3 };
+    await expect(command(deletion)).rejects.toThrow('Choose another default');
+    await command({ id: randomUUID(), spaceId: original, kind: 'default', baseDefaultSpaceId: spaceId, at: 3 });
+    deletion.id = randomUUID();
     await command(deletion);
     const saved = structuredClone(f.plugins.storage.data('tasks'));
     expect((saved.records.state as any).spaces.map((s: any) => s.id)).toEqual([original]);
     expect((saved.records.state as any).defaultSpaceId).toBe(original);
     await command(deletion); expect(f.plugins.storage.data('tasks')).toEqual(saved);
-    await expect(command({ ...deletion, id: randomUUID(), spaceId: original })).rejects.toThrow('original space');
+    await expect(command({ ...deletion, id: randomUUID(), spaceId: original })).rejects.toThrow('Choose another default');
     await command({ id: randomUUID(), spaceId, kind: 'create', name: 'Another space', at: 4 });
     await expect(command({ ...deletion, id: randomUUID() })).rejects.toThrow('renamed');
     const taskId = randomUUID();
@@ -44,6 +47,20 @@ describe('public plugin framework',()=>{
       await expect(command({ ...deletion, id: randomUUID(), baseName: 'Another space' })).rejects.toThrow('Move all tasks');
     }
     expect(f.store.context(taskId)?.title).toBe('Arrived on another device');
+  });
+  it('persists removal of the original space with another default', async () => {
+    const f = await fixture(); await f.plugins.activate('tasks');
+    const original = '00000000-0000-4000-8000-000000000001', spaceId = randomUUID();
+    const command = (input: any) => f.plugins.command('tasks', op('space', input));
+    await command({ id: randomUUID(), spaceId, kind: 'create', name: 'Remaining', at: 1 });
+    await command({ id: randomUUID(), spaceId, kind: 'default', baseDefaultSpaceId: original, at: 2 });
+    const deletion = { id: randomUUID(), spaceId: original, kind: 'delete', baseName: 'Personal', baseDefaultSpaceId: spaceId, at: 3 };
+    await command(deletion);
+    await command(deletion);
+    expect(f.store.snapshot().spaces?.map(s => s.id)).toEqual([spaceId]);
+    expect(f.store.snapshot().defaultSpaceId).toBe(spaceId);
+    await f.plugins.scan();
+    expect(f.store.snapshot().lists).toBeDefined();
   });
   it('starts fresh with core only and migrates an existing installation with its tasks and order',async()=>{
     const fresh=await fixture();expect(fresh.plugins.catalogue().order).toEqual(['conversations']);expect(fresh.plugins.catalogue().entries.every(e=>!e.enabled)).toBe(true);

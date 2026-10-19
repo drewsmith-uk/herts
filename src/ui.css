@@ -9,9 +9,9 @@
 }
 :where(button, .ui-button, a.primary-button, a.quiet-button) {
   cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-  min-height: var(--control-size); max-width: 100%; padding: 8px 12px;
+  min-height: var(--control-size); max-width: 100%; padding: var(--design-button-padding, 8px 12px);
   border: var(--border-width, 1px) solid var(--color-border); border-radius: var(--radius-control);
-  background: var(--color-surface); color: var(--color-text); font-family: inherit; font-size: var(--text-secondary); font-weight: 550; line-height: 1.5;
+  background: var(--color-surface); color: var(--color-text); font-family: inherit; font-size: var(--text-secondary); font-weight: var(--design-control-weight, 550); line-height: 1.5;
 }
 .ui-button:hover { background: var(--color-surface-hover); border-color: var(--color-control-border); }
 .ui-button.primary-button:hover { background: var(--color-primary-action-hover); border-color: var(--color-primary-action-hover); }
