@@ -63,16 +63,32 @@ test('returning to conversations keeps cached rows in the first render', async (
   }
 });
 
-test('a delayed plugin shows loading instead of an unavailable screen', async ({ page }) => {
+for (const width of [390, 1280]) for (const saved of [false, true]) test(`a delayed plugin shows loading on ${saved ? 'saved capture' : 'declared'} routes at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 844 });
+  let target = '/#/tasks/inbox';
+  const text = 'Keep this saved task while its plugin loads';
+  if (saved) {
+    await page.goto(target);
+    await page.getByLabel('Add a task', { exact: true }).fill(text);
+    await page.evaluate(() => { location.hash = '/conversations'; });
+    const draft = page.locator('.conversation-drafts a').filter({ hasText: text });
+    await expect(draft).toBeVisible();
+    target = '/' + await draft.getAttribute('href');
+    expect(target).toContain('#/plugins/tasks/capture/');
+    await page.goto('about:blank');
+  }
   let release!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
   await page.route('**/_plugins/tasks/**/client.js', async route => { await gate; await route.continue(); });
   try {
-    await page.goto('/#/tasks/inbox');
+    await page.goto(target);
     await expect(page.getByText('Loading screen…', { exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Plugin unavailable' })).toHaveCount(0);
+    await page.screenshot({ path: `test-results/plugin-loading-${saved ? 'capture' : 'declared'}-${width}.png` });
     release();
-    await expect(page.getByLabel('Add a task', { exact: true })).toBeEnabled();
+    const editor = page.getByLabel('Add a task', { exact: true });
+    await expect(editor).toBeEnabled();
+    if (saved) await expect(editor).toHaveValue(text);
   } finally { release(); }
 });
 
