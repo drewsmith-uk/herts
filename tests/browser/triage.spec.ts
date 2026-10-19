@@ -72,6 +72,45 @@ test('phone swipes respect scrolling and cancellation, hide with undo, and creat
   } finally { await context.close(); }
 });
 
+for (const width of [390, 1280]) test(`Undo refreshes the list after a delayed visibility acknowledgement at ${width}px`, async ({ page, request }) => {
+  const id = `undo-${crypto.randomUUID()}`, title = `Synthetic Undo ${id}`;
+  expect((await request.post('/__test/conversation-message', { headers: { 'x-herts-request': '1' }, data: {
+    id, title, text: 'An isolated synthetic conversation for Undo recovery.',
+  } })).ok()).toBe(true);
+  await page.setViewportSize({ width, height: 844 });
+  await page.goto('/#/conversations');
+  await page.getByLabel('Search conversations').fill(title);
+  const item = page.locator(`[data-conversation-key="${id}"]`);
+  await expect(item).toBeVisible();
+  const hidden = page.waitForResponse(response => response.url().endsWith('/api/v1/conversations/visibility')
+    && response.request().postDataJSON().hidden === true);
+  await mouseSwipe(page, item, -150);
+  expect((await hidden).ok()).toBe(true);
+  await expect(item).toHaveCount(0);
+  await expect(page.locator('.loading')).toHaveCount(0);
+  let release!: () => void, held = false;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/v1/conversations/visibility', async route => {
+    if (route.request().postDataJSON().hidden === false) { held = true; await gate; }
+    await route.continue();
+  });
+  try {
+    const staleList = page.waitForResponse(response => {
+      const url = new URL(response.url());
+      return url.pathname === '/api/v1/conversations' && url.searchParams.get('q') === title;
+    });
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
+    await expect.poll(() => held).toBe(true);
+    expect((await (await staleList).json()).conversations.some((row: any) => row.key === id)).toBe(false);
+    await expect(page.locator('.loading')).toHaveCount(0);
+    release();
+    await expect(item).toBeVisible();
+    const link = item.getByRole('link');
+    await link.focus(); await expect(link).toBeFocused();
+    await page.screenshot({ path: `test-results/undo-acknowledgement-${width}.png`, fullPage: true });
+  } finally { release(); await page.unroute('**/api/v1/conversations/visibility'); }
+});
+
 test('hidden items survive offline reload, search saved results and sync between devices', async ({ page, context, browser }) => {
   await page.setViewportSize({ width: 1280, height: 844 });
   await page.goto('/#/conversations'); await page.getByLabel('Search conversations').fill('Offline triage');
@@ -115,45 +154,34 @@ test('hidden items survive offline reload, search saved results and sync between
 });
 
 test('recovering task creation after a lost response and reload reuses the saved intent and creates one task', async ({ page, request }) => {
-  await page.goto('/#/conversations'); await page.getByLabel('Search conversations').fill('Receipt triage');
-  const item = page.locator('[data-conversation-key="triage-receipt"]'); await expect(item).toBeVisible();
+  const id = `receipt-${crypto.randomUUID()}`, title = `Receipt recovery ${id}`, headers = { 'x-herts-request': '1' };
+  expect((await request.post('/__test/conversation-message', { headers, data: { id, title, text: 'Synthetic task creation recovery.' } })).ok()).toBe(true);
+  await page.goto('/#/conversations'); await page.getByLabel('Search conversations').fill(title);
+  const item = page.locator(`[data-conversation-key="${id}"]`); await expect(item).toBeVisible();
   const initial = await (await request.get('/api/v1/state')).json();
-  let holdState = true; const ids: string[] = [];
-  await page.route('**/api/v1/state', route => holdState ? route.fulfill({ json: initial }) : route.continue());
-  await page.route('**/api/v1/plugins/tasks/commands', async route => {
-    if (route.request().postDataJSON().command !== 'link') return route.continue();
-    ids.push(route.request().postDataJSON().id);
-    if (holdState) { await route.fetch(); await route.abort(); }
-    else await route.continue();
-  });
-  // Finish the list refresh after the lost-reply warning appears. A successful
-  // list read must not erase the outcome of a separate conversation action.
-  let releaseRefresh!: () => void, refreshStarted = false;
-  const refreshGate = new Promise<void>(resolve => { releaseRefresh = resolve; });
-  await page.route('**/api/v1/conversations?*', async route => {
-    if (holdState && ids.length) { refreshStarted = true; await refreshGate; }
-    await route.continue();
-  });
+  const configure = async (action: string) => expect((await request.post('/__test/task-link-recovery', { headers, data: { action, ...(action === 'hold' ? { initial } : {}) } })).ok()).toBe(true);
+  const status = async () => (await request.get('/__test/task-link-recovery')).json();
+  await configure('hold');
   try {
     await mouseSwipe(page, item, 150);
     await expect(page.getByRole('alert')).toContainText('The task request is saved');
-    await expect.poll(() => refreshStarted).toBe(true);
-  } finally { releaseRefresh(); }
-  await expect(page.locator('.loading')).toHaveCount(0);
-  await expect(page.getByRole('alert')).toContainText('The task request is saved');
-  await page.reload();
-  await expect.poll(() => ids.length).toBeGreaterThanOrEqual(2);
-  holdState = false;
-  await page.evaluate(() => window.dispatchEvent(new Event('online')));
-  await expect(page.locator('.save-state')).toContainText('Changes synced');
-  await expect(page.getByLabel('Show all')).not.toBeChecked();
-  await page.getByLabel('Show all').check();
-  // Reload clears the search; unrelated fixtures can fill the first page.
-  await page.getByLabel('Search conversations').fill('Receipt triage');
-  await expect(item).toContainText('Task created');
-  expect(new Set(ids).size).toBe(1);
-  const final = await (await request.get('/api/v1/state')).json();
-  expect(final.snapshot.tasks.filter((t: any) => t.link?.key === 'triage-receipt')).toHaveLength(1);
+    await expect.poll(async () => (await status()).refreshStarted).toBe(true);
+    await configure('release-list');
+    await expect(page.locator('.loading')).toHaveCount(0);
+    await expect(page.getByRole('alert')).toContainText('The task request is saved');
+    await page.reload();
+    await expect.poll(async () => (await status()).ids.length).toBeGreaterThanOrEqual(2);
+    await configure('resume');
+    await page.evaluate(() => window.dispatchEvent(new Event('online')));
+    await expect(page.locator('.save-state')).toContainText('Changes synced');
+    await expect(page.getByLabel('Show all')).not.toBeChecked();
+    await page.getByLabel('Show all').check();
+    await page.getByLabel('Search conversations').fill(title);
+    await expect(item).toContainText('Task created');
+    expect(new Set((await status()).ids).size).toBe(1);
+    const final = await (await request.get('/api/v1/state')).json();
+    expect(final.snapshot.tasks.filter((t: any) => t.link?.key === id)).toHaveLength(1);
+  } finally { await configure('reset'); }
 });
 
 test('hiding on a later page preserves loaded conversations and the reading position', async ({ page, request }) => {

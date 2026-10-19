@@ -19,6 +19,7 @@ export function useConversationHistory(conversationId: string, version: string |
   const following = useRef(restored.current?.following ?? true), readAnchor = useRef<Anchor | undefined>(restored.current?.anchor), pending = useRef<Anchor | 'latest' | undefined>(restored.current?.anchor);
   const buffered = useRef<History[] | undefined>(undefined), seenVersion = useRef(version), initialized = useRef(false), adjusting = useRef<number | undefined>(undefined);
   const held = useRef<{ element: Element; top: number } | undefined>(undefined);
+  const revealed = useRef<Element | null>(null);
   const viewport = () => conversationViewport(root.current);
   function anchor(): Anchor | undefined {
     const view = viewport(); if (!view) return;
@@ -35,6 +36,12 @@ export function useConversationHistory(conversationId: string, version: string |
     const message = [...(root.current?.querySelectorAll<HTMLElement>('[data-history-message]') || [])].find(el => el.dataset.historyMessage === target.key);
     if (message) move(view.scrollTop + message.getBoundingClientRect().top - view.getBoundingClientRect().top - target.top);
   }
+  function restoreRevealed() {
+    const view = viewport(), element = revealed.current;
+    if (!view || !element?.isConnected || !view.contains(element)) { revealed.current = null; return false; }
+    move(view.scrollTop + element.getBoundingClientRect().top - view.getBoundingClientRect().top - 12);
+    return true;
+  }
   function scrollLatest() { const view = viewport(); if (view && currentPages.current.length) move(view.scrollHeight - view.clientHeight); }
   function apply(next: History[], isCached: boolean) {
     pending.current = following.current ? 'latest' : anchor();
@@ -44,11 +51,15 @@ export function useConversationHistory(conversationId: string, version: string |
     const target = pending.current; pending.current = undefined;
     // A fetched page can queue a tail jump before the reader scrolls upward.
     // Honour their newer choice when React commits that page.
-    if (target && target !== 'latest') restore(target); else if (following.current) scrollLatest();
+    // A delayed history update must not hide controls that the user just revealed.
+    if (!restoreRevealed()) {
+      if (target && target !== 'latest') restore(target); else if (following.current) scrollLatest();
+    }
     if (viewport()?.getClientRects().length) readAnchor.current = anchor();
   }, [pages, liveText, feedback]);
   useLayoutEffect(() => {
     if (!sendVersion) return;
+    revealed.current = null;
     following.current = true;
     if (buffered.current) apply(buffered.current, cached); else scrollLatest();
   }, [sendVersion]);
@@ -66,20 +77,21 @@ export function useConversationHistory(conversationId: string, version: string |
       // frame and must update the reader's anchor before a resize restores it.
       const adjusted = adjusting.current; adjusting.current = undefined;
       if (adjusted !== undefined && Math.abs(view.scrollTop - adjusted) < 1) return;
+      revealed.current = null;
       following.current = view.scrollHeight - view.scrollTop - view.clientHeight < 64;
       readAnchor.current = anchor(); save();
       if (following.current && buffered.current) apply(buffered.current, cached);
     };
-    const wheel = (event: WheelEvent) => { if (event.deltaY < 0) following.current = false; };
+    const wheel = (event: WheelEvent) => { revealed.current = null; if (event.deltaY < 0) following.current = false; };
     const position = (event: Event) => {
       const { element, kind } = (event as CustomEvent).detail;
       following.current = false;
-      if (kind === 'hold') held.current = { element, top: element.getBoundingClientRect().top };
+      if (kind === 'hold') { revealed.current = null; held.current = { element, top: element.getBoundingClientRect().top }; }
       else if (kind === 'restore' && held.current) { move(view.scrollTop + held.current.element.getBoundingClientRect().top - held.current.top); held.current = undefined; readAnchor.current = anchor(); }
-      else if (kind === 'reveal') { move(view.scrollTop + element.getBoundingClientRect().top - view.getBoundingClientRect().top - 12); readAnchor.current = anchor(); }
+      else if (kind === 'reveal') { pending.current = undefined; revealed.current = element; restoreRevealed(); readAnchor.current = anchor(); }
     };
     const observer = new ResizeObserver(() => {
-      cancelAnimationFrame(frame); frame = requestAnimationFrame(() => { if (!view.getClientRects().length) return; if (following.current) scrollLatest(); else restore(readAnchor.current); save(); });
+      cancelAnimationFrame(frame); frame = requestAnimationFrame(() => { if (!view.getClientRects().length) return; if (!restoreRevealed()) { if (following.current) scrollLatest(); else restore(readAnchor.current); } save(); });
     });
     observer.observe(root.current); observer.observe(view);
     view.addEventListener('scroll', scroll, { passive: true }); view.addEventListener('wheel', wheel, { passive: true }); view.addEventListener('conversation-position', position);
@@ -125,6 +137,7 @@ export function useConversationHistory(conversationId: string, version: string |
     } finally { if (generation === request.current) { initialized.current = true; loading.current = false; setBusy(false); } }
   }
   async function latest() {
+    revealed.current = null;
     following.current = true;
     if (buffered.current) apply(buffered.current, cached); else scrollLatest();
     await refreshTail(true);
@@ -164,6 +177,6 @@ export function useConversationHistory(conversationId: string, version: string |
     } catch (e) { if (generation === request.current) setError((e as Error).message); }
     finally { if (generation === request.current) { loading.current = false; setBusy(false); } }
   }
-  function pauseFollowing() { following.current = false; readAnchor.current = anchor(); }
+  function pauseFollowing() { revealed.current = null; following.current = false; readAnchor.current = anchor(); }
   return { pages, cached, busy, error, setError, newMessages, latest, refresh: () => refreshTail(true), older, root, end, pauseFollowing };
 }
