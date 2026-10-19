@@ -91,3 +91,5 @@ body.keyboard-open .conversation-scroll { min-height:24px; padding-block:0; }
 body.keyboard-open .conversation-panel .composer-expanded { padding-block:0; }
 body.keyboard-open .conversation-panel .session-settings-controls { margin-bottom:4px; }
 body.keyboard-open .conversation-panel .composer-note { margin-block:4px; }
+
+.composer-loading-settings { display:flex; align-items:center; min-height:44px; color:var(--color-text-secondary); }

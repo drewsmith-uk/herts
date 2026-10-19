@@ -1,4 +1,4 @@
-import { readingTitle, MessageComposer, useEntryDraft, type Draft } from '@herts/plugin-api/client';
+import { readingTitle, ComposerPlaceholder, MessageComposer, useEntryDraft, type Draft } from '@herts/plugin-api/client';
 import { DragPreview, DragHandle, ActionRow, ActionRowLink, RenameAction, PageHeader, Button, ButtonLink, IconButton, SectionNav, SectionLink, ItemList, ItemRow, ItemMeta, EmptyState, StatusMessage, SettingsSection, SettingRow, FormField } from '@herts/plugin-api/client';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { BookOpen, Bookmark, BookmarkCheck, Plus, Check, Circle, ExternalLink, Download, Trash2, LoaderCircle } from 'lucide-react';
@@ -80,7 +80,7 @@ export function ReadingCapture({ sharedContent, id }: { sharedContent?: import('
         const urls = sharedUrls(draft.text);
         return <>{urls.length > 1 && <fieldset className="entry-links"><legend>Which link belongs in Reading?</legend>{urls.map(url => <label className="share-choice" key={url}><input type="radio" name="reading-link" checked={entry.fields.url === url} onChange={() => void entry.updateFields({ url })}/><span>{url}</span></label>)}</fieldset>}
           <div className="entry-details"><FormField label="Title (optional)"><input aria-label="Reading title" maxLength={2000} value={entry.fields.title || ''} placeholder="A name for this link" onChange={event => void entry.updateFields({ title: event.target.value })}/></FormField></div></>;
-      }}/> : <p role="status">Opening draft…</p>}{entry.error && <StatusMessage>{entry.error}</StatusMessage>}
+      }}/> : <ComposerPlaceholder/>}{entry.error && <StatusMessage>{entry.error}</StatusMessage>}
     </>;
 }
 type ReadingMode = 'discussion' | 'article';

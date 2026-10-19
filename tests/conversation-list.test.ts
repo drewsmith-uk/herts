@@ -3,7 +3,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { Conversation } from '../shared/core';
-import { useConversationList } from '../src/useConversationList';
+let useConversationList: typeof import('../src/useConversationList').useConversationList;
 
 const mocks = vi.hoisted(() => ({ api: vi.fn(), read: vi.fn(), put: vi.fn(), app: { online: true, connectionVersion: 0 } }));
 vi.mock('../src/data', () => ({ api: mocks.api, db: { kv: { where: () => ({ startsWith: (prefix: string) => ({ toArray: () => mocks.read(prefix) }) }), put: mocks.put } }, useApp: () => mocks.app }));
@@ -20,7 +20,9 @@ let input: Parameters<typeof useConversationList>[0], version: string;
 function Harness() { result = useConversationList(input, version); return null; }
 const render = () => act(async () => { root.render(createElement(Harness)); });
 const request = () => act(async () => { await vi.advanceTimersByTimeAsync(250); });
-beforeEach(() => {
+beforeEach(async () => {
+  vi.resetModules();
+  ({ useConversationList } = await import('../src/useConversationList'));
   vi.useFakeTimers(); vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.resetAllMocks();
   records = new Map(); input = { query: '', showAll: false, filterKey: '', offset: 0 }; version = '1';
   mocks.app.online = true; mocks.app.connectionVersion = 0;
@@ -163,4 +165,27 @@ it('keeps rows while plugin filters load and ignores the obsolete response', asy
   expect(result.rows.map(c => c.key)).toEqual(['saved']);
   await act(async () => response.resolve(page([conversation('fresh')])));
   expect(result.rows.map(c => c.key)).toEqual(['fresh']);
+});
+
+it('restores rows on remount before storage or network reads finish', async () => {
+  mocks.api.mockResolvedValueOnce(page([conversation('saved')]));
+  await render(); await request();
+  await act(async () => root.unmount());
+  mocks.read.mockImplementation(() => new Promise(() => {}));
+  mocks.api.mockImplementation(() => new Promise(() => {}));
+  root = createRoot(document.createElement('div'));
+  await render();
+  expect(result.rows.map(c => c.key)).toEqual(['saved']);
+  expect(result.busy).toBe(true);
+});
+
+it('requests immediately on entry and delays only changed searches', async () => {
+  await render();
+  await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+  expect(mocks.api).toHaveBeenCalledTimes(1);
+  input.query = 'changed'; await render();
+  await act(async () => { await vi.advanceTimersByTimeAsync(249); });
+  expect(mocks.api).toHaveBeenCalledTimes(1);
+  await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+  expect(mocks.api).toHaveBeenCalledTimes(2);
 });

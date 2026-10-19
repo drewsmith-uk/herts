@@ -83,7 +83,7 @@ export function TasksScreen({ path, parts, recordRequest, shared }: RouteProps) 
     if (screen === 'plugins' && id === 'tasks' && status === 'capture') return <TaskCapture spaceId={parts[3]} id={parts[4]}/>;
     if (screen === 'task')
         return task ? <TaskDetail key={task.id} task={task}/> : <div className="empty"><p>This task is not available on this device yet.</p><button onClick={() => void refresh()}>Refresh</button></div>;
-    return state.snapshot.spaces?.some(s => s.id === space) ? <TaskList key={`${space}:${current}`} spaceId={space} status={current} recordRequest={record || recordRequest}/> : <div className="empty"><p>This space was removed or is not available on this device yet.</p><a href={`#${spacePath(state.viewedSpaceId)}`}>Go to {spaceName(state.snapshot, state.viewedSpaceId)} Inbox</a><button onClick={() => void refresh()}>Refresh</button></div>;
+    return state.snapshot.spaces?.some(s => s.id === space) ? <TaskList key={space} spaceId={space} status={current} recordRequest={record || recordRequest}/> : <div className="empty"><p>This space was removed or is not available on this device yet.</p><a href={`#${spacePath(state.viewedSpaceId)}`}>Go to {spaceName(state.snapshot, state.viewedSpaceId)} Inbox</a><button onClick={() => void refresh()}>Refresh</button></div>;
 }
 export function TasksSidebar({ parts }: RouteProps) {
     const state = useApp();

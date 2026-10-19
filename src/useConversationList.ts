@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { messageText, type Conversation } from '../shared/core';
 import { api, db, useApp } from './data';
 
@@ -12,6 +12,7 @@ interface Result {
   more: boolean;
   error: string;
 }
+const memory = new Map<string, Result>();
 const cacheKey = ({ query, showAll, filterKey }: Selection, offset: number) => `conversations:plugins:${filterKey}:${showAll}:${query}:${offset}`;
 const offsets = (offset: number) => Array.from({ length: offset / 50 + 1 }, (_, i) => i * 50);
 const isConversation = (c: any): c is Conversation => !!c && ['key', 'id', 'title', 'preview', 'source'].every(key => typeof c[key] === 'string') && Number.isFinite(c.updatedAt) && Array.isArray(c.aliases) && c.aliases.every((id: unknown) => typeof id === 'string');
@@ -50,12 +51,21 @@ export function useConversationList({ query, showAll, filterKey, offset }: Selec
   // Plugin readiness must not clear the current search while its replacement loads.
   const selection = JSON.stringify([query, showAll]);
   const [retry, setRetry] = useState(0);
-  const [result, setResult] = useState<Result>({ selection, rows: [], busy: true, cached: false, more: false, error: '' });
+  const memoryKey = JSON.stringify([query, showAll, filterKey, offset]);
+  const previousQuery = useRef(query);
+  const [result, setResult] = useState<Result>(() => ({ ...(memory.get(memoryKey) || { selection, rows: [], more: false }), busy: true, cached: false, error: '' }));
+  useEffect(() => {
+    if (result.selection !== selection) return;
+    memory.set(memoryKey, result);
+    if (memory.size > 20) memory.delete(memory.keys().next().value!);
+  }, [memoryKey, selection, result]);
   useEffect(() => {
     let alive = true, settled = false;
     const controller = new AbortController();
     const current = { query, showAll, filterKey, offset };
-    setResult(old => ({ selection, rows: old.selection === selection ? old.rows : [], busy: true, cached: false, more: false, error: '' }));
+    setResult(old => ({ selection, rows: old.selection === selection ? old.rows : memory.get(memoryKey)?.rows || [], busy: true, cached: false, more: false, error: '' }));
+    const delay = previousQuery.current === query ? 0 : 250;
+    previousQuery.current = query;
     // Read cached rows before the request delay ends.
     // Keep existing rows during refresh and pagination. Never replace a server response with a late cache read.
     void savedConversations(current).then(rows => {
@@ -77,7 +87,7 @@ export function useConversationList({ query, showAll, filterKey, offset }: Selec
           return { selection, rows, busy: false, cached: true, more: false, error: error.message };
         });
       });
-    }, 250);
+    }, delay);
     return () => { alive = false; controller.abort(); clearTimeout(timer); };
   }, [selection, query, showAll, filterKey, offset, version, connectionVersion, retry]);
   const current = result.selection === selection;

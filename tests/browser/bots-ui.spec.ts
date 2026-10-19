@@ -321,6 +321,8 @@ test('an unconfirmed bot opening offers status checks instead of another open', 
   expect(attempts).toBe(1);
 });
 
+test.describe('bot editor read failures', () => {
+  test.use({ serviceWorkers: 'block' });
 test('bot editor loading failures have one alert with page actions open or closed', async ({ page }) => {
   await page.goto('/#/plugins/bots/research');
   await expect(page.getByLabel('Message Researcher')).toBeVisible();
@@ -334,6 +336,7 @@ test('bot editor loading failures have one alert with page actions open or close
   await expect(alerts).toBeVisible();
   await more.click();
   await expect(alerts).toHaveCount(1);
+});
 });
 
 for (const width of [390, 1280]) test(`bot activity clears after viewing and returns for a newer update at ${width}px`, async ({ page }) => {
