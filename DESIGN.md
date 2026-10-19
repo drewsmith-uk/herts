@@ -26,6 +26,9 @@ Remove theme selection controls.
 Resolve previous theme selections to Press before rendering.
 Retain semantic variables, shared components, and inactive theme definitions for possible future use.
 Do not expose inactive themes through normal settings.
+Support only the current theme API contract.
+Do not return legacy theme catalogues or alter theme values for older clients.
+Older cached clients must update to use the current appearance.
 
 Use short labels and current values.
 Add help only for decisions, errors, or recovery.

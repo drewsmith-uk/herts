@@ -17,7 +17,11 @@ System fonts remain available while Inter loads.
 
 Inactive theme definitions remain in this directory for possible future use.
 Shared semantic variables, theme application code, and the appearance storage key remain available.
-The theme API returns Press for current and older clients.
+The theme API returns the current Press catalogue for every request.
+It ignores old version headers and does not provide legacy compatibility variants.
+Older cached clients can reject this response and show a theme refresh error.
+Update those clients before using the current appearance.
+This policy does not change task, draft, or data recovery safeguards.
 Restoring theme selection requires an explicit design decision and UI verification.
 Custom theme files and custom font endpoints remain unsupported.
 

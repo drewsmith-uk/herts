@@ -44,7 +44,7 @@ describe('built-in themes', () => {
   });
 });
 
-it('serves only built-in themes to current and older clients under existing authentication', async () => {
+it('serves the current Press catalogue without legacy variants under existing authentication', async () => {
   const { app } = await createApp({ dataDir: await folder(), origin: 'https://herts.example.com', identity: 'owner', hermesBase: '', hermesToken: '' });
   cleanup.unshift(() => app.close());
   const headers = { host: 'herts.example.com', 'tailscale-user-login': 'owner', 'x-herts-theme-api': themeApiVersion };
@@ -53,12 +53,14 @@ it('serves only built-in themes to current and older clients under existing auth
   expect(current.statusCode).toBe(200);
   expect(current.json()).toEqual({ defaultThemeId: 'press', themes: builtinThemes, errors: [] });
   expect(current.headers['cache-control']).toBe('no-store');
-  const v2 = await app.inject({ url: '/api/v1/themes', headers: { ...headers, 'x-herts-theme-api': '2' } });
-  expect(v2.json().defaultThemeId).toBe('press');
-  expect(v2.json().themes).toHaveLength(1);
-  const old = await app.inject({ url: '/api/v1/themes', headers: { ...headers, 'x-herts-theme-api': '1' } });
-  expect(old.json().themes.map((theme: { id: string }) => theme.id)).toEqual(['press']);
-  for (const theme of old.json().themes) expect(theme.typography.headingWeight).toBeLessThanOrEqual(750);
+  for (const version of [undefined, '1', '2', 'unknown']) {
+    const requestHeaders = { host: 'herts.example.com', 'tailscale-user-login': 'owner',
+      ...(version ? { 'x-herts-theme-api': version } : {}) };
+    const response = await app.inject({ url: '/api/v1/themes', headers: requestHeaders });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(current.json());
+    expect(response.headers['cache-control']).toBe('no-store');
+  }
   expect((await app.inject({ url: '/_themes/' + 'a'.repeat(64) + '.woff2', headers })).statusCode).toBe(404);
 });
 
