@@ -103,12 +103,12 @@ test('draft search and show-all reach every saved draft without linked-item filt
   expect(await agentCalls(request)).toEqual(before);
 });
 
-for (const [theme, width] of [['press', 320], ['nocturne', 390]] as const) test(`drafts remain usable when Hermes fails and previews update in ${theme}`, async ({ page, context, request }) => {
+for (const [theme, width] of [['press', 320], ['press', 390]] as const) test(`drafts remain usable when Hermes fails and previews update in ${theme} at ${width}px`, async ({ page, context, request }) => {
   await page.setViewportSize({ width, height: 844 });
   const before = await agentCalls(request);
   const id = await createDraft(page, 'Local research notes', 'Start with the outline.');
   await page.goto('/#/settings');
-  await page.locator(`input[name="appearance-theme"][value="${theme}"]`).check();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'press');
   await page.route('**/api/v1/conversations?**', route => route.fulfill({ status: 503, json: { error: 'Hermes is unavailable for this test.' } }));
   await page.goto('/#/conversations');
   const draft = page.getByRole('region', { name: 'Drafts 1' }).getByRole('link');

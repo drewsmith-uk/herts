@@ -140,9 +140,10 @@ function SpaceName({ space, defaultForm, isDefault, defaultBusy, makeDefault }: 
       <input aria-label={`Name of ${space.name} space`} value={name} disabled={busy} onChange={e => setName(e.target.value)} maxLength={80}/>
       <div className="space-actions"><label className="space-default"><input type="radio" form={defaultForm} name="default-space" value={space.id} checked={isDefault} disabled={busy || defaultBusy} aria-label={`Default space: ${space.name}`} onChange={() => void makeDefault()}/>{isDefault ? 'Default space' : 'Set as default'}</label>
       <div className="button-row"><button disabled={busy || !name.trim() || name.trim() === space.name}>Rename</button><ButtonLink href={`#${spacePath(space.id)}`}>Open</ButtonLink>
-      {space.id !== originalSpaceId && <button type="button" className="quiet-button danger-button" disabled={busy || hasTasks || name !== space.name} onClick={() => setDeleting(true)} aria-label={`Delete ${space.name} space`}><Trash2 size={15}/></button>}</div></div>
+      {!isDefault && <button type="button" className="quiet-button danger-button" disabled={busy || hasTasks || name !== space.name} onClick={() => setDeleting(true)} aria-label={`Delete ${space.name} space`}><Trash2 size={15}/></button>}</div></div>
     </form>
-    {space.id !== originalSpaceId && hasTasks && <p className="subtle-note">Move all tasks out first, including Done and Snoozed items.</p>}
+    {isDefault && <p className="subtle-note">Choose another default space before deleting this space.</p>}
+    {!isDefault && hasTasks && <p className="subtle-note">Move all tasks out first, including Done and Snoozed items.</p>}
     {error && <p role="alert" className="inline-error">{error}</p>}{deleting && <DeleteSpaceDialog space={space} close={() => setDeleting(false)}/>}</div>;
 }
 function DeleteSpaceDialog({ space, close }: { space: Space; close: () => void }) {
@@ -155,7 +156,7 @@ function DeleteSpaceDialog({ space, close }: { space: Space; close: () => void }
     }
     return <DialogFrame className="space-dialog" aria-labelledby="delete-space-heading" close={close} busy={busy}><form onSubmit={remove}>
       <h2 id="delete-space-heading">Delete “{space.name}”?</h2><p>This removes the empty space and its list tabs. You can create a new space again later.</p>
-      {snapshot.defaultSpaceId === space.id && <p>Your default space will become {spaceName(snapshot, originalSpaceId)}.</p>}
+      {snapshot.defaultSpaceId === space.id && <p>Choose another default space before deleting this space.</p>}
       {!online && <p>The deletion will sync when you reconnect. If another device has added tasks, the space will be kept.</p>}
       {error && <p className="inline-error" role="alert">{error}</p>}
       <div className="button-row"><button type="button" disabled={busy} onClick={close}>Cancel</button><button className="danger-button" disabled={busy}>{busy ? 'Deleting…' : 'Delete space'}</button></div>

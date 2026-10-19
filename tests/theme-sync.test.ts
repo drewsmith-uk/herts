@@ -12,18 +12,18 @@ beforeEach(() => {
 });
 afterEach(() => { dom.window.close(); vi.unstubAllGlobals(); });
 
-it('applies cross-tab choices without requesting a server catalogue', async () => {
+it('keeps Press after old cross-tab choices without requesting a server catalogue', async () => {
   vi.resetModules();
   const fetch = vi.fn(); vi.stubGlobal('fetch', fetch);
   const { initialiseThemes, selectTheme } = await import('../src/themes');
   initialiseThemes(); selectTheme('press');
   localStorage.setItem(themeStorageKey, JSON.stringify({ id: 'nocturne', theme: theme('nocturne') }));
   window.dispatchEvent(new dom.window.StorageEvent('storage', { key: themeStorageKey }));
-  expect(document.documentElement.dataset.theme).toBe('nocturne');
+  expect(document.documentElement.dataset.theme).toBe('press');
   expect(JSON.parse(localStorage.getItem(themeStorageKey)!).id).toBe('nocturne');
   expect(fetch).not.toHaveBeenCalled();
   selectTheme('custom');
-  expect(document.documentElement.dataset.theme).toBe('nocturne');
+  expect(document.documentElement.dataset.theme).toBe('press');
 });
 
 it('keeps the current choice when storage rejects writes', async () => {
@@ -31,5 +31,5 @@ it('keeps the current choice when storage rejects writes', async () => {
   vi.resetModules();
   const { initialiseThemes, selectTheme } = await import('../src/themes');
   initialiseThemes(); selectTheme('nocturne');
-  expect(document.documentElement.dataset.theme).toBe('nocturne');
+  expect(document.documentElement.dataset.theme).toBe('press');
 });

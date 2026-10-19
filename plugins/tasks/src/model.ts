@@ -74,24 +74,23 @@ export function withSpaces(input: Snapshot) {
     const spaces = input.spaces || [{ id: originalSpaceId, name: 'Personal', createdAt: 0, updatedAt: 0 }];
     // Normalize cached snapshots without changing old pending operation payloads.
     const spaceLists = Object.fromEntries(Object.entries(input.spaceLists || { [originalSpaceId]: input.lists }).map(([id, lists]) => [id, { ...newTaskLists(), ...lists }]));
-    return { ...input, tasks: input.tasks.map(t => t.spaceId ? t : { ...t, spaceId: originalSpaceId }), spaces, spaceLists, defaultSpaceId: input.defaultSpaceId || originalSpaceId, lists: spaceLists[originalSpaceId] };
+    const defaultSpaceId = spaces.some(space => space.id === input.defaultSpaceId) ? input.defaultSpaceId! : spaces[0]?.id || originalSpaceId;
+    return { ...input, tasks: input.tasks.map(t => t.spaceId ? t : { ...t, spaceId: originalSpaceId }), spaces, spaceLists, defaultSpaceId, lists: spaceLists[originalSpaceId] || spaceLists[defaultSpaceId] || newTaskLists() };
 }
 export function taskSpaceId(task: Task) { return task.spaceId || originalSpaceId; }
-export function spaceName(snapshot: Snapshot, id?: string) { return withSpaces(snapshot).spaces.find(s => s.id === (id || originalSpaceId))?.name || 'Unavailable space'; }
+export function spaceName(snapshot: Snapshot, id?: string) { return withSpaces(snapshot).spaces.find(s => s.id === (id || withSpaces(snapshot).defaultSpaceId))?.name || 'Unavailable space'; }
 export function spaceLists(snapshot: Snapshot, id: string) { return withSpaces(snapshot).spaceLists[id]; }
 export function spacePath(id: string, status: Status = 'inbox') { return id === originalSpaceId ? `/tasks/${status}` : `/spaces/${id}/${status}`; }
 export function applySpaceOp(input: Snapshot, op: SpaceOp, check = true): Snapshot {
     const s = withSpaces(structuredClone(input));
     const space = s.spaces.find(v => v.id === op.spaceId);
     if (op.kind === 'delete') {
-        if (op.spaceId === originalSpaceId) throw new Conflict('The original space cannot be deleted. You can rename it.');
+        if (op.spaceId === s.defaultSpaceId) throw new Conflict('Choose another default space before deleting this space.');
         if (!space) return input;
         if (s.tasks.some(task => taskSpaceId(task) === space.id)) throw new Conflict('Move all tasks out of this space before deleting it, including Done and Snoozed items.');
         if (check && space.name !== op.baseName) throw new Conflict('This space was renamed on another device. Review it before deleting.');
-        if (check && s.defaultSpaceId === space.id && op.baseDefaultSpaceId !== space.id) throw new Conflict('This space became the default on another device. Review it before deleting.');
         s.spaces = s.spaces.filter(v => v.id !== space.id);
         delete s.spaceLists[space.id];
-        if (s.defaultSpaceId === space.id) s.defaultSpaceId = originalSpaceId;
     }
     else if (op.kind === 'default') {
         if (!space)
@@ -122,7 +121,7 @@ export function applySpaceOp(input: Snapshot, op: SpaceOp, check = true): Snapsh
         }
     }
     s.revision++;
-    return s;
+    return withSpaces(s);
 }
 export function applyTaskOp(input: Snapshot, op: TaskOp, check = true): Snapshot {
     const s = withSpaces(structuredClone(input));

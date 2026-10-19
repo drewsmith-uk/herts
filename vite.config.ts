@@ -2,6 +2,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { buildSync } from 'esbuild';
 import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { thirdPartyNotices } from './scripts/licenses.mjs';
 
 // A classic script can apply the saved theme before the first app paint, while
@@ -15,7 +16,7 @@ export default defineConfig({
     renderChunk(code) { return { code: `/*! Third-party notices: /THIRD_PARTY_NOTICES.txt */\n${code}`, map: null }; },
     async generateBundle(_options, bundle) {
       const inputs = Object.values(bundle).flatMap(item => item.type === 'chunk' ? Object.keys(item.modules) : []);
-      this.emitFile({ type: 'asset', fileName: 'THIRD_PARTY_NOTICES.txt', source: await thirdPartyNotices(inputs) });
+      this.emitFile({ type: 'asset', fileName: 'THIRD_PARTY_NOTICES.txt', source: await thirdPartyNotices(inputs) + '\n\nInter\n' + await readFile('src/assets/Inter-LICENSE.txt', 'utf8') });
     },
   }, {
     name: 'herts-theme-bootstrap',

@@ -10,6 +10,7 @@ const run = (command, args) => {
   if (result.error) throw result.error;
   if (result.status !== 0) process.exit(result.status || 1);
 };
+run(process.execPath, ['scripts/design.mjs']);
 run(process.execPath, ['scripts/check-docs.mjs']);
 run(process.execPath, ['--test', 'tests/docs-style.test.mjs']);
 run(process.execPath, ['node_modules/typescript/bin/tsc', '--noEmit']);

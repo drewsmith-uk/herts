@@ -1,0 +1,71 @@
+@font-face {
+  font-family: Inter;
+  src: url('./assets/Inter.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+:root[data-theme="press"] {
+  --color-input-recess: var(--design-input);
+  --color-subtle-border: var(--design-border-subtle);
+  --color-directory-rule: var(--design-divider);
+  --color-drag-grip: var(--design-grip);
+  --color-drag-surface: var(--design-lifted);
+  --color-drag-shadow: var(--design-ink);
+  --color-sheet: var(--design-sheet);
+  --color-menu-rule: var(--design-divider);
+  --control-size: var(--design-space-control-target);
+}
+:root[data-theme="press"] :is(.form-field,.dialog-frame,.settings-section) :is(input:not([type=checkbox]):not([type=radio]):not([type=search]),select),
+:root[data-theme="press"] .search-field,
+:root[data-theme="press"] .space-name-form > input,
+:root[data-theme="press"] .new-space-form input {
+  background: var(--design-input);
+  border: 1.5px solid var(--design-grip);
+  font-size: var(--text-body);
+  min-height: var(--control-size);
+}
+:root[data-theme="press"] .search-field input[type=search] { background:transparent; border:0; box-shadow:none; }
+:root[data-theme="press"] :is(.form-field,.dialog-frame,.settings-section) :is(input:not([type=checkbox]):not([type=radio]):not([type=search]),select):focus,
+:root[data-theme="press"] .search-field:focus-within,
+:root[data-theme="press"] .space-name-form > input:focus,
+:root[data-theme="press"] .new-space-form input:focus {
+  background:var(--design-surface)!important;
+  border-color:var(--design-primary);
+  outline:2px solid var(--design-primary);
+  outline-offset:-2px;
+  box-shadow:2px 2px 0 var(--design-ink);
+}
+:root[data-theme="press"] .search-field input[type=search]:focus { outline:none; box-shadow:none; }
+:root[data-theme="press"] :is(.composer,.composer-capture .composer,.conversation-panel .composer),
+:root[data-theme="press"] textarea { background:var(--design-surface); font-size:var(--text-body); }
+:root[data-theme="press"] .composer:focus-within { outline:2px solid var(--design-primary); outline-offset:2px; }
+:root[data-theme="press"] :is(.task-title,.item-title) { font-size:var(--text-body); }
+:root[data-theme="press"] .task-title { font-weight:var(--design-card-weight); white-space:normal; overflow-wrap:anywhere; }
+:root[data-theme="press"] .task-row { border-width:1.5px; }
+:root[data-theme="press"] .task-drag-overlay { outline:2px solid var(--design-ink); outline-offset:-2px; }
+:root[data-theme="press"] .space-actions :is(button,.ui-button) { border-color:var(--design-ink); color:var(--design-ink); }
+:root[data-theme="press"] .space-actions .danger-button { color:var(--design-danger); }
+:root[data-theme="press"] button:disabled { color:var(--design-grip); border-color:var(--design-border-muted); }
+:root[data-theme="press"] .space-default input:focus-visible { outline:2px solid var(--design-primary); outline-offset:3px; }
+:root[data-theme="press"] .connection-badge { background:var(--design-sheet); color:var(--design-ink); border-color:var(--design-ink); }
+:root[data-theme="press"] .connection-badge:is(.status-checking,.status-syncing,.status-waiting) { background:var(--design-selected); }
+:root[data-theme="press"] .active .connection-badge:is(.status-checking,.status-syncing,.status-waiting) { background:var(--design-ink); color:var(--design-selected); }
+:root[data-theme="press"] .connection-badge:is(.status-offline,.status-warning) { background:var(--design-ink); color:var(--design-sheet); }
+
+:root[data-theme="press"] .page-header h1 { font-size:var(--design-heading-size); }
+:root[data-theme="press"] :is(.form-field,.dialog-frame,.settings-section) :is(input:not([type=checkbox]):not([type=radio]):not([type=search]),select) { padding:var(--design-input-padding); }
+:root[data-theme="press"] .search-field input[type=search] { padding:0; }
+:root[data-theme="press"] .composer-capture.is-collapsed .composer { background:var(--design-input); }
+:root[data-theme="press"] .composer-capture.is-collapsed .composer:focus-within { background:var(--design-surface); }
+@media(max-height:600px) {
+  .conversation-scroll { min-height:32px; }
+}
+
+:root[data-theme="press"] .primary-button { border:var(--border-width) solid var(--design-ink); }
+
+:root[data-theme="press"] .composer textarea { background:transparent; }
+
+:root[data-theme="press"] :is(.section-nav > a,.space-tab,.adaptive-nav > a,.adaptive-nav > button,.form-field) { font-weight:var(--design-control-weight); }
+:root[data-theme="press"] .item-title { font-weight:var(--design-card-weight); }
+:root[data-theme="press"] .primary-button { font-weight:var(--design-primary-control-weight); }

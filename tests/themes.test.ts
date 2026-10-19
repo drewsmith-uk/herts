@@ -23,11 +23,10 @@ function contrast(a: string, b: string) {
 }
 
 describe('built-in themes', () => {
-  it('ships six complete themes with Press as the default', () => {
-    expect(builtinThemes.map(t => t.id)).toEqual(['fieldwork', 'edition', 'signal', 'nocturne', 'studio', 'press']);
+  it('ships only Press while retaining the theme API', () => {
+    expect(builtinThemes.map(t => t.id)).toEqual(['press']);
     expect(defaultTheme.id).toBe('press');
     expect(defaultTheme.colors.background).toBe('#F4F2EC');
-    expect(builtinThemes.find(t => t.id === 'nocturne')?.mode).toBe('dark');
     expect(themeProperties(defaultTheme)['--radius-panel']).toBe('0px');
   });
   it('keeps text and meaningful controls readable across the built-in palettes', () => {
@@ -55,10 +54,10 @@ it('serves only built-in themes to current and older clients under existing auth
   expect(current.json()).toEqual({ defaultThemeId: 'press', themes: builtinThemes, errors: [] });
   expect(current.headers['cache-control']).toBe('no-store');
   const v2 = await app.inject({ url: '/api/v1/themes', headers: { ...headers, 'x-herts-theme-api': '2' } });
-  expect(v2.json().defaultThemeId).toBe('fieldwork');
-  expect(v2.json().themes).toHaveLength(6);
+  expect(v2.json().defaultThemeId).toBe('press');
+  expect(v2.json().themes).toHaveLength(1);
   const old = await app.inject({ url: '/api/v1/themes', headers: { ...headers, 'x-herts-theme-api': '1' } });
-  expect(old.json().themes.map((theme: { id: string }) => theme.id)).toEqual(['fieldwork', 'edition', 'signal', 'nocturne', 'studio']);
+  expect(old.json().themes.map((theme: { id: string }) => theme.id)).toEqual(['press']);
   for (const theme of old.json().themes) expect(theme.typography.headingWeight).toBeLessThanOrEqual(750);
   expect((await app.inject({ url: '/_themes/' + 'a'.repeat(64) + '.woff2', headers })).statusCode).toBe(404);
 });

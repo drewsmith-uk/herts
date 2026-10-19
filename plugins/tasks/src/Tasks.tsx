@@ -71,7 +71,7 @@ export function TasksScreen({ path, parts, recordRequest, shared }: RouteProps) 
         dispatchEvent(new PopStateEvent('popstate'));
     } }, [path]);
     const task = screen === 'task' ? state.snapshot.tasks.find(t => t.id === id) : undefined;
-    const space = task ? taskSpaceId(task) : screen === 'spaces' ? id : screen === 'tasks' && id ? originalSpaceId : state.viewedSpaceId;
+    const space = task ? taskSpaceId(task) : screen === 'spaces' ? id : screen === 'tasks' && id ? (state.snapshot.spaces?.some(s => s.id === originalSpaceId) ? originalSpaceId : state.snapshot.defaultSpaceId || state.viewedSpaceId) : state.viewedSpaceId;
     const selected = screen === 'spaces' ? status : id;
     const current = statuses.includes(selected as Status) ? selected as Status : 'inbox';
     useEffect(() => { if (state.snapshot.spaces?.some(s => s.id === space))

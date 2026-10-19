@@ -18,6 +18,15 @@ Correct failures before you finish the task.
 Review meaning and approved vocabulary separately; the automatic check does not verify full STE compliance.
 Do not disable checks or add exceptions only to make a check pass.
 
+## Design authority
+
+Read [DESIGN.md](DESIGN.md) before changing the interface.
+It defines the intended design and generates application tokens.
+Design rule changes require explicit user approval.
+Do not change the specification merely to accept an implementation difference.
+Run `npm run design:generate` after approved token changes.
+Run `npm run check:design` before completing interface changes.
+
 ## UI text
 
 Keep UI text short.
@@ -37,7 +46,7 @@ Add missing components to the shared layer instead of copying similar components
 A successful normal workflow is insufficient to complete a UI change.
 For each new or substantially changed screen, complete these checks:
 
-- Add the screen to `tests/browser/ui-consistency.spec.ts`. Check layouts at 320, 390, 768, and 1280 pixels. Check every built-in theme. Include a short viewport for conversation layouts with fixed heights.
+- Add the screen to `tests/browser/ui-consistency.spec.ts`. Check layouts at 320, 390, 768, and 1280 pixels. Check Press, the only available theme. Include a short viewport for conversation layouts with fixed heights.
 - Use realistic long titles, URLs, descriptions, and output. Check field and page bounds, full navigation targets, keyboard focus, and dialog dismissal. Compare actual screenshots with the closest existing screen. Bounds checks alone are insufficient.
 - Check loading, empty, filtered-empty, offline, cached, failure, and retry states. Keep existing drafts available offline. Distinguish a server connection failure from a missing record.
 - Delay reads and mutations. Protect edits through submission and draft acknowledgement. Ignore obsolete responses. Never automatically repeat remote actions with unknown effects.

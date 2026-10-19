@@ -12,6 +12,8 @@ import './ui.css';
 import './conversationControls.css';
 import './conversationLayout.css';
 import './refinements.css';
+import './design.generated.css';
+import './press.css';
 installNotificationNavigation();
 startDeviceNotifications();
 initialiseThemes();

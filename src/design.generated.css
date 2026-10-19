@@ -1,0 +1,34 @@
+/* Generated from DESIGN.md. Run npm run design:generate. */
+:root {
+  --design-canvas: #F4F2EC;
+  --design-sheet: #FAF9F5;
+  --design-surface: #FFFFFF;
+  --design-lifted: #FFFDF0;
+  --design-input: #EFECE4;
+  --design-subtle: #E6E3DA;
+  --design-ink: #161511;
+  --design-secondary: #4C4B46;
+  --design-muted: #5A5852;
+  --design-grip: #8A867C;
+  --design-border-muted: #B8B4A8;
+  --design-border-subtle: #C8C4B8;
+  --design-divider: #DCD9CE;
+  --design-selected: #FEE600;
+  --design-primary: #1E3CFF;
+  --design-danger: #992B2B;
+  --design-space-tight: 4px;
+  --design-space-item: 8px;
+  --design-space-control-padding: 12px;
+  --design-space-gutter: 16px;
+  --design-space-section: 24px;
+  --design-space-control-target: 44px;
+  --text-body: 16px;
+  --text-secondary: 14px;
+  --text-meta: 12px;
+  --design-card-weight: 500;
+  --design-heading-size: 24px;
+  --design-control-weight: 500;
+  --design-primary-control-weight: 600;
+  --design-button-padding: 8px 12px;
+  --design-input-padding: 8px 12px;
+}

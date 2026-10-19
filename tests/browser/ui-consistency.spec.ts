@@ -602,7 +602,7 @@ test('normal task capture keeps visible destinations and the first task reachabl
   expect(task.y).toBeLessThan((await page.locator('.mobile-nav').boundingBox())!.y);
 });
 
-for (const theme of builtinThemes) test(`${theme.name}: reviewed actions and one theme picker fit every viewport`, async ({ page, request }) => {
+for (const theme of builtinThemes) test(`${theme.name}: reviewed actions and Press-only settings fit every viewport`, async ({ page, request }) => {
   test.setTimeout(180_000);
   await bots(request, 'enable');
   await page.addInitScript(({key,theme}) => localStorage.setItem(key, JSON.stringify({id:theme.id,theme})), {key:themeStorageKey,theme});
@@ -665,12 +665,9 @@ for (const theme of builtinThemes) test(`${theme.name}: reviewed actions and one
     }
     await page.goto('/#/settings');
     await expect(page.locator('.appearance-settings select')).toHaveCount(0);
-    await expect(page.getByRole('radio')).toHaveCount(builtinThemes.length);
-    await expect(page.getByRole('radio',{checked:true})).toHaveCount(1);
     await page.screenshot({path:`test-results/review-${theme.id}-appearance-${width}.png`,fullPage:true});
-    await page.locator('.theme-preview').first().click();await expect(page.getByRole('radio').first()).toBeChecked();
-    await page.getByRole('radio').first().focus();await page.keyboard.press('ArrowRight');await expect(page.getByRole('radio').nth(1)).toBeChecked();
-    await page.locator(`input[name="appearance-theme"][value="${theme.id}"]`).check();
+    await expect(page.locator('.appearance-settings,.theme-preview')).toHaveCount(0);
+
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   }
 });
@@ -877,6 +874,7 @@ for (const width of [320, 390, 768, 1280]) test(`Press task capture becomes whit
   const composer = page.locator('.composer-capture .composer');
   const editor = page.getByRole('textbox', { name: 'Add a task', exact: true });
   await expect(composer).toHaveCSS('background-color', 'rgb(239, 236, 228)');
+  await expect(editor).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
   await page.screenshot({ path: `test-results/task-capture-closed-${width}.png` });
   await editor.fill('Preserve the task draft while changing its presentation');
   await expect(composer).toHaveCSS('background-color', 'rgb(255, 255, 255)');

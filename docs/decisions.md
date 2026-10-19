@@ -10,11 +10,11 @@ Conversations is always available. Tasks and Reading are optional plugins, enabl
 
 Each task space has Inbox, Next, Waiting, Parked, Snoozed and Done. Create and rename spaces from Settings or the **+** at the end of the space tabs. Tabs share available width on phones and scroll when they no longer fit. Conversations and Reading are global.
 
-Delete empty added spaces from **Settings → Plugins → Tasks**, after confirmation. Done and Snoozed tasks also count as content; move them elsewhere first. Local capture drafts and saved dictation must be saved or cleared first. The original space remains as a renameable fallback, and becomes the default if the deleted space was the default. The server rechecks emptiness so concurrent task creation cannot be erased by a stale deletion.
+Delete empty non-default spaces from **Settings → Plugins → Tasks**, after confirmation. Done and Snoozed tasks also count as content; move them elsewhere first. Local capture drafts and saved dictation must be saved or cleared first. The current default space cannot be deleted. Choose another default first. The original space has no permanent deletion protection. The server rechecks emptiness so concurrent task creation cannot be erased by a stale deletion.
 
 Capture accepts a message, attachments or an optional title. Save to Inbox creates an unsent task in the selected space's Inbox, including when viewing another list. A task has no Hermes conversation until its first deliberate send. List order expresses priority. Moves normally put tasks at the top of the destination. Done uses completion order. Snoozed uses reminder order. Moving between spaces puts the same task in the destination Inbox, retaining its conversation and ongoing work. Settings selects the default space for conversation conversion and the voice shortcut.
 
-Hold an item still to begin dragging. Drop it between items, onto another list, or onto a space tab (that space's Inbox). Edit list provides accessible reorder buttons and inline title editing. Otherwise edit titles on the detail page. Completing/reopening a task never stops Hermes or deletes history.
+Hold an item still to begin dragging. Drop it between items, onto another list, or onto a space tab (that space's Inbox). Drag handles support keyboard reordering. Edit titles on the detail page. Completing/reopening a task never stops Hermes or deletes history.
 
 Snooze an Inbox task from its page or by swiping its row. At the chosen time the server returns it to Inbox and creates a reminder. The server saves the schedule and processes missed reminders after downtime. Moving/completing the task cancels its snooze. Notifications require browser permission and a working push subscription; delivery is not guaranteed at an exact instant.
 
@@ -96,8 +96,8 @@ At 1280 pixels or wider, **Show alongside** opens Article and Discussion togethe
 The browser session remembers this choice for each item.
 Narrower layouts show the mode that you used last. Mode changes preserve drafts and reading positions.
 
-Behavior changes apply across themes. Each theme retains its palette, font families, borders, and shadows.
-Press font comparisons require a separate approval before production typography changes.
+Press is the only available theme. Shared components retain semantic styling for possible future themes.
+Inter was explicitly approved during the design review. Future typography changes require explicit approval.
 
 Page actions use shared labelled rows. Visibility actions have one divider and the same row spacing.
 Rename opens an editor with explicit **Save** and **Cancel** actions.
@@ -106,7 +106,7 @@ The editor keeps failed changes for retry and prevents dismissal during saving.
 Task destinations show current values and open labelled move forms.
 The fixed header shows a compact title. Scrolling content contains the full title.
 
-Appearance uses one radio group with theme previews.
+Press is the only available theme. Theme settings are removed.
+Older selections use Press after an update.
 Selection and keyboard focus have separate indicators.
-Appearance includes only the six built-in themes. Older custom selections use Press after an update.
 Settings uses expandable groups for voice, notifications, connection, and updates.
