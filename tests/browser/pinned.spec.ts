@@ -1,6 +1,6 @@
 import { openSettingsGroups } from './composer-helpers';
 import { pageAction, closePageActions } from './composer-helpers';
-import { test, expect } from '@playwright/test';
+import { test, expect, type Response } from '@playwright/test';
 import { saveTitle, detailsField } from './composer-helpers';
 import { pinnedPlugin, pinnedReady, seedPin, savedPins, notices, dismissPins } from './pinned-helpers';
 
@@ -198,10 +198,21 @@ test('an obsolete local read cannot replace a newer saved pin', async ({ page })
 });
 
 test('restores saved notifications after the worker restarts', async ({ page, context }) => {
+  const workerResponses: Response[] = [];
+  context.on('response', response => { if (response.request().serviceWorker()) workerResponses.push(response); });
   await pinnedReady(page); await seedPin(page, 'Survives a worker restart');
   await page.evaluate(async () => { for (const notification of await (await navigator.serviceWorker.ready).getNotifications()) notification.close(); });
+  // Chromium can crash when tracing reads a response body after its worker stops.
+  // Finish these reads first: https://github.com/microsoft/playwright/issues/43374.
+  expect(workerResponses.length).toBeGreaterThan(0);
+  for (const response of workerResponses) await response.body();
   const cdp = await context.newCDPSession(page);
+  let workerStopped = false;
+  cdp.on('ServiceWorker.workerVersionUpdated', ({ versions }) => {
+    if (versions.some(version => version.scriptURL === new URL('/sw.js', page.url()).href && version.runningStatus === 'stopped')) workerStopped = true;
+  });
   await cdp.send('ServiceWorker.enable'); await cdp.send('ServiceWorker.stopAllWorkers');
+  await expect.poll(() => workerStopped).toBe(true);
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await expect.poll(async () => (await notices(page)).map(n => n.title)).toEqual(['Survives a worker restart']);
   expect(await savedPins(page)).toHaveLength(1);
