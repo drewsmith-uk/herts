@@ -309,6 +309,37 @@ app.post('/__test/notification-reply', async req => {
   return { ok: true };
 });
 app.get('/__test/notification-reply/:id', async req => ({ started: notificationReplies.get((req.params as { id: string }).id)?.started || 0 }));
+// Keep lost task replies on the server so service workers cannot bypass the fault.
+let taskLinkRecovery: { initial: string; hold: boolean; ids: string[]; refreshStarted: boolean; gate: Promise<void>; release: () => void } | undefined;
+app.post('/__test/task-link-recovery', async req => {
+  const { action, initial } = req.body as { action: 'hold' | 'release-list' | 'resume' | 'reset'; initial?: unknown };
+  if (action === 'hold') {
+    taskLinkRecovery?.release();
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    taskLinkRecovery = { initial: JSON.stringify(initial), hold: true, ids: [], refreshStarted: false, gate, release };
+  } else if (action === 'reset') { taskLinkRecovery?.release(); taskLinkRecovery = undefined; }
+  else if (taskLinkRecovery) {
+    if (action === 'resume') taskLinkRecovery.hold = false;
+    taskLinkRecovery.release();
+  }
+  return { ok: true };
+});
+app.get('/__test/task-link-recovery', async () => ({ ids: taskLinkRecovery?.ids || [], refreshStarted: taskLinkRecovery?.refreshStarted || false }));
+app.addHook('onSend', async (req, reply, payload) => {
+  const recovery = taskLinkRecovery;
+  if (!recovery) return payload;
+  const path = req.url.split('?')[0];
+  if (req.method === 'GET' && path === '/api/v1/state' && recovery.hold) return recovery.initial;
+  if (req.method === 'POST' && path === '/api/v1/plugins/tasks/commands' && (req.body as any).command === 'link') {
+    recovery.ids.push((req.body as any).id);
+    if (recovery.hold) { reply.hijack(); reply.raw.destroy(); return payload; }
+  }
+  if (req.method === 'GET' && path === '/api/v1/conversations' && recovery.hold && recovery.ids.length) {
+    recovery.refreshStarted = true; await recovery.gate;
+  }
+  return payload;
+});
 articles.fetchHtml = async url => ({ url, html: `<html><head><title>Fixture article</title></head><body><article><h1>Fixture article</h1>${Array.from({length:8},(_,i)=>`<p>Article paragraph ${i}. ${'A detailed and useful piece of writing for offline reading. '.repeat(12)}</p>`).join('')}</article></body></html>` });
 await app.listen({ host: '127.0.0.1', port: 8790 });
-process.on('SIGTERM', () => { for (const reply of notificationReplies.values()) reply.release(); void app.close().then(() => { wss.close(); server.close(); process.exit(0); }); });
+process.on('SIGTERM', () => { taskLinkRecovery?.release(); for (const reply of notificationReplies.values()) reply.release(); void app.close().then(() => { wss.close(); server.close(); process.exit(0); }); });
