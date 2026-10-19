@@ -9,7 +9,7 @@ concurrency:
 permissions:
   contents: read
 jobs:
-  verify:
+  prepare:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -21,16 +21,20 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
-      - run: npm run check:release
+      - run: npm run check:release -- --phase=prepare
+      - name: Package tested build
+        run: |
+          tar -cf release-build.tar .runtime/release-dist \
+            plugins/{tasks,reading,bots}/{client.js,server.mjs,THIRD_PARTY_NOTICES.txt} \
+            plugins/pinned/{client.js,THIRD_PARTY_NOTICES.txt} \
+            examples/notes/{client.js,server.mjs,THIRD_PARTY_NOTICES.txt}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: failure()
         with:
-          name: browser-failures
-          path: |
-            test-results/
-            playwright-report/
-          retention-days: 7
+          name: release-build
+          path: release-build.tar
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 1
       - name: Scan repository history and built assets (redacted)
         if: ${{ !cancelled() }}
         shell: bash
@@ -44,6 +48,52 @@ jobs:
           "$RUNNER_TEMP/gitleaks" dir .runtime/release-dist --redact=100 --no-banner
           "$RUNNER_TEMP/gitleaks" dir plugins --redact=100 --no-banner
           "$RUNNER_TEMP/gitleaks" dir examples --redact=100 --no-banner
+  browser:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-build
+      - run: tar -xf release-build.tar
+      - run: npx playwright install --with-deps chromium
+      - run: npm run check:release -- --phase=browser --shard=${{ matrix.shard }}/2
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: failure()
+        with:
+          name: browser-failures-${{ matrix.shard }}-attempt-${{ github.run_attempt }}
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 7
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: ${{ always() }}
+        with:
+          name: browser-timings-${{ matrix.shard }}-attempt-${{ github.run_attempt }}
+          path: test-results/release-timings-*
+          retention-days: 7
+  verify:
+    needs: [prepare, browser]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require all release checks
+        env:
+          PREPARE_RESULT: ${{ needs.prepare.result }}
+          BROWSER_RESULT: ${{ needs.browser.result }}
+        run: test "$PREPARE_RESULT" = success && test "$BROWSER_RESULT" = success
   check:
     needs: verify
     if: ${{ always() }}

@@ -73,6 +73,7 @@ for (const width of [390, 1280]) for (const saved of [false, true]) test(`a dela
     await page.evaluate(() => { location.hash = '/conversations'; });
     const draft = page.locator('.conversation-drafts a').filter({ hasText: text });
     await expect(draft).toBeVisible();
+    await expect(draft).toHaveAttribute('href', /^#\/plugins\/tasks\/capture\//);
     target = '/' + await draft.getAttribute('href');
     expect(target).toContain('#/plugins/tasks/capture/');
     await page.goto('about:blank');

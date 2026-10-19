@@ -89,7 +89,11 @@ Release checks build browser files in `.runtime/release-dist` and keep the serve
 The Quality workflow uses pinned Actions revisions.
 It runs release checks once on each pull request update and each push to `main` or `master`.
 A newer update cancels the previous run for that pull request or branch.
-The `verify` job runs release checks and scans repository history and built files for secrets.
+The `prepare` job builds the app and runs documentation, design, type, unit, API, and installer checks.
+It also scans repository history and built files for secrets.
+Two browser jobs download the same build and run separate groups of complete spec files.
+Each spec starts a fresh synthetic server.
+The `verify` job requires preparation and both browser groups to succeed.
 The `check` job reports the `verify` result without repeating tests.
 Both job names remain available for existing branch protection rules.
 CI uses a scanner with a verified checksum and requires no live credentials.
@@ -199,6 +203,49 @@ Apply any plugin package update separately.
 Test traces and screenshots stay in ignored local directories.
 CI retains failed browser diagnostics with synthetic data for seven days.
 
+
+### Parallel CI browser checks
+
+Local `npm run check:release` runs all checks in sequence.
+CI builds once and transfers the staged browser files, generated plugin files, and licence notices to two isolated runners.
+The transferred files include the Notes example.
+Each runner has its own ports, data, and output directories.
+Each spec uses one worker and a fresh server.
+The workflow does not cancel the other group when one group fails.
+
+Use these commands to select a release phase:
+
+```sh
+npm run check:release -- --phase=prepare
+npm run check:release -- --phase=browser --shard=1/2
+npm run check:release -- --phase=browser --shard=2/2
+node scripts/check-release.mjs --phase=browser --shard=1/2 --list
+```
+
+Browser phases require the prepared build and generated plugin files.
+The list command does not require a build.
+Run groups on separate machines because browser fixtures use fixed ports.
+
+`scripts/browser-timings.json` records durations from [Quality #94](https://github.com/drewsmith-uk/herts/actions/runs/39238144162).
+The runner first assigns specs with longer durations to the group with the lowest estimated duration.
+Alphabetical order resolves equal spec durations.
+New specs use the median recorded duration and enter a group automatically.
+The runner preserves the release spec order within each group.
+Timing estimates control assignment only.
+They do not control test selection, timeouts, or assertions.
+
+Each group writes elapsed times and results to `test-results/release-timings-<group>/timings.json`.
+Separate Playwright JSON reports record test identities and results for each spec.
+Reports include completed specs and the failing spec when execution stops.
+CI retains timing reports and failed browser diagnostics for seven days.
+Timing and failure artifacts have separate names for each group and run attempt.
+The build artifact expires after one day.
+Use `npm run test:release-runner` to check grouping, missing outputs, failure reports, and required workflow dependencies.
+
+Compare the serial test inventory with both group inventories before accepting a timing improvement.
+Run both groups twice on the same commit to check repeatability.
+Compare elapsed time and total runner usage, including build transfers and browser installation.
+Separate runners can increase CI usage even when elapsed time decreases.
 
 ## Interface refinement checks
 
