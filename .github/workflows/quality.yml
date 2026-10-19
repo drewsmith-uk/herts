@@ -69,6 +69,8 @@ jobs:
       - run: tar -xf release-build.tar
       - run: npx playwright install --with-deps chromium
       - run: npm run check:release -- --phase=browser --shard=${{ matrix.shard }}/2
+        env:
+          DEBUG: pw:browser
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: failure()
         with:
