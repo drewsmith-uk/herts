@@ -108,11 +108,11 @@ test('pending choices follow the same conversation through Reading and Tasks', a
   await page.getByLabel('Reasoning effort', { exact: true }).selectOption('low'); await page.getByRole('button', { name: 'Apply', exact: true }).click(); await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.getByRole('button', { name: 'Save to reading list: https://example.com/settings-shared', exact: true }).click();
   await page.getByRole('button', { name: 'Open reading item: https://example.com/settings-shared', exact: true }).click();
-  await expect(settingsButton(page)).toContainText('Low');
+  await expect(page.locator('.session-settings-effort')).toHaveText('low');
   await page.goto('/#/conversation/settings-shared'); await (await pageAction(page, 'button', 'Make a task')).click();
   await page.getByRole('button', { name: 'Create task', exact: true }).click();
   await expect(page).toHaveURL(/#\/task\//);
-  await expect(settingsButton(page)).toContainText('Low');
+  await expect(page.locator('.session-settings-effort')).toHaveText('low');
   await expect(page.locator('.session-settings-note').first()).toContainText('Applies on next Send');
   expect(await writes(request)).toEqual(before);
 });
@@ -124,7 +124,7 @@ test('offline choices survive reload and sync before the deliberate Send', async
   await expect(settingsButton(page)).toContainText('existing-model');
   await context.setOffline(true); await open(page); await page.getByLabel('Reasoning effort', { exact: true }).selectOption('low');
   await page.getByRole('button', { name: 'Apply', exact: true }).click(); await expect(page.getByRole('dialog')).toHaveCount(0); await expect(page.getByRole('dialog')).toHaveCount(0);
-  await page.reload(); await expect(settingsButton(page)).toContainText('Low');
+  await page.reload(); await expect(page.locator('.session-settings-effort')).toHaveText('low');
   await context.setOffline(false); await page.getByLabel(/^(Message Hermes|Add a task)$/).fill('Use settings saved offline'); await expect(page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true })).toBeEnabled();
   expect(await writes(request)).toEqual(before); await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
   await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
