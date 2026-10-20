@@ -41,6 +41,17 @@ The session settings contract was checked against Hermes Agent 0.21.3 source at 
 
 The optional controls require `model.options` with configured provider/model capabilities and `config.get` (reasoning, fast, project). They also require profile-stamped `GET /api/sessions/:id` metadata and directory browsing through `GET /api/files`. Herts returns only model/provider, effort, speed, and folder fields to the browser. It never forwards raw model configuration or provider credentials.
 
+Settings refresh also requires the Desktop `session.settings.read` RPC.
+Its response identifies the stored session, profile, settings source, model, provider, effort, speed, and folder.
+It reads active settings or stored settings and explicit overrides without attaching a viewer or starting an agent.
+The native `session.info` request belongs to a separate gateway interface.
+
+Hermes commit `e01e0803ef` adds this method to source `602d76a72d`.
+This is a local compatibility change, not a published Hermes release.
+Backends without this method retain saved values and show a refresh error.
+Successful reads clear **Last saved** when all settings are current.
+Cached or incomplete values retain their source labels.
+
 At the next Send, Herts uses `session.create` overrides for a new conversation or confirmed idle-session controls: `config.set model` with explicit provider and `--session`, `config.set reasoning` with session scope, `config.set fast`, and `session.cwd.set`. It never uses the profile-wide cwd setter. Every write targets the verified runtime; unknown/deferred outcomes stop before prompt submission. The backend must preserve these session overrides on subsequent turns and resume, as Desktop expects. Missing catalogue/capability information is reported; existing messaging without pending changes remains available. An unavailable selected model or folder blocks the message and retains it for review.
 
 ## Validate your installation
@@ -51,7 +62,7 @@ Run the read-only check with the same environment file as the app:
 node --env-file=data/app.env --import tsx scripts/check-connection.ts
 ```
 
-This checks authenticated app access, profile-scoped session metadata and gateway readiness/ping without printing conversation data. It does not exercise every execution/audio capability, and an empty session list cannot prove a backend's profile isolation. Before you use an unfamiliar backend version, send a harmless message in a new test conversation. Verify its profile and settings in Hermes. Such a send is a user action, never part of installation, CI or the automatic connection check.
+This checks authenticated app access, session metadata, settings refresh, and gateway readiness without printing conversation data. It does not exercise every execution/audio capability, and an empty session list cannot prove a backend's profile isolation. Before you use an unfamiliar backend version, send a harmless message in a new test conversation. Verify its profile and settings in Hermes. Such a send is a user action, never part of installation, CI or the automatic connection check.
 
 If the backend is unavailable, task/space/snooze/reading metadata remain usable. Conversation history and agent/audio features require reconnection; messages with uncertain outcomes must be reviewed, not automatically resent.
 

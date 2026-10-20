@@ -17,6 +17,14 @@ try {
     await gateway.rpc('gateway.ping', {}, 15_000);
     console.log(`Hermes interactive prompts: ${gateway.promptProtocol === 'requests' ? 'current request protocol' : 'legacy event protocol'} verified.`);
     if (gateway.promptWarning) console.log(gateway.promptWarning);
+    const session = result.sessions[0];
+    if (session) {
+      const settings = await gateway.rpc('session.settings.read', { session_id: session.id, profile: config.hermesProfile }, 15_000);
+      if (settings.session_id !== session.id || settings.profile_name !== config.hermesProfile || !['current', 'live'].includes(settings.settings_source)) {
+        throw new Error('Hermes session settings identity could not be verified. Check backend compatibility.');
+      }
+      console.log('Hermes session settings refresh: OK.');
+    } else console.log('Hermes session settings refresh: not verified because no stored sessions exist.');
     console.log('Hermes session listing and gateway connection: OK. No agent work was started.');
   } else console.log('Hermes is not configured; gateway checks skipped.');
 } catch (error) {
