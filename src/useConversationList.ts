@@ -93,9 +93,21 @@ export function useConversationList({ query, showAll, filterKey, offset }: Selec
   const current = result.selection === selection;
   const busy = !current || result.busy, cached = current && result.cached, error = current ? result.error : '';
   useEffect(() => {
-    if (busy || (!cached && !error) || !online) return;
-    const timer = setInterval(() => { if (!document.hidden && navigator.onLine) setRetry(n => n + 1); }, 8000);
-    return () => clearInterval(timer);
+    if (busy || !online) return;
+    let requested = false;
+    const refreshVisible = () => {
+      if (requested || document.hidden || !navigator.onLine) return;
+      requested = true;
+      setRetry(n => n + 1);
+    };
+    const timer = setInterval(refreshVisible, cached || error ? 8000 : 15000);
+    window.addEventListener('focus', refreshVisible);
+    document.addEventListener('visibilitychange', refreshVisible);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', refreshVisible);
+      document.removeEventListener('visibilitychange', refreshVisible);
+    };
   }, [busy, cached, error, online]);
   return { rows: current ? result.rows : [], busy, cached, error, more: current && result.more, refresh: () => setRetry(value => value + 1) };
 }

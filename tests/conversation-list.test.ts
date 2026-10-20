@@ -31,7 +31,57 @@ beforeEach(async () => {
   mocks.api.mockImplementation(() => new Promise(() => {}));
   root = createRoot(document.createElement('div'));
 });
-afterEach(async () => { await act(async () => root.unmount()); vi.useRealTimers(); vi.unstubAllGlobals(); });
+afterEach(async () => { await act(async () => root.unmount()); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+it('refreshes visible results without interrupting slow requests or clearing rows', async () => {
+  mocks.api.mockResolvedValueOnce(page([conversation('saved')]));
+  await render(); await request();
+  const response = deferred<ReturnType<typeof page>>();
+  mocks.api.mockReturnValueOnce(response.promise);
+  await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
+  await request();
+  expect(mocks.api).toHaveBeenCalledTimes(2);
+  expect(result.rows.map(c => c.key)).toEqual(['saved']);
+  expect(result.busy).toBe(true);
+  await act(async () => {
+    window.dispatchEvent(new Event('focus'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    await vi.advanceTimersByTimeAsync(30000);
+  });
+  expect(mocks.api).toHaveBeenCalledTimes(2);
+  expect(mocks.api.mock.calls[1][4].aborted).toBe(false);
+  await act(async () => response.resolve(page([conversation('changed')])));
+  expect(result.rows.map(c => c.key)).toEqual(['changed']);
+  expect(result.busy).toBe(false);
+});
+
+it('pauses polling while hidden or offline and refreshes once on visibility or focus', async () => {
+  const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
+  const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
+  mocks.api.mockResolvedValue(page([conversation('saved')]));
+  await render(); await request();
+  hidden.mockReturnValue(true);
+  await act(async () => { await vi.advanceTimersByTimeAsync(30000); });
+  expect(mocks.api).toHaveBeenCalledTimes(1);
+  hidden.mockReturnValue(false);
+  await act(async () => {
+    document.dispatchEvent(new Event('visibilitychange'));
+    window.dispatchEvent(new Event('focus'));
+  });
+  await request();
+  expect(mocks.api).toHaveBeenCalledTimes(2);
+  online.mockReturnValue(false);
+  await act(async () => { await vi.advanceTimersByTimeAsync(30000); window.dispatchEvent(new Event('focus')); });
+  await request();
+  expect(mocks.api).toHaveBeenCalledTimes(2);
+  online.mockReturnValue(true);
+  await act(async () => window.dispatchEvent(new Event('focus')));
+  await request();
+  expect(mocks.api).toHaveBeenCalledTimes(3);
+  await act(async () => root.unmount());
+  await act(async () => { await vi.advanceTimersByTimeAsync(30000); window.dispatchEvent(new Event('focus')); });
+  expect(mocks.api).toHaveBeenCalledTimes(3);
+});
 
 it('shows saved pages before requesting, then replaces them with the authoritative result including an empty list', async () => {
   records.set(key(), page([conversation('saved')], true));

@@ -11,6 +11,42 @@ function gate() {
   return { promise, release };
 }
 
+for (const width of [390, 1280]) test(`visible conversations refresh without losing cached rows or focus at ${width}px`, async ({ page }, testInfo) => {
+  await page.setViewportSize({ width, height: 844 });
+  const delayed = gate();
+  let refreshing = false, reads = 0;
+  await page.route(endpoint, async route => {
+    if (refreshing) { reads++; await delayed.promise; }
+    await route.fulfill({ json: listing([conversation('existing', refreshing ? 'Updated elsewhere' : 'Previously saved conversation')]) }).catch(() => {});
+  });
+  try {
+    await page.goto('/#/conversations');
+    await expect(page.getByRole('link', { name: 'Tasks', exact: true })).toBeVisible();
+    await expect(page.locator('.conversation-list .item-title')).toHaveText(['Previously saved conversation']);
+    await expect(page.locator('.loading')).toHaveCount(0);
+    await page.getByLabel('Search conversations').focus();
+    await page.screenshot({ path: testInfo.outputPath(`list-${width}.png`), fullPage: true });
+    refreshing = true;
+    await expect.poll(() => reads, { timeout: 20000 }).toBe(1);
+    await expect(page.getByText('Refreshing conversations…', { exact: true })).toBeVisible();
+    await expect(page.getByRole('link', { name: /Previously saved conversation/ })).toBeVisible();
+    await expect(page.getByLabel('Search conversations')).toBeFocused();
+    await page.screenshot({ path: testInfo.outputPath(`refresh-${width}.png`), fullPage: true });
+    await page.evaluate(() => { window.dispatchEvent(new Event('focus')); document.dispatchEvent(new Event('visibilitychange')); });
+    expect(reads).toBe(1);
+    delayed.release();
+    await expect(page.locator('.conversation-list .item-title')).toHaveText(['Updated elsewhere']);
+    await expect(page.getByLabel('Search conversations')).toBeFocused();
+    await page.getByRole('link', { name: 'New conversation', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'New conversation', exact: true })).toBeVisible();
+    const readsAfterNavigation = reads;
+    await page.clock.install();
+    await page.clock.fastForward(30000);
+    expect(reads).toBe(readsAfterNavigation);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  } finally { delayed.release(); }
+});
+
 for (const width of [390, 1280]) test(`cached conversations can be opened before a refresh completes at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 844 });
   const delayed = gate(), plugin = gate(); let refreshing = false;
