@@ -2,7 +2,8 @@ import { pageAction, closePageActions } from './composer-helpers';
 import { saveTitle, detailsField, detailsControl } from './composer-helpers';
 import { test, expect, type Page } from '@playwright/test';
 const calls = async (request: any) => (await (await request.get('http://127.0.0.1:8791/calls')).json() as string[]).filter(m => ['session.create','session.resume','prompt.submit'].includes(m));
-async function add(page: Page, title: string) { await page.goto('/#/reading/add'); await expect(page.locator('.save-state')).toContainText('Changes synced'); await closePageActions(page); await page.getByLabel(/^(Message Hermes|Add a task)$/, {exact:true}).fill(`https://example.com/${encodeURIComponent(title)}`); await page.getByRole('button',{name:/^(Send|Send to Hermes)$/,exact:true}).click(); await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete'); await (await detailsField(page, 'Reading title')).fill(title); await saveTitle(page); }
+// Wait for the downloaded title before editing it to avoid a rename conflict.
+async function add(page: Page, title: string) { await page.goto('/#/reading/add'); await expect(page.locator('.save-state')).toContainText('Changes synced'); await closePageActions(page); await page.getByLabel(/^(Message Hermes|Add a task)$/, {exact:true}).fill(`https://example.com/${encodeURIComponent(title)}`); await page.getByRole('button',{name:/^(Send|Send to Hermes)$/,exact:true}).click(); await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete'); const titleField = await detailsField(page, 'Reading title'); await expect(titleField).toHaveValue('Fixture article'); await titleField.fill(title); await saveTitle(page); }
 
 test('phone reading capture sends only its raw URL, keeps conversation visible, and makes an independent task', async ({page,request}) => {
   await page.setViewportSize({width:390,height:844}); const before = await calls(request);
