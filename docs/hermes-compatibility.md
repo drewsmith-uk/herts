@@ -46,7 +46,8 @@ Its response identifies the stored session, profile, settings source, model, pro
 It reads active settings or stored settings and explicit overrides without attaching a viewer or starting an agent.
 The native `session.info` request belongs to a separate gateway interface.
 
-Hermes commit `e01e0803ef` adds this method to source `602d76a72d`.
+Hermes commit `826e9d2de8` includes this method and inherited effort resolution on source `602d76a72d`.
+Effort resolution uses saved overrides, then model-specific and profile defaults.
 This is a local compatibility change, not a published Hermes release.
 Backends without this method retain saved values and show a refresh error.
 Successful reads clear **Last saved** when all settings are current.
