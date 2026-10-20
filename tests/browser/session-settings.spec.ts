@@ -34,11 +34,13 @@ for (const width of [390, 1280]) test(`stages actual conversation settings witho
   await expect(page.getByText('private.txt', { exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'work', exact: true }).click();
   await page.getByRole('button', { name: 'Use this folder', exact: true }).click();
+  await expect(page.getByRole('dialog')).not.toContainText(/Applies on next Send|Changes apply on your next Send|Applying settings/);
   await page.screenshot({ path: `test-results/session-settings-${width}.png`, fullPage: true });
   await page.getByRole('button', { name: 'Apply', exact: true }).click(); await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await expect(page.locator('.session-settings-note').first()).toContainText('Applies on next Send');
-  await expect(page.locator('.session-settings-note').first()).toBeVisible();
+  await expect(page.locator('.session-settings-status')).toHaveText('');
+  await expect(page.locator('.session-settings-controls')).not.toContainText(/Applies on next Send|Applying settings/);
+  await page.screenshot({ path: `test-results/session-settings-staged-${width}.png`, fullPage: true });
   expect(await writes(request)).toEqual(before);
   await page.reload();
   await expect(settingsButton(page)).toContainText('chosen-model');
@@ -113,7 +115,8 @@ test('pending choices follow the same conversation through Reading and Tasks', a
   await page.getByRole('button', { name: 'Create task', exact: true }).click();
   await expect(page).toHaveURL(/#\/task\//);
   await expect(page.locator('.session-settings-effort')).toHaveText('low');
-  await expect(page.locator('.session-settings-note').first()).toContainText('Applies on next Send');
+  await expect(page.locator('.session-settings-status')).toHaveText('');
+  await expect(page.locator('.session-settings-controls')).not.toContainText(/Applies on next Send|Applying settings/);
   expect(await writes(request)).toEqual(before);
 });
 
