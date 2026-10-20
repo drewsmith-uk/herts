@@ -7,7 +7,6 @@
 .composer-capture.is-collapsed .composer-tools { flex:0 0 auto; padding:2px 6px; }
 .composer-capture.is-collapsed .composer-tools > .button-row { flex:0; flex-wrap:nowrap; }
 .composer-capture { margin-top:12px; }
-.composer-capture .send-button.primary-button { min-height:var(--control-size); }
 .capture-destination { margin:8px 0; font-size:var(--text-secondary); overflow-wrap:anywhere; }
 .agent-options { min-width:0; flex:1; }
 .agent-options > summary { cursor:pointer; min-height:44px; align-content:center; font-size:var(--text-secondary); }

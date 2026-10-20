@@ -14,6 +14,11 @@ async function checkPrimaryPosition(page: Page, name: string, width: number) {
   await expect(actions.locator('button').last()).toHaveClass(/primary-button/);
   const secondary = actions.locator('button').first();
   expect((await primary.boundingBox())!.x).toBeGreaterThan((await secondary.boundingBox())!.x);
+  const primaryHeight = (await primary.boundingBox())!.height;
+  const secondaryHeight = (await secondary.boundingBox())!.height;
+  expect(primaryHeight).toBeGreaterThanOrEqual(44);
+  expect(secondaryHeight).toBeGreaterThanOrEqual(44);
+  expect(primaryHeight).toBe(secondaryHeight);
   await secondary.focus();
   await page.keyboard.press('Tab');
   await expect(primary).toBeFocused();
