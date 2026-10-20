@@ -148,20 +148,20 @@ export class SessionSettings {
           let values = saved.values, name = saved.modelName;
           if (saved.followsProfile || values.effort === undefined) {
             const config = await this.gateway.http(`/api/config?profile=${encodeURIComponent(this.gateway.profile)}&include_defaults=false`);
-            const followsProfile = saved.followsProfile && !(saved.composerProfile?.model === catalogue?.profile.model?.id
+            const followsProfile = saved.followsProfile && !(saved.composerProfile && catalogue?.profile.model && saved.composerProfile.model === catalogue.profile.model.id
               && saved.composerProfile?.provider === catalogue?.profile.model?.provider);
             if (followsProfile) { values = { ...catalogue?.profile, cwd: values.cwd }; name = values.model?.id; }
             const effort = followsProfile || values.effort === undefined ? inheritedEffort(config, name) : values.effort;
             values = { ...values, ...(effort ? { effort } : {}) };
           }
-          current = {}; modelName = undefined;
+          current = {}; modelName = undefined; wireEffort = undefined;
           for (const key of settingKeys) delete sources[key];
           apply(values, name, 'current');
           if (this.readVersions.get(context.id) === version) {
             this.readings.set(context.id, { storedId: saved.storedId, linkId: context.link.storedId, profile: this.gateway.profile, values, modelName: name });
           }
           const newer = this.observed.get(context.id);
-          if (newer && binding && newer.epoch === binding.epoch && newer.runtime === binding.runtimeId
+          if (newer && binding && binding.epoch === this.gateway.epoch && newer.epoch === binding.epoch && newer.runtime === binding.runtimeId
               && Date.now() - newer.at < 15_000) {
             apply(newer.values, newer.values.model?.id, 'live'); wireEffort = newer.wire;
           }

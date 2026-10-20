@@ -155,6 +155,14 @@ describe('settings staged until Send', () => {
     expect(await actions.settings.view(id)).toMatchObject({ modelName: 'chosen-model', current: { effort: 'low' }, sources: { effort: 'live' } });
     expect(writes(gateway)).toEqual([]);
   });
+  it('ignores live observations from a previous backend epoch', async () => {
+    const { store, gateway, actions, id } = fixture();
+    const binding = { runtimeId: 'runtime', storedId: 'stored', epoch: gateway.epoch, generation: randomUUID(), seq: 0, ready: true, monitored: true, known: true };
+    store.saveBinding(id, binding);
+    actions.settings.observe(id, { ...gateway.info(), reasoning_effort: 'ultra' }, binding);
+    gateway.epoch = 'new-backend';
+    expect(await actions.settings.view(id)).toMatchObject({ current: { effort: 'high' }, sources: { effort: 'current' } });
+  });
   it('retains confirmed values through an outage without creating a session', async () => {
     const { gateway, actions, id } = fixture();
     await actions.settings.view(id);
