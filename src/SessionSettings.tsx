@@ -8,7 +8,7 @@ import { api, db, saveSessionChoices, useApp, useSyncedSessionChoices } from './
 import { useUpdatePreparation, useUpdateWork } from './updateSafety';
 
 const labels: Record<Effort, string> = { none: 'Off', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max', ultra: 'Ultra' };
-const cachedView = (view: SettingsView): SettingsView => ({ ...view, source: view.source === 'live' ? 'saved' : view.source, sources: Object.fromEntries(Object.entries(view.sources || Object.fromEntries(Object.keys(view.current).map(key => [key, view.source === 'live' ? 'live' : 'saved']))).map(([key, source]) => [key, source === 'live' ? 'last-known' : source])) });
+const cachedView = (view: SettingsView): SettingsView => ({ ...view, source: (view.source === 'live' || view.source === 'current') ? 'saved' : view.source, sources: Object.fromEntries(Object.entries(view.sources || Object.fromEntries(Object.keys(view.current).map(key => [key, (view.source === 'live' || view.source === 'current') ? 'live' : 'saved']))).map(([key, source]) => [key, (source === 'live' || source === 'current') ? 'last-known' : source])) });
 function useSettingsView(contextId?: string) {
   const state = useApp(), [view, setView] = useState<SettingsView>(), [error, setError] = useState(''), [loading, setLoading] = useState(false);
   const alive = useRef(true), sequence = useRef(0);

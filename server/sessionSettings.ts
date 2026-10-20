@@ -144,14 +144,14 @@ export class SessionSettings {
       }
       if (storedId && this.gateway.online) {
         try {
-          const info = await this.gateway.rpc('session.info', { session_id: storedId, profile: this.gateway.profile }, 5000);
-          if (info.profile_name !== this.gateway.profile) throw new GatewayError('Conversation settings identity could not be verified.');
+          const info = await this.gateway.rpc('session.settings.read', { session_id: storedId, profile: this.gateway.profile }, 5000);
+          if (info.profile_name !== this.gateway.profile || info.session_id !== parseConversationRef(storedId).id) throw new GatewayError('Conversation settings identity could not be verified.');
           const values = sessionValues(info), name = typeof info.model === 'string' && info.model ? info.model : undefined;
           // Replace earlier observations with the new response.
           current = {}; modelName = undefined;
           for (const key of settingKeys) delete sources[key];
           if (saved) apply(saved.values, saved.modelName, 'saved');
-          apply(values, name, 'live');
+          apply(values, name, info.settings_source === 'current' ? 'current' : 'live');
           wireEffort = typeof info.reasoning_effort_wire === 'string' ? info.reasoning_effort_wire : undefined;
           if (this.readVersions.get(context.id) === version && this.observed.get(context.id) === observed) {
             this.readings.set(context.id, { storedId, linkId: context.link.storedId, profile: this.gateway.profile, values, modelName: name, wire: wireEffort });
@@ -161,11 +161,13 @@ export class SessionSettings {
             if (newer) { apply(newer.values, newer.values.model?.id, 'live'); wireEffort = newer.wire; }
           }
         } catch (e) {
-          const unavailable = e instanceof GatewayError && (e.code === -32601 || (e.code === 4001 && e.message === 'not_found'));
-          if (!unavailable) error ||= (e as Error).message;
+          error ||= e instanceof GatewayError && e.code === -32601
+            ? 'Hermes cannot refresh session settings. Update the Desktop backend, then retry.'
+            : (e as Error).message;
         }
       }
       source = sources.model === 'live' && sources.effort === 'live' ? 'live'
+        : sources.model === 'current' && sources.effort === 'current' ? 'current'
         : sources.model && sources.effort ? 'saved' : 'unknown';
     }
     return { defaults: state.defaults, pending: id ? this.record(id) : blank(), current, modelName, sources, profile: catalogue?.profile || {}, source, wireEffort,
