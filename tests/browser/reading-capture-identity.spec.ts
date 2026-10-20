@@ -5,6 +5,11 @@ const agentCalls = async (request: APIRequestContext) => ((await (await request.
 const snapshot = async (request: APIRequestContext) => (await request.get('/api/v1/state')).json();
 
 async function restoreTitle(page: Page, text: string, title: string) {
+  // Close the composer before restoring legacy metadata so pending autosave cannot overwrite the fixture.
+  await expect(page.locator('.composer-note')).toHaveText('Draft saved on this device · Not sent');
+  const captureUrl = page.url();
+  await page.getByRole('link', { name: 'Reading list', exact: true }).click();
+  await expect(page.getByRole('heading', { name: /^Reading list/ })).toBeVisible();
   await expect.poll(() => page.evaluate(async text => {
     const drafts = (window as any).__HERTS_PLUGIN_RUNTIME__.sdk.conversationDrafts;
     return (await drafts.toArray()).some((draft: any) => draft.text === text);
@@ -14,7 +19,7 @@ async function restoreTitle(page: Page, text: string, title: string) {
     const draft = (await drafts.toArray()).find((draft: any) => draft.text === text);
     await drafts.db.kv.put({ key: `entry-fields:${draft.id}`, value: { title } });
   }, { text, title });
-  await page.reload();
+  await page.goto(captureUrl);
   await expect(page.getByLabel('Message Hermes', { exact: true })).toHaveValue(text);
   await expect(page.getByLabel('Reading title', { exact: true })).toHaveCount(0);
 }
