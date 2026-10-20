@@ -146,7 +146,10 @@ code, pre { font-family: var(--font-mono); }
 .session-settings-summary > .session-settings-status { flex: 0 0 5rem; margin: 0; overflow-wrap: anywhere }
 .session-settings-button > svg { flex-shrink: 0 }
 .session-settings-button { max-width: 100%; min-width: 0; min-height: 44px; gap: .5rem; padding: .55rem .75rem; font-size: .8rem }
-.session-settings-model { min-width: 0; max-width: 24rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.session-settings-label { display: flex; flex-wrap: wrap; column-gap: 1rem; min-width: 0; overflow: hidden; text-align: left }
+.session-settings-model { min-width: 0; max-width: min(100%, 24rem); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.session-settings-details { position: relative; display: flex; min-width: 0; max-width: 100% }
+.session-settings-separator { position: absolute; right: calc(100% + .35rem) }
 .session-settings-effort { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .session-settings-note { font-size: .75rem; line-height: 1.5; color: var(--color-text-secondary); margin: .35rem 0 0 }
 .session-settings-note .text-button { font-size: inherit }
@@ -164,7 +167,4 @@ code, pre { font-family: var(--font-mono); }
 .session-folder-browser .button-row { margin-top: .5rem; flex-wrap: wrap }
 @media(max-width:560px){
 .session-settings-grid { grid-template-columns: 1fr }
-.session-settings-button { display: grid; grid-template-columns: 18px minmax(0, 1fr); column-gap: .5rem; row-gap: 0; padding: .25rem .5rem; font-size: .75rem; text-align: left }
-.session-settings-button > svg { grid-row: 1 / 3 }
-.session-settings-button > span[aria-hidden] { display: none }
-.session-settings-effort { grid-column: 2 }}
+.session-settings-button { padding: .25rem .5rem; font-size: .75rem }}

@@ -4,23 +4,31 @@ import { test, expect, type APIRequestContext, type Page } from '@playwright/tes
 const agentCalls = async (request: APIRequestContext) => ((await (await request.get('http://127.0.0.1:8791/calls')).json()) as string[]).filter(method => ['session.create', 'session.resume', 'prompt.submit'].includes(method));
 const snapshot = async (request: APIRequestContext) => (await request.get('/api/v1/state')).json();
 
-test('a different URL in the title cannot save or send the wrong reading item', async ({ page, request }) => {
-  const link = 'https://example.com/actual-post', wrongTitle = 'https://example.com/different-post';
+async function restoreTitle(page: Page, text: string, title: string) {
+  await expect.poll(() => page.evaluate(async text => {
+    const drafts = (window as any).__HERTS_PLUGIN_RUNTIME__.sdk.conversationDrafts;
+    return (await drafts.toArray()).some((draft: any) => draft.text === text);
+  }, text)).toBe(true);
+  await page.evaluate(async ({ text, title }) => {
+    const drafts = (window as any).__HERTS_PLUGIN_RUNTIME__.sdk.conversationDrafts;
+    const draft = (await drafts.toArray()).find((draft: any) => draft.text === text);
+    await drafts.db.kv.put({ key: `entry-fields:${draft.id}`, value: { title } });
+  }, { text, title });
+  await page.reload();
+  await expect(page.getByLabel('Message Hermes', { exact: true })).toHaveValue(text);
+  await expect(page.getByLabel('Reading title', { exact: true })).toHaveCount(0);
+}
+
+for (const wrongTitle of ['https://example.com/different-post', 'https://']) test(`legacy title ${wrongTitle} cannot replace the reading link or block capture`, async ({ page, request }) => {
+  const link = `https://example.com/actual-post-${wrongTitle.length}`;
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/#/reading/add');
   await expect(page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true })).toBeEditable();
   const before = await snapshot(request), calls = await agentCalls(request);
   await closePageActions(page); await page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true }).fill(link);
-  await (await detailsField(page, 'Reading title')).fill(wrongTitle);
-  await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('The title is a different link.');
-  await expect(page).toHaveURL(/#\/reading\/add$/);
-  await expect(page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true })).toHaveValue(link);
-  await expect((await detailsField(page, 'Reading title'))).toHaveValue(wrongTitle);
+  await restoreTitle(page, link, wrongTitle);
   expect((await snapshot(request)).snapshot.reading.items).toEqual(before.snapshot.reading.items);
   expect(await agentCalls(request)).toEqual(calls);
-  await page.screenshot({ path: 'output/reading-identity/mismatched-title-390.png' });
-  await (await detailsField(page, 'Reading title')).fill('');
   await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
   await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase', 'complete');
   await expect((await detailsField(page, 'Reading title'))).toHaveValue('Fixture article');
@@ -31,14 +39,14 @@ test('a different URL in the title cannot save or send the wrong reading item', 
   expect((await agentCalls(request)).slice(calls.length)).toEqual(['session.create', 'prompt.submit']);
 });
 
-test('matching URL titles and descriptive titles remain valid', async ({ page, request }) => {
+test('saved draft titles remain available after removing the capture field', async ({ page, request }) => {
   for (const [link, title] of [
     ['https://example.com/same-post?q=1#part', 'https://EXAMPLE.com:443/same-post?q=1#part'],
     ['https://example.com/named-post', 'Notes about the new research'],
   ]) {
     await page.goto('/#/reading/add');
     await closePageActions(page); await page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true }).fill(link);
-    await (await detailsField(page, 'Reading title')).fill(title);
+    await restoreTitle(page, link, title);
     await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
     await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase', 'complete');
     await expect((await detailsField(page, 'Reading title'))).toHaveValue(title);
@@ -70,7 +78,7 @@ test('successive shared links keep separate titles, messages and notification de
     await page.goto(`/share?title=${encodeURIComponent(sharedTitle)}&text=${encodeURIComponent(link)}`);
     await page.getByRole('button', { name: 'Reading', exact: true }).click();
     await expect(page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true })).toHaveValue(link);
-    await expect((await detailsField(page, 'Reading title'))).toHaveValue(index === 0 ? '' : sharedTitle);
+    await expect(page.getByLabel('Reading title', { exact: true })).toHaveCount(0);
     await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
     await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase', 'complete');
     await expect(page.locator('.offline-controls')).toContainText('Available offline');

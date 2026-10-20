@@ -8,6 +8,17 @@ async function openEditor(page: Page) {
   if (await open.isVisible()) await open.click();
   await expect(page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true })).toBeEditable();
 }
+async function checkPrimaryPosition(page: Page, name: string, width: number) {
+  const actions = page.locator('.composer-submit');
+  const primary = actions.locator('.primary-button');
+  await expect(actions.locator('button').last()).toHaveClass(/primary-button/);
+  const secondary = actions.locator('button').first();
+  expect((await primary.boundingBox())!.x).toBeGreaterThan((await secondary.boundingBox())!.x);
+  await secondary.focus();
+  await page.keyboard.press('Tab');
+  await expect(primary).toBeFocused();
+  await page.screenshot({ path: `test-results/primary-right-${name}-${width}.png` });
+}
 for (const width of [390, 1280]) {
   test(`one reviewed composer saves task, link and conversation without sending at ${width}px`, async ({ page, request, context }) => {
     await page.setViewportSize({ width, height: 844 });
@@ -15,19 +26,22 @@ for (const width of [390, 1280]) {
     await page.goto('/'); await openEditor(page);
     const message = `Review task ${width}`;
     await page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true }).fill(message);
-    await page.getByRole('button', { name: 'Save to Inbox', exact: true }).click();
+    await checkPrimaryPosition(page, 'task', width);
+    await page.getByRole('button', { name: 'Save only', exact: true }).click();
     await expect(page.getByRole('link', { name: message, exact: true })).toBeVisible();
     await page.getByRole('link', { name: message, exact: true }).click();
     await expect(page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true })).toHaveValue(message);
     await expect(page.getByRole('button', { name: 'Dictate', exact: true })).toBeVisible();
     await page.goto('/#/reading/add'); await openEditor(page);
     await page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true }).fill(`Review this before sending https://example.com/review-${width}`);
-    await page.getByRole('button', { name: 'Save link', exact: true }).click();
+    await checkPrimaryPosition(page, 'reading', width);
+    await page.getByRole('button', { name: 'Save only', exact: true }).click();
     await expect(page).toHaveURL(/#\/reading$/);
     await page.getByRole('link', { name: new RegExp(`example.com/review-${width}`) }).first().click();
     await expect(page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true })).toHaveValue(`Review this before sending https://example.com/review-${width}`);
     await page.goto('/#/new'); await openEditor(page);
     await page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true }).fill(`Conversation draft ${width}`);
+    await checkPrimaryPosition(page, 'conversation', width);
     await page.getByRole('button', { name: 'Save draft', exact: true }).click();
     await expect(page.locator('.conversation-drafts')).toContainText(`Conversation draft ${width}`);
     await page.locator('.conversation-drafts .draft-open').filter({ hasText: `Conversation draft ${width}` }).click();

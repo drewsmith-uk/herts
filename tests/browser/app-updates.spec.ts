@@ -190,7 +190,7 @@ test('Update now reloads once, keeps the current screen, offline task changes an
   await oldPage(page);
   await page.route('**/api/v1/plugins/tasks/commands', route => route.abort());
   await page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ }).fill('Pending update fixture');
-  await page.getByRole('button', { name: 'Save to Inbox', exact: true }).click();
+  await page.getByRole('button', { name: 'Save only', exact: true }).click();
   await expect(page.getByRole('link', { name: 'Pending update fixture', exact: true })).toBeVisible();
   await page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ }).fill('Unfinished capture');
   const pending = await stored(page, 'pluginPending'), url = page.url();
@@ -381,12 +381,11 @@ for (const kind of ['task', 'reading'] as const) {
 test('a reading capture draft survives updating without adding it or sending it to Hermes', async ({ page }) => {
   const before = await calls(page);
   await oldPage(page, '/#/reading/add');
-  await page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ }).fill('https://example.com/reading-draft');
-  await (await detailsField(page, 'Reading title')).fill('An unfinished reading draft');
+  await page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ }).fill('An unfinished reading draft\nhttps://example.com/reading-draft');
   await toast(page).getByRole('button', { name: 'Update now' }).click();
   await expect.poll(() => version(page)).not.toBe('tasks-shell-fixture-previous');
-  await expect(page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ })).toHaveValue('https://example.com/reading-draft');
-  await expect((await detailsField(page, 'Reading title'))).toHaveValue('An unfinished reading draft');
+  await expect(page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ })).toHaveValue('An unfinished reading draft\nhttps://example.com/reading-draft');
+  await expect(page.getByLabel('Reading title', { exact: true })).toHaveCount(0);
   expect(await calls(page)).toEqual(before);
 });
 

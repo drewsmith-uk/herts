@@ -53,7 +53,7 @@ test('shortcut records on a cold launch, preserves the draft, and only saves a t
   await expect(page.getByRole('link', { name: title, exact: true })).toHaveCount(0);
   await expect(page.locator('.countdown')).toHaveCount(0);
   expect(await page.evaluate(() => window.voiceProbe.calls)).toBe(1);
-  await page.getByRole('button', { name: 'Save to Inbox', exact: true }).click();
+  await page.getByRole('button', { name: 'Save only', exact: true }).click();
   await expect(page.getByRole('link', { name: edited, exact: true })).toBeVisible();
   await page.reload();
   await expect(page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ })).toHaveValue('');

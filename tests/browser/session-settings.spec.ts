@@ -42,7 +42,7 @@ for (const width of [390, 1280]) test(`stages actual conversation settings witho
   expect(await writes(request)).toEqual(before);
   await page.reload();
   await expect(settingsButton(page)).toContainText('chosen-model');
-  await expect(page.locator('.session-settings-effort')).toHaveText('ultra fast');
+  await expect(page.locator('.session-settings-effort')).toHaveText('ultra · fast');
   expect(await writes(request)).toEqual(before);
   await page.getByLabel(/^(Message Hermes|Add a task)$/).fill(`Send using selected settings ${width}`);
   await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();

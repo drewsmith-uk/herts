@@ -31,18 +31,16 @@ async function holdStorage(context: BrowserContext) {
 
 for (const capture of [
   { name: 'task', path: '/', fields: { 'Add a task': 'Keep this idea through a reload' } },
-  { name: 'reading', path: '/#/reading/add', fields: { 'Message Hermes': 'https://example.com/read-later', 'Reading title': 'Keep this article title' } },
+  { name: 'reading', path: '/#/reading/add', fields: { 'Message Hermes': 'Keep this article\nhttps://example.com/read-later' } },
 ]) {
   test(`${capture.name} capture survives reload while its IndexedDB write is pending`, async ({ page, context }) => {
     await page.goto(capture.path);
-    if ('Reading title' in capture.fields) await detailsField(page, 'Reading title');
     for (const label of Object.keys(capture.fields)) await expect(page.getByRole('textbox', { name: label, exact: true })).toBeEditable();
     const release = await holdStorage(context);
     try {
       for (const [label, text] of Object.entries(capture.fields)) await page.getByRole('textbox', { name: label, exact: true }).fill(text!);
       await page.reload({ waitUntil: 'domcontentloaded' });
     } finally { await release(); }
-    if ('Reading title' in capture.fields) await detailsField(page, 'Reading title');
     for (const [label, text] of Object.entries(capture.fields)) await expect(page.getByRole('textbox', { name: label, exact: true })).toHaveValue(text!);
     await expect.poll(() => page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('herts:draft-write:')))).toEqual([]);
   });

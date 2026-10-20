@@ -1,16 +1,34 @@
-import { detailsField } from './composer-helpers';
+import { detailsField, saveTitle } from './composer-helpers';
 import { test, expect } from '@playwright/test';
 
 const headers = { 'x-herts-request': '1' };
 const calls = async (request: any) => (await (await request.get('http://127.0.0.1:8791/calls')).json() as string[]).filter(value => ['session.create', 'session.resume', 'prompt.submit'].includes(value));
 
-test('task capture saves through its shortcut and preserves a collapsed offline draft', async ({ page, request, context }) => {
+for (const modifier of ['Control', 'Meta']) test(`task capture sends through ${modifier}+Enter and creates the task`, async ({ page, request }) => {
+  const before = await calls(request);
+  await page.goto('/#/tasks/inbox');
+  const input = page.getByRole('textbox', { name: 'Add a task', exact: true });
+  const title = `Send this task with ${modifier}`;
+  await input.fill(title);
+  await input.press('Enter');
+  await expect(input).toHaveValue(`${title}\n`);
+  await input.press(`${modifier}+Enter`);
+  await expect(page).toHaveURL(/#\/task\/[0-9a-f-]+$/);
+  await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase', 'complete');
+  expect((await calls(request)).slice(before.length)).toEqual(['session.create', 'prompt.submit']);
+  const state = await (await request.get('/api/v1/state')).json();
+  const task = state.snapshot.tasks.find((task: any) => task.title === title);
+  expect(task).toBeDefined();
+  expect(state.actions.filter((action: any) => action.taskId === task.id && action.kind === 'send').map((action: any) => action.text)).toEqual([`${title}\n`]);
+});
+
+test('task capture saves only through its secondary button and preserves an offline draft', async ({ page, request, context }) => {
   const before = await calls(request);
   await page.setViewportSize({ width:390, height:844 });
   await page.goto('/#/tasks/inbox');
   const input = page.getByRole('textbox', { name:'Add a task', exact:true });
   await input.fill('Save without agent execution');
-  await input.press('Control+Enter');
+  await page.getByRole('button', { name:'Save only', exact:true }).click();
   await expect(page.getByRole('link', { name:'Save without agent execution', exact:true })).toBeVisible();
   await input.fill('Preserve this draft');
   await input.press('Enter');
@@ -24,32 +42,39 @@ test('task capture saves through its shortcut and preserves a collapsed offline 
   await input.focus();
   await expect(page.getByRole('button', { name:'Send to Hermes', exact:true })).toBeDisabled();
   await input.press('Control+Enter');
+  await expect(input).toHaveValue('Preserve this draft\nx');
+  await expect(page.getByRole('link', { name:'Preserve this draft', exact:true })).toHaveCount(0);
+  await page.getByRole('button', { name:'Save only', exact:true }).click();
   await expect(page.getByRole('link', { name:'Preserve this draft', exact:true })).toBeVisible();
   await context.setOffline(false);
   expect(await calls(request)).toEqual(before);
 });
 
-test('task capture shows fields directly on every list and preserves them offline', async ({ page, context }) => {
+test('task capture derives its title from content and preserves the draft offline', async ({ page, context }) => {
   await page.goto('/#/tasks/inbox');
   const input = page.getByRole('textbox', { name: 'Add a task', exact: true });
   await input.fill('Keep the task message');
   const title = page.getByRole('textbox', { name: 'New task title', exact: true });
-  await expect(title).toBeVisible();
-  await title.fill('Keep the optional title');
+  await expect(title).toHaveCount(0);
   for (const list of ['next', 'waiting', 'parked', 'snoozed', 'done', 'inbox']) {
     await page.goto(`/#/tasks/${list}`);
     await input.focus();
-    await expect(title).toHaveValue('Keep the optional title');
+    await expect(title).toHaveCount(0);
     await expect(input).toHaveValue('Keep the task message');
     await expect(page.locator('.composer-capture details, .capture-destination')).toHaveCount(0);
     await expect(page.getByRole('button', { name: /^Conversation settings:/ })).toBeVisible();
   }
   await context.setOffline(true);
-  await title.fill('Offline optional title');
+  await input.fill('Offline task title\nKeep the task message');
   await expect(page.getByRole('button', { name: 'Send to Hermes', exact: true })).toBeDisabled();
-  await page.getByRole('button', { name: 'Save to Inbox', exact: true }).click();
-  await expect(page.getByRole('link', { name: 'Offline optional title', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Save only', exact: true }).click();
+  await expect(page.getByRole('link', { name: 'Offline task title', exact: true })).toBeVisible();
   await context.setOffline(false);
+  await page.getByRole('link', { name: 'Offline task title', exact: true }).click();
+  await (await detailsField(page, 'Task title')).fill('Renamed task');
+  await saveTitle(page);
+  await page.reload();
+  await expect(await detailsField(page, 'Task title')).toHaveValue('Renamed task');
 });
 
 test('reading modes and split resizing preserve the discussion draft and article position', async ({ page, request }) => {
@@ -94,7 +119,7 @@ test('page actions support Escape and restore keyboard focus', async ({page,requ
   await page.keyboard.press('Escape');await expect(more).toBeFocused();
 });
 
-test('unknown capture outcomes block saving through both the button and shortcut', async ({page,request}) => {
+test('unknown capture outcomes block saving and sending', async ({page,request}) => {
   await page.goto('/#/tasks/inbox');
   const input=page.getByRole('textbox',{name:'Add a task',exact:true});
   await input.fill('Uncertain capture remains available');
@@ -117,9 +142,9 @@ test('unknown capture outcomes block saving through both the button and shortcut
     } finally { database.close(); }
     await sdk.rebuild();
   });
-  await expect(page.getByRole('button',{name:'Save to Inbox',exact:true})).toBeDisabled();
+  await expect(page.getByRole('button',{name:'Save only',exact:true})).toBeDisabled();
   await page.evaluate(async () => { await (window as any).__HERTS_PLUGIN_RUNTIME__.sdk.rebuild(); });
-  await expect(page.getByRole('button',{name:'Save to Inbox',exact:true})).toBeDisabled();
+  await expect(page.getByRole('button',{name:'Save only',exact:true})).toBeDisabled();
   await input.press('Control+Enter');
   await expect(input).toHaveValue('Uncertain capture remains available');
   await expect(page.getByRole('link',{name:'Uncertain capture remains available',exact:true})).toHaveCount(0);

@@ -9,7 +9,7 @@ import { SpaceSettings } from './Spaces';
 import { createTaskFromConversation, initialiseTasks, linkedTaskId, taskInboxName, useApp } from './data';
 function TaskBadge({conversation}:import('@herts/plugin-api/client').ConversationActionProps){useApp();return linkedTaskId(conversation)?<span><Link2 size={12}/>Task created</span>:null;}
 export default function activate(): ClientPlugin {
-    if (!DragHandle || !DragPreview || !RenameAction || !ActionRow || !composerCapabilities?.taskCapture || !PageHeader || !MessageComposer || !ComposerPlaceholder || !undoableAction) throw new Error('Update Herts in Settings → App updates to use this version of Tasks.');
+    if (!DragHandle || !DragPreview || !RenameAction || !ActionRow || !composerCapabilities?.taskCapture || !composerCapabilities?.captureLayout || !PageHeader || !MessageComposer || !ComposerPlaceholder || !undoableAction) throw new Error('Update Herts in Settings → App updates to use this version of Tasks.');
     return {
         tab: { title: 'Tasks', path: '/tasks', icon: Inbox },
         conversationTitle(contextId, route) { return (getCore().pluginData.tasks?.records.state as Snapshot | undefined)?.tasks.find(task => (task.contextId || task.id) === contextId && route === `/task/${task.id}`)?.title; },

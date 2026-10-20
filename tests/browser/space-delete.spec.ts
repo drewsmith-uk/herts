@@ -52,7 +52,7 @@ test('a task captured offline in a deleted space can be recovered into the defau
   await expect(page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true })).toBeEditable();
   await context.setOffline(true);
   await page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true }).fill('Keep my offline task');
-  await page.getByRole('button', { name: 'Save to Inbox', exact: true }).click();
+  await page.getByRole('button', { name: 'Save only', exact: true }).click();
   await expect(page.getByRole('link', { name: 'Keep my offline task', exact: true })).toBeVisible();
   const input = { id: crypto.randomUUID(), spaceId: id, kind: 'delete', baseName: 'Removed while offline', baseDefaultSpaceId: (await state(request)).defaultSpaceId, at: Date.now() };
   expect((await request.post('/api/v1/plugins/tasks/commands', { headers, data: { id: input.id, generation: 0, command: 'space', input } })).ok()).toBe(true);

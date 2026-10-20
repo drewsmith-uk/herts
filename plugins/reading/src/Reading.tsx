@@ -1,5 +1,5 @@
 import { readingTitle, ComposerPlaceholder, MessageComposer, useEntryDraft, type Draft } from '@herts/plugin-api/client';
-import { DragPreview, DragHandle, ActionRow, ActionRowLink, RenameAction, PageHeader, Button, ButtonLink, IconButton, SectionNav, SectionLink, ItemList, ItemRow, ItemMeta, EmptyState, StatusMessage, SettingsSection, SettingRow, FormField } from '@herts/plugin-api/client';
+import { DragPreview, DragHandle, ActionRow, ActionRowLink, RenameAction, PageHeader, Button, ButtonLink, IconButton, SectionNav, SectionLink, ItemList, ItemRow, ItemMeta, EmptyState, StatusMessage, SettingsSection, SettingRow } from '@herts/plugin-api/client';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { BookOpen, Bookmark, BookmarkCheck, Plus, Check, Circle, ExternalLink, Download, Trash2, LoaderCircle } from 'lucide-react';
 import { DndContext, DragOverlay, closestCenter, type DragEndEvent } from '@dnd-kit/core';
@@ -72,14 +72,18 @@ export function ReadingCapture({ sharedContent, id }: { sharedContent?: import('
     async function prepare(draft: Draft) {
       const urls = sharedUrls(draft.text), chosen = entry.fields.url && urls.includes(entry.fields.url) ? entry.fields.url : urls.length === 1 ? urls[0] : undefined;
       if (!chosen) throw new Error(urls.length ? 'Choose which link to save to Reading.' : 'Add a link to your message first.');
-      await addReading(chosen, entry.fields.title || '', undefined, draft.id);
+      let title = entry.fields.title?.trim() || '';
+      if (/^https?:\/\/\S*$/i.test(title)) {
+        try { if (normalizeUrl(title) !== normalizeUrl(chosen)) title = ''; }
+        catch { title = ''; }
+      }
+      await addReading(chosen, title, undefined, draft.id);
     }
     const leave = async (sent: boolean) => { await entry.complete(); if (shared) history.replaceState(null, '', '/'); navigate(sent ? `/reading-item/${entry.id}` : '/reading'); };
     return <><a href="#/reading" className="back-link">Reading list</a><PageHeader title="Add to Reading"/>
-      {entry.id ? <MessageComposer context={entry.context} persist={entry.persist} prepare={prepare} owner={entry.owner} saveLabel="Save link" onSaved={() => leave(false)} onSent={() => leave(true)} fields={draft => {
+      {entry.id ? <MessageComposer context={entry.context} persist={entry.persist} prepare={prepare} owner={entry.owner} saveLabel="Save only" onSaved={() => leave(false)} onSent={() => leave(true)} fields={draft => {
         const urls = sharedUrls(draft.text);
-        return <>{urls.length > 1 && <fieldset className="entry-links"><legend>Which link belongs in Reading?</legend>{urls.map(url => <label className="share-choice" key={url}><input type="radio" name="reading-link" checked={entry.fields.url === url} onChange={() => void entry.updateFields({ url })}/><span>{url}</span></label>)}</fieldset>}
-          <div className="entry-details"><FormField label="Title (optional)"><input aria-label="Reading title" maxLength={2000} value={entry.fields.title || ''} placeholder="A name for this link" onChange={event => void entry.updateFields({ title: event.target.value })}/></FormField></div></>;
+        return urls.length > 1 && <fieldset className="entry-links"><legend>Which link belongs in Reading?</legend>{urls.map(url => <label className="share-choice" key={url}><input type="radio" name="reading-link" checked={entry.fields.url === url} onChange={() => void entry.updateFields({ url })}/><span>{url}</span></label>)}</fieldset>;
       }}/> : <ComposerPlaceholder/>}{entry.error && <StatusMessage>{entry.error}</StatusMessage>}
     </>;
 }

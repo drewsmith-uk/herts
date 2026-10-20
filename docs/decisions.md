@@ -12,7 +12,7 @@ Each task space has Inbox, Next, Waiting, Parked, Snoozed and Done. Create and r
 
 Delete empty non-default spaces from **Settings → Plugins → Tasks**, after confirmation. Done and Snoozed tasks also count as content; move them elsewhere first. Local capture drafts and saved dictation must be saved or cleared first. The current default space cannot be deleted. Choose another default first. The original space has no permanent deletion protection. The server rechecks emptiness so concurrent task creation cannot be erased by a stale deletion.
 
-Capture accepts a message, attachments or an optional title. Save to Inbox creates an unsent task in the selected space's Inbox, including when viewing another list. A task has no Hermes conversation until its first deliberate send. List order expresses priority. Moves normally put tasks at the top of the destination. Done uses completion order. Snoozed uses reminder order. Moving between spaces puts the same task in the destination Inbox, retaining its conversation and ongoing work. Settings selects the default space for conversation conversion and the voice shortcut.
+Capture accepts a message and attachments. Save only creates an unsent task in the selected space's Inbox. This destination applies when viewing another list. A task has no Hermes conversation until its first deliberate send. List order expresses priority. Moves normally put tasks at the top of the destination. Done uses completion order. Snoozed uses reminder order. Moving between spaces puts the same task in the destination Inbox, retaining its conversation and ongoing work. Settings selects the default space for conversation conversion and the voice shortcut.
 
 Hold an item still to begin dragging. Drop it between items, onto another list, or onto a space tab (that space's Inbox). Drag handles support keyboard reordering. Edit titles on the detail page. Completing/reopening a task never stops Hermes or deletes history.
 
@@ -46,7 +46,7 @@ Pending choices survive reloads and offline use. Settings have revisions; concur
 
 ## Reading
 
-Reading items are separate from tasks. Adding or sharing a URL opens a reviewable message draft. Save link creates an unsent reading item; Send creates the item and submits the reviewed message to Hermes. Bookmark a link in an existing conversation to create a reading item without another agent message. The selected link is its reading target. A conversation can have several different reading links. Herts stores each conversation/link pair only once. A bookmark already saved opens its existing reading item.
+Reading items are separate from tasks. Adding or sharing a URL opens a reviewable message draft. Save only creates an unsent reading item; Send creates the item and submits the reviewed message to Hermes. Bookmark a link in an existing conversation to create a reading item without another agent message. The selected link is its reading target. A conversation can have several different reading links. Herts stores each conversation/link pair only once. A bookmark already saved opens its existing reading item.
 
 A reading association does not count as a task link and does not hide the conversation from browsing. A reading conversation can still become a task. Both views continue the same conversation and share execution controls. Marking a reading item read is independent of task completion.
 
@@ -77,11 +77,12 @@ Production access requires the configured Tailscale user and app origin. Secrets
 
 ## Interface changes
 
-Task capture uses **Add a task…** and makes **Save to Inbox** the primary action.
-Ctrl/Cmd+Enter saves during task capture. Enter inserts a newline.
-**Send to Hermes** remains explicit. Conversation shortcuts retain their existing send behavior.
-Task capture shows agent settings and the optional title without expandable groups.
-Reading capture also keeps its optional title visible.
+Task capture uses **Add a task…** and makes **Send to Hermes** the primary action.
+Ctrl/Cmd+Enter sends during task capture. Enter inserts a newline.
+**Save only** creates an unsent task and remains available offline.
+The task composer layout is independent of the primary action.
+Task capture shows agent settings. Task and Reading composers omit title fields.
+Titles use automatic defaults. Users can rename saved items through Actions.
 Capture forms omit the separate destination text.
 
 The full sidebar appears above 1000 pixels. Narrower layouts use compact navigation.

@@ -7,14 +7,13 @@ for (const width of [390, 1280]) test(`task filters preserve the composer and dr
   await page.goto('/#/tasks/inbox');
   const editor = page.getByRole('textbox', { name: 'Add a task', exact: true });
   await editor.fill('Keep this unsaved task while changing lists');
-  await page.getByLabel('New task title', { exact: true }).fill('Draft title');
   await editor.evaluate(element => { (window as any).originalEditor = element; });
   for (const route of ['/tasks/next', '/tasks/done', '/tasks/inbox']) {
     await page.evaluate(route => { location.hash = route; }, route);
     await expect(page.locator('.mobile-lists .active')).toContainText(route.endsWith('next') ? 'Next' : route.endsWith('done') ? 'Done' : 'Inbox');
     await expect(editor).toHaveValue('Keep this unsaved task while changing lists');
     expect(await editor.evaluate(element => element === (window as any).originalEditor)).toBe(true);
-    await expect(page.getByLabel('New task title', { exact: true })).toHaveValue('Draft title');
+    await expect(page.getByLabel('New task title', { exact: true })).toHaveCount(0);
   }
   await page.context().setOffline(true);
   await page.evaluate(() => { location.hash = '/tasks/next'; });

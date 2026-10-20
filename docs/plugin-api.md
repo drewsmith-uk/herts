@@ -218,6 +218,8 @@ Check `composerCapabilities?.taskCapture` before using the new task capture opti
 Set `primaryAction="save"`, `saveLabel`, and `onSaved` to make saving the primary action.
 This setting also makes Ctrl/Cmd+Enter save the draft.
 Enter inserts a newline. The default primary action remains Send.
+Check `composerCapabilities?.captureLayout` before using `capture`.
+Set `capture` to apply the task capture layout, independently of `primaryAction`.
 Use `inputLabel`, `sendLabel`, and `destination` for capture labels.
 Set `agentOptions` to put conversation settings inside **Agent options**.
 These options do not change receipt handling or automatically submit messages.

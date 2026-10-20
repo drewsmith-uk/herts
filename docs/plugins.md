@@ -50,7 +50,7 @@ Keep private data in the SDK storage APIs rather than inside package folders. Th
 
 ## Sharing and conversations
 
-Android has one Herts share target. When several enabled destinations accept the content, Herts asks where to send it. Choosing a destination sends nothing by itself. Core Conversations prepares a message draft. Tasks saves a task with a draft. Reading offers link review with explicit **Add & send** or offline **Save link** actions.
+Android has one Herts share target. When several enabled destinations accept the content, Herts asks where to send it. Choosing a destination sends nothing by itself. Core Conversations prepares a message draft. Tasks saves a task with a draft. Reading offers link review with explicit **Add & send** or offline **Save only** actions.
 
 Plugins embed the core conversation panel. That panel provides history, timestamps, activity, drafts, attachments, voice, approvals, stop controls and contributions from other enabled plugins. For example, a Reading conversation still offers Make a task when Tasks is enabled. Bookmarking does not make a conversation count as task-linked. Disabling a plugin never resumes or stops Hermes.
 

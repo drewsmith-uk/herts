@@ -41,14 +41,14 @@ export function SessionSettingsControls({ context, onOpen, onClose }: { context:
   const pending = hasSettings(view?.pending.values), saving = state.actions.some(a => a.taskId === context.id && a.kind === 'send' && a.receipt === 'pending');
   function open() { onOpen(); setEditing(true); }
   const model = values.model?.id || view?.modelName || (loading ? 'Loading settings…' : 'Model unknown');
-  const effort = `${values.effort ? labels[values.effort].toLowerCase() : 'effort unknown'}${values.fast === true ? ' fast' : ''}`;
+  const effort = `${values.effort ? labels[values.effort].toLowerCase() : 'effort unknown'}${values.fast === true ? ' · fast' : ''}`;
   const wireEffort = view?.wireEffort && !pending && view.wireEffort !== values.effort ? ` → ${view.wireEffort}` : '';
   const saved = view?.sources ? Object.values(view.sources).some(source => source === 'saved' || source === 'last-known') : view?.source === 'saved';
   const note = pending ? 'Applies on next Send' : local ? 'Saved on device' : context.link && saved ? 'Last saved' : '';
   return <div className="session-settings-controls">
     <div className="session-settings-summary">
     <button type="button" className="session-settings-button" aria-label={`Conversation settings: ${model} · ${effort}${wireEffort}`} aria-haspopup="dialog" aria-expanded={editing} title={`Conversation settings: ${model} · ${effort}${wireEffort}`} disabled={!view || saving} onClick={open}>
-      <SlidersHorizontal size={18} aria-hidden="true"/><span className="session-settings-model">{model}</span><span aria-hidden="true">·</span><span className="session-settings-effort">{effort}{wireEffort}</span>
+      <SlidersHorizontal size={18} aria-hidden="true"/><span className="session-settings-label"><span className="session-settings-model">{model}</span><span className="session-settings-details"><span aria-hidden="true" className="session-settings-separator">·</span><span className="session-settings-effort">{effort}{wireEffort}</span></span></span>
     </button>
     <span className="session-settings-note session-settings-status" role="status">{note}</span>
     </div>

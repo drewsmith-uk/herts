@@ -59,7 +59,7 @@ test('a folder plugin is discovered live and embeds conversation hooks from othe
 test('typed reset removes offline plugin edits without erasing core conversation drafts',async({page,context,browser,request})=>{
   const otherContext=await browser.newContext(),other=await otherContext.newPage();
   try{
-    await page.goto('/#/tasks');await closePageActions(page); await page.getByLabel(/^(Message Hermes|Add a task)$/, {exact:true}).fill('Reset race task');await page.getByRole('button',{name:'Save to Inbox',exact:true}).click();
+    await page.goto('/#/tasks');await closePageActions(page); await page.getByLabel(/^(Message Hermes|Add a task)$/, {exact:true}).fill('Reset race task');await page.getByRole('button',{name:'Save only',exact:true}).click();
     await page.getByRole('link',{name:'Reset race task',exact:true}).click();await expect(page.locator('.save-state')).toContainText('Changes synced');
     await closePageActions(page); await page.getByLabel(/^(Message Hermes|Add a task)$/).fill('Core draft must survive reset');
     await page.evaluate(()=>navigator.serviceWorker.ready);await context.setOffline(true);

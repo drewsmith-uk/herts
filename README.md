@@ -171,11 +171,12 @@ The settings beside the message field control the model, reasoning effort, and w
 
 Enable **Tasks** or **Reading** in **Settings → Plugins**.
 
-In Tasks, capture an item and select **Save to Inbox**.
+In Tasks, select **Send to Hermes** to create a task and send its content.
+Select **Save only** to create the task without sending.
 Move tasks between lists to organise work, or snooze a task until a later time.
 Select **Send** from a task to work on it with Hermes.
 
-In Reading, add a link and select **Save link**.
+In Reading, add a link and select **Save only**.
 Open the item to read the article or discuss it with Hermes.
 On browsers that support sharing to installed apps, you can also share content directly to Herts.
 
