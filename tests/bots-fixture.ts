@@ -17,7 +17,6 @@ export class BotBackend {
     this.calls.push({ method, params: structuredClone(p) });
     const profile = p.profile || String(p.session_id || '').replace(/^bot-runtime:/, '') || 'default';
     const chat = this.chats.get(profile);
-    if (method === 'session.settings.read') return { ...this.info(profile), session_id: p.session_id, settings_source: 'current' };
     if (method === 'profiles.list') return { bot_mode_protocol: true, profiles: [...this.profiles].map(([name, row]) => ({ ...row, canonical_session: this.chats.has(name) ? { id: 'bot-chat', resolved_id: this.chats.get(name).id, last_active: Date.now() / 1000, preview: `Hello from ${name}.` } : undefined })) };
     if (method === 'profiles.describe') { const row = this.profiles.get(p.name); return { name: p.name, soul: row.soul || '', description: row.description, model: { default: row.model, provider: row.provider } }; }
     if (method === 'profiles.get_asset') return { found: false };
@@ -43,7 +42,7 @@ export class BotBackend {
   async http(path: string, body?: any, method = body === undefined ? 'GET' : 'POST'): Promise<any> {
     const url = new URL(path, 'http://fixture'), profile = url.searchParams.get('profile') || 'default', chat = this.chats.get(profile);
     this.calls.push({ method: `${method} ${url.pathname}`, params: { profile, body } });
-    if (url.pathname === '/api/config') return { timezone: 'Europe/London', provider_secret: 'must-not-reach-browser' };
+    if (url.pathname === '/api/config') return { timezone: 'Europe/London', agent: { reasoning_effort: 'medium' }, provider_secret: 'must-not-reach-browser' };
     if (url.pathname === '/api/sessions') return { sessions: chat ? [chat] : [], total: chat ? 1 : 0 };
     if (url.pathname.endsWith('/messages')) return { session_id: chat.id, profile, messages: chat.messages, pagination: { returned: chat.messages.length } };
     if (url.pathname.startsWith('/api/sessions/')) return { ...chat, model: 'profile-model', model_config: { provider: 'configured' } };

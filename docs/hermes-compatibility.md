@@ -41,15 +41,15 @@ The session settings contract was checked against Hermes Agent 0.21.3 source at 
 
 The optional controls require `model.options` with configured provider/model capabilities and `config.get` (reasoning, fast, project). They also require profile-stamped `GET /api/sessions/:id` metadata and directory browsing through `GET /api/files`. Herts returns only model/provider, effort, speed, and folder fields to the browser. It never forwards raw model configuration or provider credentials.
 
-Settings refresh also requires the Desktop `session.settings.read` RPC.
-Its response identifies the stored session, profile, settings source, model, provider, effort, speed, and folder.
-It reads active settings or stored settings and explicit overrides without attaching a viewer or starting an agent.
-The native `session.info` request belongs to a separate gateway interface.
+Desktop provides `session.info` events, but it does not provide a `session.info` request.
+Herts does not send that unsupported request.
 
-Hermes commit `826e9d2de8` includes this method and inherited effort resolution on source `602d76a72d`.
-Effort resolution uses saved overrides, then model-specific and profile defaults.
-This is a local compatibility change, not a published Hermes release.
-Backends without this method retain saved values and show a refresh error.
+Herts reads current stored settings through the existing session detail HTTP endpoint.
+Missing effort uses profile configuration from `GET /api/config` with `include_defaults=false`.
+Saved session effort takes precedence over model-specific and profile defaults.
+Confirmed live events take precedence over stored metadata.
+These reads do not attach a viewer or start an agent.
+No Hermes source changes are required.
 Successful reads clear **Last saved** when all settings are current.
 Cached or incomplete values retain their source labels.
 

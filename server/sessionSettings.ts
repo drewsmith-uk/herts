@@ -1,3 +1,4 @@
+import { inheritedEffort } from './hermesReasoning.js';
 import { parseConversationRef } from '../shared/conversations.js';
 import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
@@ -92,7 +93,7 @@ export class SessionSettings {
     const row = await this.gateway.http(`/api/sessions/${encodeURIComponent(parseConversationRef(conversation.id).id)}?profile=${encodeURIComponent(this.gateway.profile)}`);
     if (row.id !== parseConversationRef(conversation.id).id || row.profile !== this.gateway.profile) throw new GatewayError('Conversation settings identity could not be verified.');
     const cfg = object(row.model_config), model = cfg.model || row.model;
-    return { values: sessionValues(row, true), modelName: typeof model === 'string' && model ? model : undefined, storedId: conversation.id };
+    return { values: sessionValues(row, true), modelName: typeof model === 'string' && model ? model : undefined, storedId: conversation.id, followsProfile: !!cfg.follow_profile_config || row.title === 'Bot Chat', composerProfile: cfg.composer_override_profile };
   }
   async view(id?: string, force = false): Promise<SettingsView> {
     const profile = id && this.store.context(id)?.profile;
@@ -142,29 +143,29 @@ export class SessionSettings {
         if (fresh) { apply(observed.values, observed.values.model?.id, 'live'); wireEffort = observed.wire; }
         else fallback(observed.values, observed.values.model?.id, observed.wire);
       }
-      if (storedId && this.gateway.online) {
+      if (saved && this.gateway.online) {
         try {
-          const info = await this.gateway.rpc('session.settings.read', { session_id: storedId, profile: this.gateway.profile }, 5000);
-          if (info.profile_name !== this.gateway.profile || info.session_id !== parseConversationRef(storedId).id) throw new GatewayError('Conversation settings identity could not be verified.');
-          const values = sessionValues(info), name = typeof info.model === 'string' && info.model ? info.model : undefined;
-          // Replace earlier observations with the new response.
+          let values = saved.values, name = saved.modelName;
+          if (saved.followsProfile || values.effort === undefined) {
+            const config = await this.gateway.http(`/api/config?profile=${encodeURIComponent(this.gateway.profile)}&include_defaults=false`);
+            const followsProfile = saved.followsProfile && !(saved.composerProfile?.model === catalogue?.profile.model?.id
+              && saved.composerProfile?.provider === catalogue?.profile.model?.provider);
+            if (followsProfile) { values = { ...catalogue?.profile, cwd: values.cwd }; name = values.model?.id; }
+            const effort = followsProfile || values.effort === undefined ? inheritedEffort(config, name) : values.effort;
+            values = { ...values, ...(effort ? { effort } : {}) };
+          }
           current = {}; modelName = undefined;
           for (const key of settingKeys) delete sources[key];
-          if (saved) apply(saved.values, saved.modelName, 'saved');
-          apply(values, name, info.settings_source === 'current' ? 'current' : 'live');
-          wireEffort = typeof info.reasoning_effort_wire === 'string' ? info.reasoning_effort_wire : undefined;
-          if (this.readVersions.get(context.id) === version && this.observed.get(context.id) === observed) {
-            this.readings.set(context.id, { storedId, linkId: context.link.storedId, profile: this.gateway.profile, values, modelName: name, wire: wireEffort });
-            this.observed.delete(context.id);
-          } else if (this.observed.get(context.id) !== observed) {
-            const newer = this.observed.get(context.id);
-            if (newer) { apply(newer.values, newer.values.model?.id, 'live'); wireEffort = newer.wire; }
+          apply(values, name, 'current');
+          if (this.readVersions.get(context.id) === version) {
+            this.readings.set(context.id, { storedId: saved.storedId, linkId: context.link.storedId, profile: this.gateway.profile, values, modelName: name });
           }
-        } catch (e) {
-          error ||= e instanceof GatewayError && e.code === -32601
-            ? 'Hermes cannot refresh session settings. Update the Desktop backend, then retry.'
-            : (e as Error).message;
-        }
+          const newer = this.observed.get(context.id);
+          if (newer && binding && newer.epoch === binding.epoch && newer.runtime === binding.runtimeId
+              && Date.now() - newer.at < 15_000) {
+            apply(newer.values, newer.values.model?.id, 'live'); wireEffort = newer.wire;
+          }
+        } catch (e) { error ||= (e as Error).message; }
       }
       source = sources.model === 'live' && sources.effort === 'live' ? 'live'
         : sources.model === 'current' && sources.effort === 'current' ? 'current'

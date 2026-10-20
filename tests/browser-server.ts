@@ -127,13 +127,7 @@ wss.on('connection', ws => {
       }).catch(error => { if (ws.readyState === 1) ws.send(JSON.stringify({ jsonrpc: '2.0', id, error: { code: 4002, message: error.message } })); });
       return;
     }
-    if (method === 'session.settings.read') {
-      const row = rows.get(p.session_id), active = [...runtimes.values()].find(runtime => runtime.stored === p.session_id);
-      if (!row) { ws.send(JSON.stringify({ jsonrpc: '2.0', id, error: { code: 4001, message: 'not_found' } })); return; }
-      const settings = active?.settings || row.settings || profileSettings;
-      ws.send(JSON.stringify({ jsonrpc: '2.0', id, result: { ...settings, session_id: row.id, profile_name: 'default', settings_source: active ? 'live' : 'current' } })); return;
-    }
-    if (method === 'session.info') { ws.send(JSON.stringify({ jsonrpc: '2.0', id, error: { code: -32601, message: 'Method not found' } })); return; }
+    if (method === 'session.info' || method === 'session.settings.read') { ws.send(JSON.stringify({ jsonrpc: '2.0', id, error: { code: -32601, message: 'Method not found' } })); return; }
     const r = runtimes.get(p.session_id);
     if (!r && ['session.activate','session.events.since','approval.pending','session.control.read','session.interrupt'].includes(method)) {
       ws.send(JSON.stringify({jsonrpc:'2.0',id,error:{code:4001,message:'session not found'}})); return;

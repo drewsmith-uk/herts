@@ -19,10 +19,11 @@ try {
     if (gateway.promptWarning) console.log(gateway.promptWarning);
     const session = result.sessions[0];
     if (session) {
-      const settings = await gateway.rpc('session.settings.read', { session_id: session.id, profile: config.hermesProfile }, 15_000);
-      if (settings.session_id !== session.id || settings.profile_name !== config.hermesProfile || !['current', 'live'].includes(settings.settings_source)) {
+      const settings = await gateway.http(`/api/sessions/${encodeURIComponent(session.id)}?profile=${encodeURIComponent(config.hermesProfile)}`);
+      if (settings.id !== session.id || settings.profile !== config.hermesProfile) {
         throw new Error('Hermes session settings identity could not be verified. Check backend compatibility.');
       }
+      await gateway.http(`/api/config?profile=${encodeURIComponent(config.hermesProfile)}&include_defaults=false`);
       console.log('Hermes session settings refresh: OK.');
     } else console.log('Hermes session settings refresh: not verified because no stored sessions exist.');
     console.log('Hermes session listing and gateway connection: OK. No agent work was started.');
