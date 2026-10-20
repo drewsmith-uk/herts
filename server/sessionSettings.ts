@@ -118,6 +118,13 @@ export class SessionSettings {
         for (const key of settingKeys) if (values[key] !== undefined) sources[key] = origin;
         if (name) { modelName = name; sources.model = origin; }
       };
+      const fallback = (values: SessionValues, name: string | undefined, wire?: string) => {
+        const providerChanged = current.model && values.model && current.model.provider !== values.model.provider;
+        const missing = Object.fromEntries(Object.entries(values).filter(([key]) => current[key as SettingKey] === undefined
+          && !(providerChanged && ['model', 'effort', 'fast'].includes(key)))) as SessionValues;
+        apply(missing, modelName ? undefined : name, 'last-known');
+        if (missing.effort !== undefined) wireEffort = wire;
+      };
       try {
         saved = await this.stored(context.id); storedId = saved.storedId;
         apply(saved.values, saved.modelName, 'saved');
@@ -127,12 +134,13 @@ export class SessionSettings {
       }
       const cached = this.readings.get(context.id);
       if (cached && cached.profile === this.gateway.profile && cached.linkId === context.link.storedId && (cached.storedId === storedId || recoverRead) && (!modelName || !cached.modelName || modelName === cached.modelName)) {
-        apply(cached.values, cached.modelName, 'last-known'); wireEffort = cached.wire;
+        fallback(cached.values, cached.modelName, cached.wire);
       }
       const observed = this.observed.get(context.id), binding = this.store.binding(context.id);
       const fresh = observed && binding && this.gateway.online && binding.epoch === this.gateway.epoch && Date.now() - observed.at < 15_000;
       if (observed && binding && (fresh || !modelName || modelName === observed.values.model?.id) && observed.epoch === binding.epoch && observed.runtime === binding.runtimeId) {
-        apply(observed.values, observed.values.model?.id, fresh ? 'live' : 'last-known'); wireEffort = observed.wire;
+        if (fresh) { apply(observed.values, observed.values.model?.id, 'live'); wireEffort = observed.wire; }
+        else fallback(observed.values, observed.values.model?.id, observed.wire);
       }
       if (storedId && this.gateway.online) {
         try {

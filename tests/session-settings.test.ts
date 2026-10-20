@@ -109,7 +109,7 @@ describe('settings staged until Send', () => {
     expect(view.source).toBe('unknown');
     expect(writes(gateway)).toEqual([]);
   });
-  it('reads authoritative lazy settings and retains them after a failed refresh', async () => {
+  it('prefers fresh saved settings after a failed live refresh', async () => {
     const { gateway, actions, id, stage } = fixture();
     stage({ effort: 'low' });
     const original = gateway.rpc.bind(gateway);
@@ -124,7 +124,29 @@ describe('settings staged until Send', () => {
     expect(live).toMatchObject({ source: 'live', current: { effort: 'ultra' }, sources: { model: 'live', effort: 'live' } });
     fail = true;
     const cached = await actions.settings.view(id, true);
-    expect(cached).toMatchObject({ current: { effort: 'ultra' }, sources: { effort: 'last-known' }, pending: { values: { effort: 'low' } }, error: 'Hermes is unreachable.' });
+    expect(cached).toMatchObject({ current: { effort: 'high' }, sources: { effort: 'saved' }, pending: { values: { effort: 'low' } }, error: 'Hermes is unreachable.' });
+    expect(writes(gateway)).toEqual([]);
+  });
+  it.each(['cache', 'observation'])('keeps newer saved values instead of a stale %s', async kind => {
+    const { store, gateway, actions, id } = fixture();
+    const original = gateway.rpc.bind(gateway);
+    if (kind === 'cache') {
+      gateway.rpc = async (method, params) => method === 'session.info' ? gateway.info() : original(method, params);
+      await actions.settings.view(id);
+      gateway.rpc = original;
+    } else {
+      const binding = { runtimeId: 'runtime', storedId: 'stored', epoch: gateway.epoch, generation: randomUUID(), seq: 0, ready: true, monitored: true, known: true };
+      store.saveBinding(id, binding);
+      actions.settings.observe(id, gateway.info(), binding);
+      actions.settings.observed.get(id)!.at = Date.now() - 60_000;
+    }
+    gateway.current.effort = 'low'; gateway.current.fast = true;
+    expect(await actions.settings.view(id)).toMatchObject({ current: { effort: 'low', fast: true }, sources: { effort: 'saved', fast: 'saved' } });
+    gateway.current.model = { id: 'existing-model', provider: 'other-provider' };
+    delete gateway.current.effort;
+    const view = await actions.settings.view(id);
+    expect(view.current.model?.provider).toBe('other-provider');
+    expect(view.current.effort).toBeUndefined();
     expect(writes(gateway)).toEqual([]);
   });
   it('does not let a working folder confirm missing model settings', async () => {
@@ -150,7 +172,7 @@ describe('settings staged until Send', () => {
     await expect.poll(() => replies.length).toBe(2);
     replies[1]({ ...gateway.info(), reasoning_effort: 'ultra' }); await second;
     replies[0]({ ...gateway.info(), reasoning_effort: 'low' }); await first;
-    gateway.rpc = original;
+    gateway.rpc = original; delete gateway.current.effort;
     expect(await actions.settings.view(id)).toMatchObject({ current: { effort: 'ultra' }, sources: { effort: 'last-known' } });
   });
   it('shows a confirmed model switch before saved metadata catches up', async () => {
@@ -167,7 +189,7 @@ describe('settings staged until Send', () => {
     store.saveBinding(id, binding);
     actions.settings.observe(id, { ...gateway.info(), reasoning_effort: 'ultra' }, binding);
     actions.settings.observed.get(id)!.at = Date.now() - 60_000;
-    gateway.online = false;
+    gateway.online = false; delete gateway.current.effort;
     expect(await actions.settings.view(id)).toMatchObject({ current: { effort: 'ultra' }, sources: { effort: 'last-known' } });
     expect(writes(gateway)).toEqual([]);
   });

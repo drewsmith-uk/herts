@@ -105,7 +105,7 @@ function SettingsDialog({ context, initial, reload, close }: { context?: Convers
   }
   async function refreshView() {
     setBusy(true); setError('');
-    try { const next = await reload(); if (next) { setView(next); setRevision(defaults ? next.defaults.revision : next.pending.revision); setReviewed(next.available && next.source !== 'unknown'); } else setError('Settings could not be refreshed. Try again.'); }
+    try { const next = await reload(); if (next) { setView(next); setRevision(defaults ? next.defaults.revision : next.pending.revision); setReviewed(next.available && (next.source !== 'unknown' || !!next.current.model)); } else setError('Settings could not be refreshed. Try again.'); }
     finally { setBusy(false); }
   }
   const inheritedSource = (key: keyof SessionValues) => context?.link ? 'Current session setting' : !defaults && view.defaults.values[key] !== undefined ? 'Herts default' : 'Hermes default';

@@ -265,3 +265,37 @@ for (const width of [320, 390, 1280]) test(`settings status does not move the co
   expect(await editor.boundingBox()).toEqual(before);
   await expect(editor).toHaveValue('Keep this draft while the status changes.');
 });
+
+for (const action of ['apply', 'discard']) test(`reviews uncertain settings without effort metadata before ${action}`, async ({ page, request }) => {
+  let uncertain = false, available = true;
+  await page.route('**/api/v1/session-settings?*', async route => {
+    const response = await route.fetch(), view = await response.json();
+    if (!uncertain) return route.fulfill({ json: view });
+    const { effort, ...current } = view.current;
+    await route.fulfill({ json: { ...view, current, uncertain, available, source: 'unknown', sources: { model: 'saved' }, models: view.models.map((model: any) => ({ ...model, reasoning: false })) } });
+  });
+  await page.goto(`/#/conversation/settings-recovery-${action}`);
+  await open(page);
+  await page.getByLabel('Working folder', { exact: true }).fill('/projects/work');
+  await page.getByRole('button', { name: 'Apply', exact: true }).click();
+  uncertain = true;
+  await page.reload();
+  const editor = page.getByLabel(/^(Message Hermes|Add a task)$/);
+  await editor.fill('Keep this draft during settings recovery.');
+  const before = await writes(request);
+  await open(page);
+  const save = page.getByRole('button', { name: 'Save reviewed choices', exact: true });
+  await expect(save).toBeDisabled();
+  available = false;
+  await page.getByRole('button', { name: 'Refresh current settings', exact: true }).click();
+  await expect(save).toBeDisabled();
+  available = true;
+  await page.getByRole('button', { name: 'Refresh current settings', exact: true }).click();
+  await expect(save).toBeEnabled();
+  const saved = page.waitForRequest(req => req.method() === 'POST' && /\/contexts\/[^/]+\/settings$/.test(req.url()));
+  await (action === 'apply' ? save : page.getByRole('button', { name: 'Discard pending changes', exact: true })).click();
+  expect((await saved).postDataJSON().reviewed).toBe(true);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(editor).toHaveValue('Keep this draft during settings recovery.');
+  expect(await writes(request)).toEqual(before);
+});
