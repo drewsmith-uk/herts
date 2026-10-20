@@ -47,7 +47,7 @@ describe('portable configuration and safe upgrades', () => {
     const g=new Gateway('','',[],()=>['owned'],'research'),paths:string[]=[];
     g.http=async path=>{paths.push(path);if(path.includes('/messages?'))return{session_id:'owned',profile:'research',messages:[]};if(path.startsWith('/api/sessions/owned?'))return{id:'owned',profile:'research',source:'desktop'};if(path.includes('/search?'))return{results:[]};return{sessions:[],total:0};};
     await g.conversations();await g.search('term');await g.history('owned',0);
-    expect(paths).toHaveLength(4);expect(paths.every(p=>new URL(p,'http://localhost').searchParams.get('profile')==='research')).toBe(true);
+    expect(paths).toHaveLength(5);expect(paths.every(p=>new URL(p,'http://localhost').searchParams.get('profile')==='research')).toBe(true);
     g.http=async()=>({session_id:'owned',profile:'default',messages:[]});await expect(g.history('owned',0)).rejects.toThrow('ownership');
   });
   it('uses the selected profile for attachment reads, transcription and response speech', async () => {

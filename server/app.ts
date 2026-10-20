@@ -143,7 +143,7 @@ export async function createApp(config: Config) {
     return { context: updated, snapshot: clientSnapshot(store, req) };
   });
   app.get('/api/v1/conversations', async req => {
-    const { q = '', offset = 0, includeLinked, includeHidden, filters } = z.object({ filters:z.string().max(4000).optional(), q: z.string().max(500).optional(), offset: z.coerce.number().int().nonnegative().optional(), includeLinked: z.enum(['true', 'false']).default('false'), includeHidden: z.enum(['true', 'false']).default('false') }).parse(req.query);
+    const { q = '', offset = 0, limit, includeLinked, includeHidden, filters } = z.object({ filters:z.string().max(4000).optional(), q: z.string().max(500).optional(), offset: z.coerce.number().int().nonnegative().optional(), limit: z.coerce.number().int().min(1).max(100000).default(50), includeLinked: z.enum(['true', 'false']).default('false'), includeHidden: z.enum(['true', 'false']).default('false') }).parse(req.query);
     const conversations = [...await gateway.search(q)];
     for (const context of store.contexts().filter(c => c.botChat && c.link)) {
       try {
@@ -157,7 +157,7 @@ export async function createApp(config: Config) {
     conversations.sort((a, b) => b.updatedAt - a.updatedAt); const snapshot = store.coreSnapshot();
     const enabledFilters=filters===undefined?legacyConversationFilters(includeLinked):filters.split(',').filter(Boolean);
     const rows=conversations.map(c=>legacyConversationRow({...plugins.decorateConversation(c),hidden:conversationHidden(c,snapshot.hiddenConversations||[])})).filter(c=>!c.pluginFilters.some((key:string)=>enabledFilters.includes(key))&&(includeHidden==='true'||!c.hidden));
-    return { conversations: rows.slice(offset, offset + 50), hasMore: rows.length > offset + 50, total: rows.length, searchedContentLimit: q ? 100 : undefined };
+    return { conversations: rows.slice(offset, offset + limit), hasMore: rows.length > offset + limit, total: rows.length, searchedContentLimit: q ? 100 : undefined };
   });
   app.post('/api/v1/conversations/visibility', async req => {
     const key = z.string().min(1).max(300);

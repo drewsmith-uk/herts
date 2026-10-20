@@ -31,7 +31,57 @@ beforeEach(async () => {
   mocks.api.mockImplementation(() => new Promise(() => {}));
   root = createRoot(document.createElement('div'));
 });
-afterEach(async () => { await act(async () => root.unmount()); vi.useRealTimers(); vi.unstubAllGlobals(); });
+afterEach(async () => { await act(async () => root.unmount()); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+it('refreshes visible results without interrupting slow requests or clearing rows', async () => {
+  mocks.api.mockResolvedValueOnce(page([conversation('saved')]));
+  await render(); await request();
+  const response = deferred<ReturnType<typeof page>>();
+  mocks.api.mockReturnValueOnce(response.promise);
+  await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
+  await request();
+  expect(mocks.api).toHaveBeenCalledTimes(2);
+  expect(result.rows.map(c => c.key)).toEqual(['saved']);
+  expect(result.busy).toBe(true);
+  await act(async () => {
+    window.dispatchEvent(new Event('focus'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    await vi.advanceTimersByTimeAsync(30000);
+  });
+  expect(mocks.api).toHaveBeenCalledTimes(2);
+  expect(mocks.api.mock.calls[1][4].aborted).toBe(false);
+  await act(async () => response.resolve(page([conversation('changed')])));
+  expect(result.rows.map(c => c.key)).toEqual(['changed']);
+  expect(result.busy).toBe(false);
+});
+
+it('pauses polling while hidden or offline and refreshes once on visibility or focus', async () => {
+  const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
+  const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
+  mocks.api.mockResolvedValue(page([conversation('saved')]));
+  await render(); await request();
+  hidden.mockReturnValue(true);
+  await act(async () => { await vi.advanceTimersByTimeAsync(30000); });
+  expect(mocks.api).toHaveBeenCalledTimes(1);
+  hidden.mockReturnValue(false);
+  await act(async () => {
+    document.dispatchEvent(new Event('visibilitychange'));
+    window.dispatchEvent(new Event('focus'));
+  });
+  await request();
+  expect(mocks.api).toHaveBeenCalledTimes(2);
+  online.mockReturnValue(false);
+  await act(async () => { await vi.advanceTimersByTimeAsync(30000); window.dispatchEvent(new Event('focus')); });
+  await request();
+  expect(mocks.api).toHaveBeenCalledTimes(2);
+  online.mockReturnValue(true);
+  await act(async () => window.dispatchEvent(new Event('focus')));
+  await request();
+  expect(mocks.api).toHaveBeenCalledTimes(3);
+  await act(async () => root.unmount());
+  await act(async () => { await vi.advanceTimersByTimeAsync(30000); window.dispatchEvent(new Event('focus')); });
+  expect(mocks.api).toHaveBeenCalledTimes(3);
+});
 
 it('shows saved pages before requesting, then replaces them with the authoritative result including an empty list', async () => {
   records.set(key(), page([conversation('saved')], true));
@@ -134,16 +184,26 @@ it('keeps displayed metadata on timestamp ties after failure and accepts recover
   expect(result.rows).toEqual([recovered]); expect(result.cached).toBe(false);
 });
 
-it('retains rows during pagination, deduplicates page boundaries and drops pages after the new end', async () => {
-  mocks.api.mockResolvedValueOnce(page([conversation('first')], true)); await render(); await request();
+it('refreshes all loaded rows from one snapshot and replaces cached pages after reordering or removal', async () => {
+  const original = Array.from({ length: 120 }, (_, i) => conversation(`row-${i}`));
+  mocks.api.mockResolvedValueOnce(page(original.slice(0, 50), true)); await render(); await request();
   input.offset = 50;
   const second = deferred<ReturnType<typeof page>>();
-  mocks.api.mockResolvedValueOnce(page([conversation('first')], true)).mockReturnValueOnce(second.promise);
-  await render(); await request(); expect(result.rows.map(c => c.key)).toEqual(['first']); expect(result.busy).toBe(true);
-  await act(async () => second.resolve(page([conversation('first', 2), conversation('second')])));
-  expect(result.rows.map(c => c.key)).toEqual(['first', 'second']); expect(result.rows[0].updatedAt).toBe(2); expect(result.more).toBe(false);
-  version = '2'; mocks.api.mockResolvedValueOnce(page([])).mockResolvedValueOnce(page([conversation('obsolete-page')]));
-  await render(); await request(); expect(result.rows).toEqual([]); expect(result.more).toBe(false);
+  mocks.api.mockReturnValueOnce(second.promise);
+  await render(); await request(); expect(result.rows).toEqual(original.slice(0, 50)); expect(result.busy).toBe(true);
+  expect(mocks.api).toHaveBeenCalledTimes(2);
+  const params = new URL(mocks.api.mock.calls[1][0], 'https://fixture.invalid').searchParams;
+  expect(params.get('offset')).toBe('0'); expect(params.get('limit')).toBe('100');
+  const reordered = [original[119], ...original.slice(0, 99)];
+  await act(async () => second.resolve(page(reordered, true)));
+  expect(result.rows).toEqual(reordered); expect(result.more).toBe(true);
+  expect(records.get(key()).conversations).toEqual(reordered.slice(0, 50));
+  expect(records.get(key('', 50)).conversations).toEqual(reordered.slice(50));
+  version = '2'; mocks.api.mockResolvedValueOnce(page([original[119]]));
+  await render(); await request();
+  expect(result.rows).toEqual([original[119]]); expect(result.more).toBe(false);
+  expect(records.get(key()).hasMore).toBe(false);
+  expect(records.get(key('', 50))).toMatchObject({ conversations: [], hasMore: false });
 });
 
 it('keeps rows while plugin filters load and ignores the obsolete response', async () => {

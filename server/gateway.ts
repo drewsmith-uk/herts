@@ -251,7 +251,7 @@ export class Gateway extends EventEmitter {
     return { profile: this.profile, botChat: this.botChats(this.profile, id), id: this.ref(row._lineage_tip_id || row.id), key: this.ref(row._lineage_root_id || row.id), aliases: [...new Set<string>([row.id, row._lineage_root_id, ...(row._lineage_ids || [])].filter(Boolean))].map(id => this.ref(id)), title: row.title || 'Conversation', preview: '', source: row.source, updatedAt: (row.last_active || row.started_at || 0) * 1000 };
   }
   async search(query: string) {
-    const rows = await this.conversations(); if (!query) return rows;
+    const rows = await this.conversations(true); if (!query) return rows;
     const found = await this.http(`/api/sessions/search?profile=${encodeURIComponent(this.profile)}&limit=100&q=${encodeURIComponent(query)}&sources=${personalSources.join(',')}`);
     const hits = new Set((found.results || found.matches || []).flatMap((r: any) => [r.session_id, r.lineage_root]));
     return rows.filter(r => `${r.title} ${r.preview}`.toLowerCase().includes(query.toLowerCase()) || r.aliases.some(id => hits.has(parseConversationRef(id).id)));

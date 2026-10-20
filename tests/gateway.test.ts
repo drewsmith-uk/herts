@@ -3,6 +3,25 @@ import { Gateway, isPersonal } from '../server/gateway';
 import { mediaRefs, localMediaPath } from '../shared/media';
 import { messageText } from '../shared/model';
 describe('Desktop history and personal conversation projection', () => {
+  it('refreshes list metadata immediately while sharing concurrent reads', async () => {
+    const gateway = new Gateway('', '');
+    const old = { id: 'existing', source: 'desktop', title: 'Old title', preview: 'Old preview' };
+    const http = vi.spyOn(gateway, 'http').mockResolvedValue({ sessions: [old], total: 1 });
+    expect((await gateway.search(''))[0].title).toBe('Old title');
+    let resolve!: (value: any) => void;
+    http.mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+    const first = gateway.search(''), second = gateway.search('');
+    resolve({ sessions: [{ ...old, title: 'New title', preview: 'New preview' }, { id: 'new', source: 'desktop', title: 'New conversation' }], total: 2 });
+    const [a, b] = await Promise.all([first, second]);
+    expect(a).toEqual(b);
+    expect(a.map(row => row.title)).toEqual(['New title', 'New conversation']);
+    expect(a[0].preview).toBe('New preview');
+    expect(http).toHaveBeenCalledTimes(2);
+    http.mockRejectedValueOnce(new Error('Unavailable'));
+    await expect(gateway.search('')).rejects.toThrow('Unavailable');
+    http.mockResolvedValueOnce({ sessions: [], total: 0 });
+    expect(await gateway.search('')).toEqual([]);
+  });
   it('never forwards credentials through redirects or exposes a malformed response body', async () => {
     const fetch=vi.spyOn(globalThis,'fetch').mockResolvedValue(new Response('fixture-private-response-is-not-json',{status:200}));
     try {

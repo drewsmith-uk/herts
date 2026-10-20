@@ -72,13 +72,13 @@ export function useConversationList({ query, showAll, filterKey, offset }: Selec
       if (alive && !settled) setResult(old => old.rows.length ? old : { ...old, rows, cached: true });
     }).catch(() => { /* Storage is optional; continue loading from the server. */ });
     const timer = setTimeout(() => {
-      void Promise.all(offsets(offset).map(async offset => {
-        const value: Page = await api(`/conversations?q=${encodeURIComponent(query)}&offset=${offset}&includeLinked=true&includeHidden=${showAll}&filters=${encodeURIComponent(filterKey)}`, undefined, 'GET', 45000, controller.signal);
-        if (alive) await db.kv.put({ key: cacheKey(current, offset), value: { ...value, query } }).catch(() => {});
-        return value;
-      })).then(pages => {
+      void api(`/conversations?q=${encodeURIComponent(query)}&offset=0&limit=${offset + 50}&includeLinked=true&includeHidden=${showAll}&filters=${encodeURIComponent(filterKey)}`, undefined, 'GET', 45000, controller.signal).then(async (value: Page) => {
+        if (alive) await Promise.all(offsets(offset).map(start => db.kv.put({
+          key: cacheKey(current, start),
+          value: { conversations: value.conversations.slice(start, start + 50), hasMore: value.conversations.length > start + 50 || value.hasMore, query },
+        }).catch(() => {})));
         settled = true;
-        if (alive) setResult({ selection, rows: pageRows(pages), busy: false, cached: false, more: pages.every(page => page.hasMore), error: '' });
+        if (alive) setResult({ selection, rows: unique(value.conversations), busy: false, cached: false, more: value.hasMore, error: '' });
       }).catch(async (error: Error) => {
         settled = true;
         const saved = await savedConversations(current, true).catch(() => []);
@@ -93,9 +93,21 @@ export function useConversationList({ query, showAll, filterKey, offset }: Selec
   const current = result.selection === selection;
   const busy = !current || result.busy, cached = current && result.cached, error = current ? result.error : '';
   useEffect(() => {
-    if (busy || (!cached && !error) || !online) return;
-    const timer = setInterval(() => { if (!document.hidden && navigator.onLine) setRetry(n => n + 1); }, 8000);
-    return () => clearInterval(timer);
+    if (busy || !online) return;
+    let requested = false;
+    const refreshVisible = () => {
+      if (requested || document.hidden || !navigator.onLine) return;
+      requested = true;
+      setRetry(n => n + 1);
+    };
+    const timer = setInterval(refreshVisible, cached || error ? 8000 : 15000);
+    window.addEventListener('focus', refreshVisible);
+    document.addEventListener('visibilitychange', refreshVisible);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', refreshVisible);
+      document.removeEventListener('visibilitychange', refreshVisible);
+    };
   }, [busy, cached, error, online]);
   return { rows: current ? result.rows : [], busy, cached, error, more: current && result.more, refresh: () => setRetry(value => value + 1) };
 }

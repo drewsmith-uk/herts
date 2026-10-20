@@ -278,12 +278,14 @@ for (const action of ['apply', 'discard']) test(`reviews uncertain settings with
   await open(page);
   await page.getByLabel('Working folder', { exact: true }).fill('/projects/work');
   await page.getByRole('button', { name: 'Apply', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   uncertain = true;
   await page.reload();
   const editor = page.getByLabel(/^(Message Hermes|Add a task)$/);
   await editor.fill('Keep this draft during settings recovery.');
   const before = await writes(request);
   await open(page);
+  await expect(page.getByRole('button', { name: 'Discard pending changes', exact: true })).toBeVisible();
   const save = page.getByRole('button', { name: 'Save reviewed choices', exact: true });
   await expect(save).toBeDisabled();
   available = false;
