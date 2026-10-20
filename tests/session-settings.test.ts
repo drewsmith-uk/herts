@@ -123,6 +123,28 @@ describe('settings staged until Send', () => {
       : { ...await original(path), model_config: { provider: 'configured', reasoning_config: { effort: 'high' }, follow_profile_config: true } };
     expect(await actions.settings.view(id)).toMatchObject({ current: { model: gateway.profileValues.model, effort: 'medium' } });
   });
+  it.each([undefined, false])('preserves ordinary chats named Bot Chat with profile flag %s', async flag => {
+    const { store, gateway, actions, id, stage } = fixture(), original = gateway.http.bind(gateway);
+    store.saveContext({ ...store.context(id)!, title: 'Bot Chat' });
+    gateway.current.fast = true;
+    stage({ cwd: '/projects/new' });
+    gateway.http = async path => {
+      const row = await original(path);
+      return path.startsWith('/api/sessions/') ? { ...row, title: 'Bot Chat',
+        model_config: { ...JSON.parse(row.model_config), ...(flag === undefined ? {} : { follow_profile_config: flag }) } } : row;
+    };
+    expect(await actions.settings.view(id, true)).toMatchObject({ source: 'current', current: gateway.current,
+      pending: { baseline: gateway.current, values: { cwd: '/projects/new' } } });
+    expect(gateway.calls.some(c => c.method === 'HTTP GET' && c.params.startsWith('/api/config?'))).toBe(false);
+    expect(writes(gateway)).toEqual([]);
+  });
+  it('uses verified bot identity without depending on its title', async () => {
+    const { store, gateway, actions, id } = fixture();
+    store.saveContext({ ...store.context(id)!, botChat: true, title: 'Research assistant' });
+    expect(await actions.settings.view(id, true)).toMatchObject({ current: {
+      model: gateway.profileValues.model, effort: gateway.profileValues.effort, fast: gateway.profileValues.fast } });
+    expect(writes(gateway)).toEqual([]);
+  });
   it('preserves saved effort without requesting inherited defaults', async () => {
     const { gateway, actions, id } = fixture();
     expect((await actions.settings.view(id)).current.effort).toBe('high');

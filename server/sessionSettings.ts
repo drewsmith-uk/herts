@@ -93,7 +93,7 @@ export class SessionSettings {
     const row = await this.gateway.http(`/api/sessions/${encodeURIComponent(parseConversationRef(conversation.id).id)}?profile=${encodeURIComponent(this.gateway.profile)}`);
     if (row.id !== parseConversationRef(conversation.id).id || row.profile !== this.gateway.profile) throw new GatewayError('Conversation settings identity could not be verified.');
     const cfg = object(row.model_config), model = cfg.model || row.model;
-    return { values: sessionValues(row, true), modelName: typeof model === 'string' && model ? model : undefined, storedId: conversation.id, followsProfile: !!cfg.follow_profile_config || row.title === 'Bot Chat', composerProfile: cfg.composer_override_profile };
+    return { values: sessionValues(row, true), modelName: typeof model === 'string' && model ? model : undefined, storedId: conversation.id, followsProfile: cfg.follow_profile_config === true || context.botChat === true, composerProfile: cfg.composer_override_profile };
   }
   async view(id?: string, force = false): Promise<SettingsView> {
     const profile = id && this.store.context(id)?.profile;
