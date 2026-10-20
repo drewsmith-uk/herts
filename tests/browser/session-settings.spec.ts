@@ -16,7 +16,7 @@ for (const width of [390, 1280]) test(`stages actual conversation settings witho
   const before = await writes(request);
   await page.goto(`/#/conversation/settings-${width}`);
   await expect(settingsButton(page)).toContainText('existing-model');
-  await expect(settingsButton(page)).toContainText('High');
+  await expect(page.locator('.session-settings-effort')).toHaveText('high');
   await expect(page.locator('.session-settings-controls button')).toHaveCount(1);
   await page.getByLabel(/^(Message Hermes|Add a task)$/).focus();
   expect((await settingsButton(page).boundingBox())!.height).toBeGreaterThanOrEqual(44);
@@ -42,7 +42,7 @@ for (const width of [390, 1280]) test(`stages actual conversation settings witho
   expect(await writes(request)).toEqual(before);
   await page.reload();
   await expect(settingsButton(page)).toContainText('chosen-model');
-  await expect(settingsButton(page)).toContainText('Ultra');
+  await expect(page.locator('.session-settings-effort')).toHaveText('ultra fast');
   expect(await writes(request)).toEqual(before);
   await page.getByLabel(/^(Message Hermes|Add a task)$/).fill(`Send using selected settings ${width}`);
   await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
@@ -108,11 +108,11 @@ test('pending choices follow the same conversation through Reading and Tasks', a
   await page.getByLabel('Reasoning effort', { exact: true }).selectOption('low'); await page.getByRole('button', { name: 'Apply', exact: true }).click(); await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.getByRole('button', { name: 'Save to reading list: https://example.com/settings-shared', exact: true }).click();
   await page.getByRole('button', { name: 'Open reading item: https://example.com/settings-shared', exact: true }).click();
-  await expect(settingsButton(page)).toContainText('Low');
+  await expect(page.locator('.session-settings-effort')).toHaveText('low');
   await page.goto('/#/conversation/settings-shared'); await (await pageAction(page, 'button', 'Make a task')).click();
   await page.getByRole('button', { name: 'Create task', exact: true }).click();
   await expect(page).toHaveURL(/#\/task\//);
-  await expect(settingsButton(page)).toContainText('Low');
+  await expect(page.locator('.session-settings-effort')).toHaveText('low');
   await expect(page.locator('.session-settings-note').first()).toContainText('Applies on next Send');
   expect(await writes(request)).toEqual(before);
 });
@@ -124,7 +124,7 @@ test('offline choices survive reload and sync before the deliberate Send', async
   await expect(settingsButton(page)).toContainText('existing-model');
   await context.setOffline(true); await open(page); await page.getByLabel('Reasoning effort', { exact: true }).selectOption('low');
   await page.getByRole('button', { name: 'Apply', exact: true }).click(); await expect(page.getByRole('dialog')).toHaveCount(0); await expect(page.getByRole('dialog')).toHaveCount(0);
-  await page.reload(); await expect(settingsButton(page)).toContainText('Low');
+  await page.reload(); await expect(page.locator('.session-settings-effort')).toHaveText('low');
   await context.setOffline(false); await page.getByLabel(/^(Message Hermes|Add a task)$/).fill('Use settings saved offline'); await expect(page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true })).toBeEnabled();
   expect(await writes(request)).toEqual(before); await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
   await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
@@ -177,4 +177,125 @@ test('a late dictation transcript never starts an automatic send while choosing 
   await page.waitForTimeout(5500);
   expect(await writes(request)).toEqual(before);
   await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toHaveValue('Please draft a packing list.');
+});
+
+for (const width of [390, 1280]) test(`partial session settings retain the model and draft at ${width}px`, async ({ page, request }) => {
+  await page.setViewportSize({ width, height: 844 });
+  const before = await writes(request);
+  let failed = false;
+  await page.route('**/api/v1/session-settings?*', async route => {
+    if (failed) return route.fulfill({ status: 503, json: { error: 'Settings connection failed.' } });
+    const response = await route.fetch(), view = await response.json();
+    await route.fulfill({ json: { ...view, current: { cwd: '/projects/old' }, modelName: 'organisation/long-model-name-with-version-and-reasoning', sources: { model: 'saved', cwd: 'saved' }, source: 'unknown' } });
+  });
+  await page.goto(`/#/conversation/settings-${width}`);
+  await expect(settingsButton(page)).toContainText('organisation/long-model-name');
+  await expect(settingsButton(page)).toContainText('effort unknown');
+  await expect(page.locator('.session-settings-note').first()).toHaveText('Last saved');
+  const editor = page.getByLabel(/^(Message Hermes|Add a task)$/);
+  await editor.fill('Keep this draft while settings refresh.');
+  await open(page);
+  await expect(page.getByLabel('Conversation model', { exact: true }).locator('option:checked')).toContainText('organisation/long-model-name');
+  await page.getByLabel('Conversation model', { exact: true }).selectOption(model('chosen-model'));
+  await page.getByLabel('Reasoning effort', { exact: true }).selectOption('low');
+  failed = true;
+  await page.getByRole('button', { name: 'Refresh current settings', exact: true }).click();
+  await expect(page.getByLabel('Reasoning effort', { exact: true })).toHaveValue('low');
+  await expect(page.getByLabel('Conversation model', { exact: true })).toHaveValue(model('chosen-model'));
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(editor).toHaveValue('Keep this draft while settings refresh.');
+  await expect(settingsButton(page)).toBeFocused();
+  await expect(page.getByRole('button', { name: 'Refresh settings', exact: true })).toBeVisible();
+  failed = false;
+  await page.getByRole('button', { name: 'Refresh settings', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Refresh settings', exact: true })).toHaveCount(0);
+  const box = await settingsButton(page).boundingBox();
+  expect(box!.x).toBeGreaterThanOrEqual(0); expect(box!.x + box!.width).toBeLessThanOrEqual(width);
+  await page.screenshot({ path: `test-results/session-settings-partial-${width}.png`, fullPage: true });
+  expect(await writes(request)).toEqual(before);
+});
+
+
+test('older cached settings remain available when an online reload cannot read settings', async ({ page }) => {
+  let failed = false;
+  await page.route('**/api/v1/session-settings?*', async route => {
+    if (failed) return route.fulfill({ status: 503, json: { error: 'Settings connection failed.' } });
+    const response = await route.fetch(), view = await response.json();
+    const { sources, ...olderView } = view;
+    await route.fulfill({ json: { ...olderView, source: 'live' } });
+  });
+  await page.goto('/#/conversation/settings-offline');
+  await expect(settingsButton(page)).toContainText('existing-model');
+  await page.getByLabel(/^(Message Hermes|Add a task)$/).fill('Keep this draft after a failed settings read.');
+  failed = true;
+  await page.reload();
+  await expect(settingsButton(page)).toContainText('existing-model');
+  await expect(page.locator('.session-settings-note').first()).toHaveText('Last saved');
+  await expect(page.getByRole('button', { name: 'Refresh settings', exact: true })).toBeVisible();
+  await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toHaveValue('Keep this draft after a failed settings read.');
+  await open(page);
+  await expect(page.getByLabel('Conversation model', { exact: true }).locator('option:checked')).toContainText('existing-model');
+  await page.keyboard.press('Escape');
+});
+
+for (const width of [320, 390, 1280]) test(`settings status does not move the composer at ${width}px`, async ({ page, context }) => {
+  await page.setViewportSize({ width, height: 700 });
+  await page.route('**/api/v1/session-settings?*', async route => {
+    const response = await route.fetch(), view = await response.json();
+    await route.fulfill({ json: { ...view, source: 'live', sources: { model: 'live', effort: 'live' } } });
+  });
+  await page.goto('/#/conversation/settings-offline');
+  const editor = page.getByLabel(/^(Message Hermes|Add a task)$/);
+  await expect(settingsButton(page)).toContainText('existing-model');
+  await editor.fill('Keep this draft while the status changes.');
+  const status = page.locator('.session-settings-status');
+  await expect(status).toHaveText('');
+  const before = await editor.boundingBox(), buttonBefore = await settingsButton(page).boundingBox();
+  await context.setOffline(true);
+  await expect(status).toHaveText('Last saved');
+  expect(await editor.boundingBox()).toEqual(before);
+  expect(await settingsButton(page).boundingBox()).toEqual(buttonBefore);
+  const label = (await status.boundingBox())!;
+  expect(label.x).toBeGreaterThanOrEqual(buttonBefore!.x + buttonBefore!.width);
+  expect(label.x + label.width).toBeLessThanOrEqual(width);
+  await page.screenshot({ path: `test-results/session-settings-inline-${width}.png`, fullPage: true });
+  await context.setOffline(false);
+  await expect(status).toHaveText('');
+  expect(await editor.boundingBox()).toEqual(before);
+  await expect(editor).toHaveValue('Keep this draft while the status changes.');
+});
+
+for (const action of ['apply', 'discard']) test(`reviews uncertain settings without effort metadata before ${action}`, async ({ page, request }) => {
+  let uncertain = false, available = true;
+  await page.route('**/api/v1/session-settings?*', async route => {
+    const response = await route.fetch(), view = await response.json();
+    if (!uncertain) return route.fulfill({ json: view });
+    const { effort, ...current } = view.current;
+    await route.fulfill({ json: { ...view, current, uncertain, available, source: 'unknown', sources: { model: 'saved' }, models: view.models.map((model: any) => ({ ...model, reasoning: false })) } });
+  });
+  await page.goto(`/#/conversation/settings-recovery-${action}`);
+  await open(page);
+  await page.getByLabel('Working folder', { exact: true }).fill('/projects/work');
+  await page.getByRole('button', { name: 'Apply', exact: true }).click();
+  uncertain = true;
+  await page.reload();
+  const editor = page.getByLabel(/^(Message Hermes|Add a task)$/);
+  await editor.fill('Keep this draft during settings recovery.');
+  const before = await writes(request);
+  await open(page);
+  const save = page.getByRole('button', { name: 'Save reviewed choices', exact: true });
+  await expect(save).toBeDisabled();
+  available = false;
+  await page.getByRole('button', { name: 'Refresh current settings', exact: true }).click();
+  await expect(save).toBeDisabled();
+  available = true;
+  await page.getByRole('button', { name: 'Refresh current settings', exact: true }).click();
+  await expect(save).toBeEnabled();
+  const saved = page.waitForRequest(req => req.method() === 'POST' && /\/contexts\/[^/]+\/settings$/.test(req.url()));
+  await (action === 'apply' ? save : page.getByRole('button', { name: 'Discard pending changes', exact: true })).click();
+  expect((await saved).postDataJSON().reviewed).toBe(true);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(editor).toHaveValue('Keep this draft during settings recovery.');
+  expect(await writes(request)).toEqual(before);
 });

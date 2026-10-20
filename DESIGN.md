@@ -175,6 +175,9 @@ Use compact navigation at widths up to 1000px.
 Use the desktop sidebar above 1000px.
 Reading can show Article and Discussion together at widths of 1280px or more.
 Preserve drafts and reading positions when layouts change.
+Temporary status text must not move surrounding content when it appears, changes, or disappears.
+Reserve space beside the affected control, or use an overlay that does not cover controls.
+Keep status text short. Keep recovery actions visible and accessible.
 
 Check widths of 320px, 390px, 768px, and 1280px.
 Include short conversation viewports and the on-screen keyboard.

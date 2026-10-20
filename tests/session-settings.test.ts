@@ -29,6 +29,7 @@ class SettingsGateway extends EventEmitter {
   }
   async rpc(method: string, p: any): Promise<any> {
     this.calls.push({ method, params: p });
+    if (method === 'session.info') throw new GatewayError('Method not found', false, -32601);
     if (method === 'model.options') return { model: this.profileValues.model!.id, provider: this.profileValues.model!.provider, providers: [{ slug: 'configured', name: 'Configured provider', authenticated: true, models: this.models, capabilities: Object.fromEntries(this.models.map(id => [id, { reasoning: id !== 'simple-model', fast: id !== 'simple-model', can_disable_reasoning: true }])) }] };
     if (method === 'config.get') return p.key === 'reasoning' ? { value: this.profileValues.effort } : p.key === 'fast' ? { value: this.profileValues.fast ? 'fast' : 'normal' } : { cwd: this.profileValues.cwd };
     if (method === 'session.create') { this.current = { ...this.profileValues, ...(p.model ? { model: { id: p.model, provider: p.provider } } : {}), ...(p.reasoning_effort ? { effort: p.reasoning_effort } : {}), ...(p.fast !== undefined ? { fast: p.fast } : {}), ...(p.cwd ? { cwd: p.cwd } : {}) }; return { session_id: 'runtime', stored_session_id: 'stored', info: this.info() }; }
@@ -96,6 +97,121 @@ describe('settings staged until Send', () => {
     const original = gateway.http.bind(gateway); gateway.http = async path => ({ ...await original(path), model: null, cwd: null, model_config: { _usage_anchor: {} } });
     const view = await actions.settings.view(id);
     expect(view.source).toBe('unknown'); expect(view.current).toEqual({}); expect(view.profile.model).toEqual(gateway.profileValues.model); expect(writes(gateway)).toEqual([]);
+  });
+  it('shows a saved model without inventing a provider or effort', async () => {
+    const { gateway, actions, id } = fixture();
+    const original = gateway.http.bind(gateway);
+    gateway.http = async path => ({ ...await original(path), model_config: {} });
+    const view = await actions.settings.view(id);
+    expect(view.modelName).toBe('existing-model');
+    expect(view.current).toEqual({ cwd: '/projects/old' });
+    expect(view.sources).toEqual({ model: 'saved', cwd: 'saved' });
+    expect(view.source).toBe('unknown');
+    expect(writes(gateway)).toEqual([]);
+  });
+  it('prefers fresh saved settings after a failed live refresh', async () => {
+    const { gateway, actions, id, stage } = fixture();
+    stage({ effort: 'low' });
+    const original = gateway.rpc.bind(gateway);
+    let fail = false;
+    gateway.rpc = async (method, params) => {
+      if (method !== 'session.info') return original(method, params);
+      expect(params).toEqual({ session_id: 'stored', profile: 'research' });
+      if (fail) throw new GatewayError('Hermes is unreachable.');
+      return { ...gateway.info(), lazy: true, reasoning_effort: 'ultra' };
+    };
+    const live = await actions.settings.view(id);
+    expect(live).toMatchObject({ source: 'live', current: { effort: 'ultra' }, sources: { model: 'live', effort: 'live' } });
+    fail = true;
+    const cached = await actions.settings.view(id, true);
+    expect(cached).toMatchObject({ current: { effort: 'high' }, sources: { effort: 'saved' }, pending: { values: { effort: 'low' } }, error: 'Hermes is unreachable.' });
+    expect(writes(gateway)).toEqual([]);
+  });
+  it.each(['cache', 'observation'])('keeps newer saved values instead of a stale %s', async kind => {
+    const { store, gateway, actions, id } = fixture();
+    const original = gateway.rpc.bind(gateway);
+    if (kind === 'cache') {
+      gateway.rpc = async (method, params) => method === 'session.info' ? gateway.info() : original(method, params);
+      await actions.settings.view(id);
+      gateway.rpc = original;
+    } else {
+      const binding = { runtimeId: 'runtime', storedId: 'stored', epoch: gateway.epoch, generation: randomUUID(), seq: 0, ready: true, monitored: true, known: true };
+      store.saveBinding(id, binding);
+      actions.settings.observe(id, gateway.info(), binding);
+      actions.settings.observed.get(id)!.at = Date.now() - 60_000;
+    }
+    gateway.current.effort = 'low'; gateway.current.fast = true;
+    expect(await actions.settings.view(id)).toMatchObject({ current: { effort: 'low', fast: true }, sources: { effort: 'saved', fast: 'saved' } });
+    gateway.current.model = { id: 'existing-model', provider: 'other-provider' };
+    delete gateway.current.effort;
+    const view = await actions.settings.view(id);
+    expect(view.current.model?.provider).toBe('other-provider');
+    expect(view.current.effort).toBeUndefined();
+    expect(writes(gateway)).toEqual([]);
+  });
+  it('does not let a working folder confirm missing model settings', async () => {
+    const { gateway, actions, id } = fixture();
+    const original = gateway.http.bind(gateway);
+    gateway.http = async path => ({ ...await original(path), model: null, model_config: {} });
+    expect(await actions.settings.view(id)).toMatchObject({ source: 'unknown', sources: { cwd: 'saved' } });
+  });
+  it('rejects another profile and does not replace settings with profile defaults', async () => {
+    const { gateway, actions, id } = fixture();
+    const original = gateway.rpc.bind(gateway);
+    gateway.rpc = async (method, params) => method === 'session.info' ? { ...gateway.info(), profile_name: 'other', model: 'wrong' } : original(method, params);
+    expect(await actions.settings.view(id)).toMatchObject({ modelName: 'existing-model', sources: { model: 'saved' }, error: 'Conversation settings identity could not be verified.' });
+  });
+  it('keeps the newest concurrent read for recovery', async () => {
+    const { gateway, actions, id } = fixture();
+    const original = gateway.rpc.bind(gateway);
+    const replies: ((value: any) => void)[] = [];
+    gateway.rpc = async (method, params) => method === 'session.info' ? new Promise(resolve => replies.push(resolve)) : original(method, params);
+    const first = actions.settings.view(id);
+    await expect.poll(() => replies.length).toBe(1);
+    const second = actions.settings.view(id);
+    await expect.poll(() => replies.length).toBe(2);
+    replies[1]({ ...gateway.info(), reasoning_effort: 'ultra' }); await second;
+    replies[0]({ ...gateway.info(), reasoning_effort: 'low' }); await first;
+    gateway.rpc = original; delete gateway.current.effort;
+    expect(await actions.settings.view(id)).toMatchObject({ current: { effort: 'ultra' }, sources: { effort: 'last-known' } });
+  });
+  it('shows a confirmed model switch before saved metadata catches up', async () => {
+    const { store, gateway, actions, id } = fixture();
+    const binding = { runtimeId: 'runtime', storedId: 'stored', epoch: gateway.epoch, generation: randomUUID(), seq: 0, ready: true, monitored: true, known: true };
+    store.saveBinding(id, binding);
+    actions.settings.observe(id, { ...gateway.info(), model: 'chosen-model', reasoning_effort: 'low' }, binding);
+    expect(await actions.settings.view(id)).toMatchObject({ modelName: 'chosen-model', current: { model: { id: 'chosen-model', provider: 'configured' }, effort: 'low' }, sources: { model: 'live', effort: 'live' } });
+    expect(writes(gateway)).toEqual([]);
+  });
+  it('retains observed effort after fifteen seconds and through a disconnect', async () => {
+    const { store, gateway, actions, id } = fixture();
+    const binding = { runtimeId: 'runtime', storedId: 'stored', epoch: gateway.epoch, generation: randomUUID(), seq: 0, ready: true, monitored: true, known: true };
+    store.saveBinding(id, binding);
+    actions.settings.observe(id, { ...gateway.info(), reasoning_effort: 'ultra' }, binding);
+    actions.settings.observed.get(id)!.at = Date.now() - 60_000;
+    gateway.online = false; delete gateway.current.effort;
+    expect(await actions.settings.view(id)).toMatchObject({ current: { effort: 'ultra' }, sources: { effort: 'last-known' } });
+    expect(writes(gateway)).toEqual([]);
+  });
+  it('retains confirmed values when the stored metadata read fails', async () => {
+    const { gateway, actions, id } = fixture();
+    const original = gateway.rpc.bind(gateway);
+    gateway.rpc = async (method, params) => method === 'session.info' ? gateway.info() : original(method, params);
+    await actions.settings.view(id);
+    gateway.http = async () => { throw new GatewayError('Hermes is unreachable.'); };
+    const view = await actions.settings.view(id);
+    expect(view).toMatchObject({ current: gateway.current, sources: { model: 'last-known', effort: 'last-known' }, error: 'Hermes is unreachable.' });
+  });
+  it('does not retain effort from a different saved model', async () => {
+    const { gateway, actions, id } = fixture();
+    const original = gateway.rpc.bind(gateway);
+    gateway.rpc = async (method, params) => method === 'session.info' ? gateway.info() : original(method, params);
+    await actions.settings.view(id);
+    gateway.rpc = original;
+    const http = gateway.http.bind(gateway);
+    gateway.http = async path => ({ ...await http(path), model: 'external-model', model_config: {} });
+    const view = await actions.settings.view(id);
+    expect(view.modelName).toBe('external-model'); expect(view.current.effort).toBeUndefined();
   });
   it('applies only on Send, preserves dependent choices, and keeps them for later messages', async () => {
     const { store, gateway, actions, stage, send, id } = fixture();
