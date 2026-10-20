@@ -94,7 +94,7 @@ test('creating a space in the modal offline retains it and its tasks after reloa
     await page.getByRole('button', { name: 'Create space', exact: true }).click(); const dialog = page.getByRole('dialog');
     await dialog.getByLabel('New space name').fill('Offline tab space'); await dialog.getByRole('button', { name: 'Create space', exact: true }).click();
     await expect(page.getByRole('navigation', { name: 'Task spaces' }).getByRole('link', { name: 'Offline tab space', exact: true })).toHaveAttribute('aria-current', 'page');
-    await page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true }).fill('Offline space task'); await page.getByRole('button', { name: 'Save to Inbox', exact: true }).click();
+    await page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true }).fill('Offline space task'); await page.getByRole('button', { name: 'Save only', exact: true }).click();
     await expect(page.getByRole('link', { name: 'Offline space task', exact: true })).toBeVisible(); await page.reload();
     await expect(page.getByRole('link', { name: 'Offline space task', exact: true })).toBeVisible();
   } finally { await context.setOffline(false); }

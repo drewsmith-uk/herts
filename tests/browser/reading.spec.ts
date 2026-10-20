@@ -2,7 +2,8 @@ import { pageAction, closePageActions } from './composer-helpers';
 import { saveTitle, detailsField, detailsControl } from './composer-helpers';
 import { test, expect, type Page } from '@playwright/test';
 const calls = async (request: any) => (await (await request.get('http://127.0.0.1:8791/calls')).json() as string[]).filter(m => ['session.create','session.resume','prompt.submit'].includes(m));
-async function add(page: Page, title: string) { await page.goto('/#/reading/add'); await expect(page.locator('.save-state')).toContainText('Changes synced'); await closePageActions(page); await page.getByLabel(/^(Message Hermes|Add a task)$/, {exact:true}).fill(`https://example.com/${encodeURIComponent(title)}`); await (await detailsField(page, 'Reading title')).fill(title); await page.getByRole('button',{name:/^(Send|Send to Hermes)$/,exact:true}).click(); await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete'); }
+// Wait for the downloaded title before editing it to avoid a rename conflict.
+async function add(page: Page, title: string) { await page.goto('/#/reading/add'); await expect(page.locator('.save-state')).toContainText('Changes synced'); await closePageActions(page); await page.getByLabel(/^(Message Hermes|Add a task)$/, {exact:true}).fill(`https://example.com/${encodeURIComponent(title)}`); await page.getByRole('button',{name:/^(Send|Send to Hermes)$/,exact:true}).click(); await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete'); const titleField = await detailsField(page, 'Reading title'); await expect(titleField).toHaveValue('Fixture article'); await titleField.fill(title); await saveTitle(page); }
 
 test('phone reading capture sends only its raw URL, keeps conversation visible, and makes an independent task', async ({page,request}) => {
   await page.setViewportSize({width:390,height:844}); const before = await calls(request);
@@ -12,7 +13,7 @@ test('phone reading capture sends only its raw URL, keeps conversation visible, 
   await expect(page.locator('.offline-controls')).toContainText('Available offline');
   await expect(page.getByRole('link',{name:'Settings',exact:true})).toBeInViewport();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.goto('/#/conversations'); await page.getByRole('checkbox', { name: 'Show all', exact: true }).check(); await expect(page.getByRole('link',{name:/Read this on phone/})).toBeVisible();
+  await page.goto('/#/conversations'); await page.getByRole('checkbox', { name: 'Show all', exact: true }).check(); await expect(page.getByRole('link',{name:/Read%20this%20on%20phone/})).toBeVisible();
   await page.goto(readingUrl); await expect((await detailsControl(page, 'link', 'Open original'))).toHaveAttribute('href','https://example.com/Read%20this%20on%20phone');
   await (await pageAction(page, 'button', 'Make a task')).click(); await page.getByRole('button',{name:'Create task',exact:true}).click();
   await expect((await detailsField(page, 'Task title'))).toHaveValue('Read this on phone');
@@ -68,7 +69,7 @@ test('Android share confirmation saves offline and reconnecting never sends', as
   await page.goto('/share?title=Shared%20story&text=Read%20https%3A%2F%2Fexample.com%2Fshared-offline');
   await page.getByRole('button',{name:'Reading',exact:true}).click();
   await expect(page.getByLabel(/^(Message Hermes|Add a task)$/, {exact:true})).toHaveValue('Read https://example.com/shared-offline');
-  await page.getByRole('button',{name:'Save link',exact:true}).click(); await page.getByRole('link',{name:'Shared story',exact:true}).click(); await expect(page).toHaveURL(/#\/reading-item\/[0-9a-f-]+$/); await expect((await detailsField(page, 'Reading title'))).toHaveValue('Shared story'); const url = page.url();
+  await page.getByRole('button',{name:'Save only',exact:true}).click(); await page.getByRole('link',{name:'Shared story',exact:true}).click(); await expect(page).toHaveURL(/#\/reading-item\/[0-9a-f-]+$/); await expect((await detailsField(page, 'Reading title'))).toHaveValue('Shared story'); const url = page.url();
   await page.reload(); await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toHaveValue('Read https://example.com/shared-offline');
   await context.setOffline(false); await expect(page.locator('.save-state')).toContainText('Changes synced'); expect(await calls(request)).toEqual(before);
   await page.getByRole('button',{name:/^(Send|Send to Hermes)$/,exact:true}).click(); await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
@@ -86,7 +87,7 @@ test('a multi-link share requires choosing one and cancel starts no work', async
   await page.goto('/share?text=https%3A%2F%2Fexample.com%2Fa%20https%3A%2F%2Fexample.com%2Fb');
   await page.getByRole('button',{name:'Reading',exact:true}).click();
   await expect(page.getByRole('radio')).toHaveCount(2); await expect(page.getByLabel(/^(Message Hermes|Add a task)$/, {exact:true})).toHaveValue('https://example.com/a https://example.com/b');
-  await page.getByRole('button',{name:'Save link',exact:true}).click(); await expect(page.getByRole('alert')).toContainText('Choose which link');
+  await page.getByRole('button',{name:'Save only',exact:true}).click(); await expect(page.getByRole('alert')).toContainText('Choose which link');
   await page.getByRole('radio').last().check(); await expect(page.getByLabel(/^(Message Hermes|Add a task)$/, {exact:true})).toHaveValue('https://example.com/a https://example.com/b');
   await page.getByRole('link',{name:'Reading list',exact:true}).click(); await expect(page).toHaveURL(/#\/reading$/); expect(await calls(request)).toEqual(before);
 });
@@ -126,7 +127,7 @@ test('a lost Send acknowledgement is recovered without repeating the conversatio
     const response = await route.fetch(); if (!interrupted) { interrupted = true; await route.abort('failed'); } else await route.fulfill({response});
   });
   await page.goto('/#/reading/add'); await expect(page.locator('.save-state')).toContainText('Changes synced');
-  await closePageActions(page); await page.getByLabel(/^(Message Hermes|Add a task)$/, {exact:true}).fill('https://example.com/lost-reading-receipt'); await (await detailsField(page, 'Reading title')).fill('Lost reading receipt');
+  await closePageActions(page); await page.getByLabel(/^(Message Hermes|Add a task)$/, {exact:true}).fill('https://example.com/lost-reading-receipt');
   await page.getByRole('button',{name:/^(Send|Send to Hermes)$/,exact:true}).click(); await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
   await page.reload(); await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
   expect((await calls(request)).slice(before.length)).toEqual(['session.create','prompt.submit']);

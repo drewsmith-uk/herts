@@ -5,24 +5,55 @@ import { test, expect } from '@playwright/test';
 import { pinnedPlugin, pinnedReady, seedPin } from './pinned-helpers';
 import { builtinThemes, themeStorageKey } from '../../shared/themeValues';
 
+test('model settings wrap only when the available width requires it', async ({ page }) => {
+  await page.route('**/api/v1/session-settings?*', async route => {
+    const response = await route.fetch();
+    const view = await response.json();
+    view.current = { ...view.current, model: { provider: 'configured', id: 'gpt-6.1-sol' }, effort: 'medium', fast: true };
+    delete view.wireEffort;
+    await route.fulfill({ response, json: view });
+  });
+  for (const width of [320, 390, 768, 1280]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto('/#/conversation/existing');
+    await page.getByRole('textbox', { name: 'Message Hermes', exact: true }).click();
+    const button = page.locator('.session-settings-button');
+    await expect(button).toContainText('gpt-6.1-sol');
+    await expect(button.locator('.session-settings-effort')).toHaveText('medium · fast');
+    const model = (await button.locator('.session-settings-model').boundingBox())!;
+    const effort = (await button.locator('.session-settings-effort').boundingBox())!;
+    if (width >= 390) expect(effort.y).toBe(model.y);
+    else expect(effort.y).toBeGreaterThan(model.y);
+    expect(await button.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await page.screenshot({ path: `test-results/model-settings-wrap-${width}.png` });
+    await button.focus();
+    await expect(button).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('dialog', { name: 'Conversation settings', exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(button).toBeFocused();
+  }
+});
+
 async function bots(request: import('@playwright/test').APIRequestContext, action: 'enable' | 'disable') {
   const { catalogue } = await (await request.get('/api/v1/plugins')).json();
   expect((await request.post('/api/v1/plugins/bots/manage', { headers: { 'x-herts-request': '1' }, data: { action, revision: catalogue.revision } })).ok()).toBe(true);
 }
 test.afterEach(async ({ page, request }) => { await page.unrouteAll({ behavior: 'wait' }); await bots(request, 'disable'); await pinnedPlugin(request, 'disable'); });
 
-for (const missing of ['PageHeader', 'DragHandle', 'DragPreview', 'ComposerPlaceholder']) test(`an app without ${missing} gets an actionable plugin update message`, async ({ page }) => {
+for (const missing of ['PageHeader', 'DragHandle', 'DragPreview', 'ComposerPlaceholder', 'captureLayout']) test(`an app without ${missing} gets an actionable plugin update message`, async ({ page }) => {
   await page.addInitScript(missing => {
     Object.defineProperty(globalThis, '__HERTS_PLUGIN_RUNTIME__', {
       configurable: true,
       set(runtime) {
-        Object.defineProperty(globalThis, '__HERTS_PLUGIN_RUNTIME__', { configurable: true, writable: true, value: { ...runtime, sdk: { ...runtime.sdk, [missing]: undefined } } });
+        Object.defineProperty(globalThis, '__HERTS_PLUGIN_RUNTIME__', { configurable: true, writable: true, value: { ...runtime, sdk: { ...runtime.sdk, ...(missing === 'captureLayout' ? { composerCapabilities: { ...runtime.sdk.composerCapabilities, captureLayout: undefined } } : { [missing]: undefined }) } } });
       },
     });
   }, missing);
   await page.goto('/#/settings/plugins');
   await expect(page.getByText('Update Herts in Settings → App updates to use this version of Tasks.', { exact: true })).toBeVisible();
-  await expect(page.getByText('Update Herts in Settings → App updates to use this version of Reading.', { exact: true })).toBeVisible();
+  if (missing !== 'captureLayout') await expect(page.getByText('Update Herts in Settings → App updates to use this version of Reading.', { exact: true })).toBeVisible();
   await page.goto('/#/settings'); await openSettingsGroups(page);
   await expect(page.getByRole('button', { name: 'Check for updates', exact: true })).toBeVisible();
 });
@@ -552,16 +583,29 @@ for (const theme of builtinThemes) test(`${theme.name}: refined capture and read
     await page.screenshot({path:`test-results/refined-${theme.id}-tasks-${width}.png`});
     await page.getByRole('textbox', { name: 'Add a task', exact: true }).fill('A draft with https://example.com/' + 'long-reference/'.repeat(15));
     const capture = page.locator('.composer-capture');
+    await expect(capture.locator('.primary-button')).toHaveText('Send to Hermes');
+    expect((await capture.locator('.primary-button').boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await expect(capture.getByRole('button', { name: 'Save only', exact: true })).not.toHaveClass(/primary-button/);
+    const saveButton = capture.getByRole('button', { name: 'Save only', exact: true });
+    const sendButton = capture.getByRole('button', { name: 'Send to Hermes', exact: true });
+    expect((await saveButton.boundingBox())!.x).toBeLessThan((await sendButton.boundingBox())!.x);
+    await saveButton.focus();
+    await page.keyboard.press('Tab');
+    await expect(sendButton).toBeFocused();
     await expect(capture.locator('details')).toHaveCount(0);
     await expect(capture.locator('.capture-destination')).toHaveCount(0);
     const titleField = capture.getByRole('textbox', { name: 'New task title', exact: true });
-    await expect(titleField).toBeVisible();
-    await titleField.fill('A long optional task title '.repeat(20));
-    await titleField.focus();
-    await expect(titleField).toBeFocused();
+    await expect(titleField).toHaveCount(0);
     await expect(capture.getByRole('button', { name: /^Conversation settings:/ })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({path:`test-results/capture-open-${theme.id}-${width}.png`});
+    await page.goto('/#/reading/add');
+    await page.getByLabel('Message Hermes', { exact: true }).fill('Reading notes\nhttps://example.com/' + 'long-reference/'.repeat(15) + '\nhttps://example.com/second');
+    await expect(page.getByLabel('Reading title', { exact: true })).toHaveCount(0);
+    await page.getByRole('radio').last().check();
+    await expect(page.getByRole('radio').last()).toBeChecked();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({path:`test-results/reading-capture-open-${theme.id}-${width}.png`});
     await page.goto(`/#/reading-item/${itemId}`);
     await expect(page.getByRole('link',{name:'Article',exact:true})).toBeVisible();
     await page.getByRole('textbox',{name:/^(Message Hermes|Add a task)$/,exact:true}).fill('A discussion draft with a long URL https://example.com/'+'long-path/'.repeat(20));

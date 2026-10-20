@@ -18,7 +18,7 @@ test('removing the original space preserves the new default and legacy navigatio
   await expect(page.locator('input[name=default-space]:checked')).toHaveValue(spaceId);
   await page.goto('/#/tasks/inbox');
   await page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ }).fill('Capture after original removal');
-  await page.getByRole('button', { name: 'Save to Inbox', exact: true }).click();
+  await page.getByRole('button', { name: 'Save only', exact: true }).click();
   await expect(page.getByRole('link', { name: 'Capture after original removal', exact: true })).toBeVisible();
   const snapshot = (await (await request.get('/api/v1/state')).json()).snapshot;
   expect(snapshot.spaces.map((s: { id: string }) => s.id)).toEqual([spaceId]);

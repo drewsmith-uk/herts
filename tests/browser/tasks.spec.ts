@@ -1,7 +1,7 @@
 import { pageAction, closePageActions } from './composer-helpers';
 import { saveTitle, detailsField, detailsControl } from './composer-helpers';
 import { test, expect, type Page } from '@playwright/test';
-async function capture(page: Page, title: string) { await page.goto('/'); await page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ }).fill(title); await page.getByRole('button', { name: 'Save to Inbox', exact: true }).click(); await expect(page.getByRole('link', { name: title, exact: true })).toBeVisible(); await expect(page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ })).toHaveValue(''); }
+async function capture(page: Page, title: string) { await page.goto('/'); await page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ }).fill(title); await page.getByRole('button', { name: 'Save only', exact: true }).click(); await expect(page.getByRole('link', { name: title, exact: true })).toBeVisible(); await expect(page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ })).toHaveValue(''); }
 test('phone capture, title editing, priority, completion and offline reload', async ({ page, context }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await capture(page, 'Book the train'); await capture(page, 'Prepare for Friday');

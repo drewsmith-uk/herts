@@ -12,7 +12,7 @@ test('an empty task list stays usable when its last item is completed', async ({
   await expect(page.locator('.list-summary')).toHaveCount(0);
   const listUrl = page.url();
   await page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true }).fill('The last task');
-  await page.getByRole('button', { name: 'Save to Inbox', exact: true }).click();
+  await page.getByRole('button', { name: 'Save only', exact: true }).click();
   await page.getByRole('button', { name: 'Complete The last task', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'A clear Inbox', exact: true })).toBeVisible();
   await expect(page.locator('.list-summary')).toHaveCount(0);

@@ -10,8 +10,8 @@ async function expectFocusFits(control: Locator) {
   await control.focus();
   await expect(control).toBeFocused();
   const result = await control.evaluate(node => {
-    // Shared search fields draw their focus ring around the whole control.
-    const ringOwner=node.closest('.search-field') || node;
+    // Search fields and composers show focus indicators around the complete control.
+    const ringOwner=node.closest('.search-field') || (node.matches('textarea') && node.closest('.composer')) || node;
     const style = getComputedStyle(ringOwner), rect = ringOwner.getBoundingClientRect();
     const outset = Math.max(0, parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset));
     const ring = { left: rect.left - outset, right: rect.right + outset, top: rect.top - outset, bottom: rect.bottom + outset };
@@ -56,11 +56,10 @@ for (const theme of builtinThemes) test(`${theme.name}: title and scrollable con
     }
     for (const [path, label] of [['/tasks/inbox', 'New task title'], ['/reading/add', 'Reading title']]) {
       await page.goto('/#' + path);
-      // focus() does not wait for the draft to load. A disabled editor ignores
-      // focus and leaves the phone's optional fields inside a closed composer.
       await expect(page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true })).toBeEditable();
       await page.getByLabel(/^(Message Hermes|Add a task)$/,  { exact: true }).focus();
-      await expectFocusFits(await detailsField(page, label));
+      await expect(page.getByLabel(label, { exact: true })).toHaveCount(0);
+      await expectFocusFits(page.getByLabel(/^(Message Hermes|Add a task)$/, { exact: true }));
     }
     await page.goto('/#/settings');
     await page.keyboard.press('Tab');
