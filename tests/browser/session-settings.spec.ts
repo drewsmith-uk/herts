@@ -301,3 +301,35 @@ for (const action of ['apply', 'discard']) test(`reviews uncertain settings with
   await expect(editor).toHaveValue('Keep this draft during settings recovery.');
   expect(await writes(request)).toEqual(before);
 });
+
+for (const width of [390, 1280]) test(`current settings refresh preserves drafts through failure at ${width}px`, async ({ page, request }) => {
+  await page.setViewportSize({ width, height: 844 });
+  const before = await writes(request);
+  let failed = false;
+  await page.route('**/api/v1/session-settings?*', async route => {
+    if (failed) return route.fulfill({ status: 503, json: { error: 'Settings connection failed.' } });
+    const response = await route.fetch(), view = await response.json();
+    await route.fulfill({ json: { ...view, source: 'current', sources: { model: 'current', effort: 'current', fast: 'current', cwd: 'current' } } });
+  });
+  await page.goto('/#/conversation/settings-offline');
+  await expect(settingsButton(page)).toContainText('existing-model');
+  await expect(page.locator('.session-settings-status')).toHaveText('');
+  const editor = page.getByLabel(/^(Message Hermes|Add a task)$/);
+  await editor.fill('Preserve this draft during a settings refresh.');
+  await page.screenshot({ path: `test-results/settings-current-${width}.png`, fullPage: true });
+  await open(page);
+  failed = true;
+  await page.getByRole('button', { name: 'Refresh current settings', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('Settings could not be refreshed. Try again.');
+  await expect(page.getByRole('button', { name: 'Refresh current settings', exact: true })).toBeEnabled();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).not.toBeVisible();
+  await expect(page.locator('.session-settings-status')).toHaveText('Last saved');
+  await expect(editor).toHaveValue('Preserve this draft during a settings refresh.');
+  await page.screenshot({ path: `test-results/settings-current-failed-${width}.png`, fullPage: true });
+  failed = false;
+  await page.getByRole('button', { name: 'Refresh settings', exact: true }).click();
+  await expect(page.locator('.session-settings-status')).toHaveText('');
+  await expect(editor).toHaveValue('Preserve this draft during a settings refresh.');
+  expect(await writes(request)).toEqual(before);
+});
