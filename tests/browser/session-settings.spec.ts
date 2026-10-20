@@ -320,7 +320,10 @@ for (const width of [390, 1280]) test(`current settings refresh preserves drafts
   await open(page);
   failed = true;
   await page.getByRole('button', { name: 'Refresh current settings', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('Settings could not be refreshed. Try again.');
+  await expect(page.getByRole('button', { name: 'Refresh current settings', exact: true })).toBeEnabled();
   await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).not.toBeVisible();
   await expect(page.locator('.session-settings-status')).toHaveText('Last saved');
   await expect(editor).toHaveValue('Preserve this draft during a settings refresh.');
   await page.screenshot({ path: `test-results/settings-current-failed-${width}.png`, fullPage: true });
