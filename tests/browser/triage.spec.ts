@@ -188,9 +188,9 @@ test('hiding on a later page preserves loaded conversations and the reading posi
   const rows = Array.from({ length: 70 }, (_, i) => ({ id: `page-${i}`, key: `page-${i}`, aliases: [`page-${i}`], title: `Page conversation ${i}`, preview: 'Available history', source: 'desktop', updatedAt: Date.now() - i }));
   await page.route('**/api/v1/conversations?*', async route => {
     const state = await (await request.get('/api/v1/state')).json();
-    const url = new URL(route.request().url()), offset = Number(url.searchParams.get('offset'));
+    const url = new URL(route.request().url()), offset = Number(url.searchParams.get('offset')), limit = Number(url.searchParams.get('limit') || 50);
     const visible = rows.filter(c => url.searchParams.get('includeHidden') === 'true' || !state.snapshot.hiddenConversations.includes(c.key));
-    await route.fulfill({ json: { conversations: visible.slice(offset, offset + 50), hasMore: visible.length > offset + 50, total: visible.length } });
+    await route.fulfill({ json: { conversations: visible.slice(offset, offset + limit), hasMore: visible.length > offset + limit, total: visible.length } });
   });
   try {
     await page.goto('/#/conversations'); await expect(page.locator('.conversation-row')).toHaveCount(50);
@@ -214,7 +214,7 @@ test('loading plugin filters preserves the requested conversation page depth',as
  const rows=Array.from({length:70},(_,i)=>({id:`filter-page-${i}`,key:`filter-page-${i}`,aliases:[`filter-page-${i}`],title:`Filter page ${i}`,preview:'Synthetic history',source:'desktop',updatedAt:Date.now()-i}));
  let release!:()=>void;const gate=new Promise<void>(resolve=>release=resolve);
  await page.route('**/_plugins/tasks/**/client.js',async route=>{await gate;await route.continue();});
- await page.route('**/api/v1/conversations?*',route=>{const offset=Number(new URL(route.request().url()).searchParams.get('offset'));return route.fulfill({json:{conversations:rows.slice(offset,offset+50),hasMore:offset===0,total:70}});});
+ await page.route('**/api/v1/conversations?*',route=>{const params=new URL(route.request().url()).searchParams,offset=Number(params.get('offset')),limit=Number(params.get('limit')||50);return route.fulfill({json:{conversations:rows.slice(offset,offset+limit),hasMore:rows.length>offset+limit,total:rows.length}});});
  try{await page.goto('/#/conversations');await expect(page.locator('.conversation-row')).toHaveCount(50);await page.getByRole('button',{name:'Load more conversations'}).click();await expect(page.locator('.conversation-row')).toHaveCount(70);release();await expect(page.locator('.sidebar').getByRole('link',{name:'Reading',exact:true})).toBeVisible();await expect(page.locator('.conversation-row')).toHaveCount(70);await expect(page.getByRole('button',{name:'Load more conversations'})).toHaveCount(0);}
  finally{release();await page.unrouteAll({behavior:'wait'});}
 });

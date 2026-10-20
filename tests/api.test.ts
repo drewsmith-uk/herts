@@ -276,6 +276,12 @@ describe('private API and upload recovery', () => {
     expect(first.conversations[0].key).toBe('root-6');
     const last = (await app.inject('/api/v1/conversations?offset=50')).json();
     expect(last.conversations.map((c: Conversation) => c.key)).toEqual(['root-56', 'root-57', 'root-58', 'root-59']); expect(last.hasMore).toBe(false);
+    const range = (await app.inject('/api/v1/conversations?limit=100')).json();
+    expect(range.conversations).toEqual([...first.conversations, ...last.conversations]);
+    expect(range.hasMore).toBe(false);
+    for (const limit of ['0', '-1', '1.5', '100001', 'invalid']) {
+      expect((await app.inject(`/api/v1/conversations?limit=${limit}`)).statusCode).toBe(400);
+    }
     expect((await app.inject('/api/v1/conversations?includeHidden=true')).json().total).toBe(58);
     expect((await app.inject('/api/v1/conversations?includeLinked=true')).json().total).toBe(55);
     expect((await app.inject('/api/v1/conversations?includeHidden=true&includeLinked=true')).json().total).toBe(60);
