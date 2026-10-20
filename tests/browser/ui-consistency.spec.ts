@@ -847,6 +847,13 @@ for (const theme of builtinThemes) for (const width of [320, 390, 768, 1280]) te
       const nav = page.locator('.mobile-nav');
       await expect(nav).toBeHidden();
       if (width <= 1000) expect(await page.locator('main').evaluate(e => getComputedStyle(e).paddingBottom)).toBe('0px');
+      const settings = (await page.locator('.session-settings-button').boundingBox())!;
+      const input = (await page.locator('.composer').boundingBox())!;
+      const focusExtent = await page.locator('.composer').evaluate(element => {
+        const style = getComputedStyle(element);
+        return parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset);
+      });
+      expect(input.y - focusExtent - settings.y - settings.height).toBeGreaterThanOrEqual(4);
       const composer = (await page.locator('.composer-wrap').boundingBox())!;
       expect(composer.y + composer.height).toBeLessThanOrEqual(height);
       for (const selector of ['.composer-settings-row', '.composer textarea', '.composer-tools']) {
@@ -855,7 +862,9 @@ for (const theme of builtinThemes) for (const width of [320, 390, 768, 1280]) te
         expect(control.y + control.height).toBeLessThanOrEqual(composer.y + composer.height);
         expect(control.y + control.height).toBeLessThanOrEqual(height);
       }
-      expect(await page.locator('.composer-wrap').evaluate(e => e.scrollHeight - e.clientHeight)).toBeLessThanOrEqual(1);
+      for (const overflow of await page.locator('.composer-wrap, .composer-settings-row, .composer-expanded, .composer, .composer-tools').evaluateAll(elements => elements.map(element => element.scrollHeight - element.clientHeight))) {
+        expect(overflow).toBeLessThanOrEqual(1);
+      }
       await page.screenshot({ path: `test-results/keyboard-hidden-${theme.id}-${path.split('/')[1]}-${width}-${height}.png` });
       await page.evaluate(() => {
         delete (window.visualViewport as any).height;

@@ -8,7 +8,10 @@ export interface SettingsRecord { revision: number; values: SessionValues; basel
 export interface SettingsState { defaults: SettingsRecord; conversations: Record<string, SettingsRecord> }
 export const emptySettings = (): SettingsState => ({ defaults: { revision: 0, values: {} }, conversations: {} });
 export interface ModelOption { provider: string; providerName: string; id: string; reasoning?: boolean; fast?: boolean; canDisableReasoning?: boolean; available: boolean }
+export type SettingsSource = 'live' | 'saved' | 'last-known';
 export interface SettingsView {
+  modelName?: string;
+  sources?: Partial<Record<SettingKey, SettingsSource>>;
   defaults: SettingsRecord; pending: SettingsRecord; current: SessionValues; profile: SessionValues;
   source: 'live' | 'saved' | 'profile' | 'unknown'; wireEffort?: string;
   models: ModelOption[]; available: boolean; error?: string; uncertain: boolean;

@@ -2,7 +2,7 @@ import { parseConversationRef } from '../shared/conversations.js';
 import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 import { Conflict, type Action, type Binding } from '../shared/core.js';
-import { efforts, settingKeys, sameSetting, hasSettings, type ModelChoice, type SessionValues, type SettingsView, type ModelOption, type SettingsRecord, type SendSettings, type SettingKey } from '../shared/sessionSettings.js';
+import { efforts, settingKeys, sameSetting, hasSettings, type ModelChoice, type SessionValues, type SettingsView, type ModelOption, type SettingsRecord, type SendSettings, type SettingKey, type SettingsSource } from '../shared/sessionSettings.js';
 import { Gateway, GatewayError } from './gateway.js';
 import { Store } from './store.js';
 
@@ -33,6 +33,8 @@ export function sessionValues(info: any, stored = false): SessionValues {
 
 export class SessionSettings {
   observed = new Map<string, { values: SessionValues; wire?: string; epoch: string; runtime: string; at: number }>();
+  private readings = new Map<string, { storedId: string; linkId: string; profile: string; values: SessionValues; modelName?: string; wire?: string }>();
+  private readVersions = new Map<string, number>();
   private catalogues = new Map<string, { at: number; models: ModelOption[]; profile: SessionValues }>();
   private loads = new Map<string, Promise<{ models: ModelOption[]; profile: SessionValues }>>();
   private get catalogue() { return this.catalogues.get(this.gateway.profile); }
@@ -41,7 +43,7 @@ export class SessionSettings {
   private set loading(v: Promise<{ models: ModelOption[]; profile: SessionValues }> | undefined) { if (v) this.loads.set(this.gateway.profile, v); else this.loads.delete(this.gateway.profile); }
   constructor(readonly store: Store, readonly gateway: Gateway) {}
   observe(id: string, info: any, binding: Binding) {
-    if (!info || info.lazy || info.profile_name !== (this.store.context(id)?.profile || this.gateway.profile) || !info.model || !info.provider) return;
+    if (!info || (info.lazy && !info.desktop_protocol) || info.profile_name !== (this.store.context(id)?.profile || this.gateway.profile) || !info.model || !info.provider) return;
     this.observed.set(id, { values: sessionValues(info), wire: typeof info.reasoning_effort_wire === 'string' ? info.reasoning_effort_wire : undefined, epoch: binding.epoch, runtime: binding.runtimeId, at: Date.now() });
   }
   record(id: string) { return this.store.sessionSettings().conversations[id] || blank(); }
@@ -84,12 +86,13 @@ export class SessionSettings {
     })();
     try { return await this.loading; } finally { this.loading = undefined; }
   }
-  async stored(id: string): Promise<SessionValues> {
-    const context = this.store.context(id); if (!context?.link) return {};
+  async stored(id: string) {
+    const context = this.store.context(id); if (!context?.link) throw new GatewayError('Conversation settings are unavailable.');
     const conversation = await this.gateway.conversation(context.link.storedId);
     const row = await this.gateway.http(`/api/sessions/${encodeURIComponent(parseConversationRef(conversation.id).id)}?profile=${encodeURIComponent(this.gateway.profile)}`);
     if (row.id !== parseConversationRef(conversation.id).id || row.profile !== this.gateway.profile) throw new GatewayError('Conversation settings identity could not be verified.');
-    return sessionValues(row, true);
+    const cfg = object(row.model_config), model = cfg.model || row.model;
+    return { values: sessionValues(row, true), modelName: typeof model === 'string' && model ? model : undefined, storedId: conversation.id };
   }
   async view(id?: string, force = false): Promise<SettingsView> {
     const profile = id && this.store.context(id)?.profile;
@@ -97,13 +100,67 @@ export class SessionSettings {
     const context = id ? this.store.context(id) : undefined, state = this.store.sessionSettings();
     let current: SessionValues = {}, source: SettingsView['source'] = context?.link ? 'unknown' : 'profile', wireEffort: string | undefined, error = '';
     let catalogue: { models: ModelOption[]; profile: SessionValues } | undefined = this.catalogue;
+    const version = id ? (this.readVersions.get(id) || 0) + 1 : 0;
+    if (id) this.readVersions.set(id, version);
     try { catalogue = await this.catalogueRead(force); } catch (e) { error = (e as Error).message; }
+    let modelName: string | undefined;
+    const sources: Partial<Record<SettingKey, SettingsSource>> = {};
     if (context?.link) {
-      try { current = await this.stored(context.id); source = hasSettings(current) ? 'saved' : 'unknown'; } catch (e) { error ||= (e as Error).message; }
-      const live = this.observed.get(context.id), b = this.store.binding(context.id);
-      if (live && b && this.gateway.online && b.epoch === this.gateway.epoch && live.epoch === b.epoch && live.runtime === b.runtimeId && Date.now() - live.at < 15_000) { current = { ...current, ...live.values }; source = 'live'; wireEffort = live.wire; }
+      let storedId: string | undefined, recoverRead = false;
+      let saved: Awaited<ReturnType<SessionSettings['stored']>> | undefined;
+      const apply = (values: SessionValues, name: string | undefined, origin: SettingsSource) => {
+        if (name && modelName && name !== modelName) {
+          delete current.model; delete current.effort; delete current.fast;
+          delete sources.model; delete sources.effort; delete sources.fast;
+          wireEffort = undefined;
+        }
+        current = { ...current, ...values };
+        for (const key of settingKeys) if (values[key] !== undefined) sources[key] = origin;
+        if (name) { modelName = name; sources.model = origin; }
+      };
+      try {
+        saved = await this.stored(context.id); storedId = saved.storedId;
+        apply(saved.values, saved.modelName, 'saved');
+      } catch (e) {
+        error ||= (e as Error).message;
+        recoverRead = e instanceof GatewayError && e.code !== 404 && !e.message.includes('identity');
+      }
+      const cached = this.readings.get(context.id);
+      if (cached && cached.profile === this.gateway.profile && cached.linkId === context.link.storedId && (cached.storedId === storedId || recoverRead) && (!modelName || !cached.modelName || modelName === cached.modelName)) {
+        apply(cached.values, cached.modelName, 'last-known'); wireEffort = cached.wire;
+      }
+      const observed = this.observed.get(context.id), binding = this.store.binding(context.id);
+      const fresh = observed && binding && this.gateway.online && binding.epoch === this.gateway.epoch && Date.now() - observed.at < 15_000;
+      if (observed && binding && (fresh || !modelName || modelName === observed.values.model?.id) && observed.epoch === binding.epoch && observed.runtime === binding.runtimeId) {
+        apply(observed.values, observed.values.model?.id, fresh ? 'live' : 'last-known'); wireEffort = observed.wire;
+      }
+      if (storedId && this.gateway.online) {
+        try {
+          const info = await this.gateway.rpc('session.info', { session_id: storedId, profile: this.gateway.profile }, 5000);
+          if (info.profile_name !== this.gateway.profile) throw new GatewayError('Conversation settings identity could not be verified.');
+          const values = sessionValues(info), name = typeof info.model === 'string' && info.model ? info.model : undefined;
+          // Replace earlier observations with the new response.
+          current = {}; modelName = undefined;
+          for (const key of settingKeys) delete sources[key];
+          if (saved) apply(saved.values, saved.modelName, 'saved');
+          apply(values, name, 'live');
+          wireEffort = typeof info.reasoning_effort_wire === 'string' ? info.reasoning_effort_wire : undefined;
+          if (this.readVersions.get(context.id) === version && this.observed.get(context.id) === observed) {
+            this.readings.set(context.id, { storedId, linkId: context.link.storedId, profile: this.gateway.profile, values, modelName: name, wire: wireEffort });
+            this.observed.delete(context.id);
+          } else if (this.observed.get(context.id) !== observed) {
+            const newer = this.observed.get(context.id);
+            if (newer) { apply(newer.values, newer.values.model?.id, 'live'); wireEffort = newer.wire; }
+          }
+        } catch (e) {
+          const unavailable = e instanceof GatewayError && (e.code === -32601 || (e.code === 4001 && e.message === 'not_found'));
+          if (!unavailable) error ||= (e as Error).message;
+        }
+      }
+      source = sources.model === 'live' && sources.effort === 'live' ? 'live'
+        : sources.model && sources.effort ? 'saved' : 'unknown';
     }
-    return { defaults: state.defaults, pending: id ? this.record(id) : blank(), current, profile: catalogue?.profile || {}, source, wireEffort,
+    return { defaults: state.defaults, pending: id ? this.record(id) : blank(), current, modelName, sources, profile: catalogue?.profile || {}, source, wireEffort,
       models: catalogue?.models || [], available: !error && !!catalogue, ...(error ? { error } : {}), uncertain: !!id && this.uncertain(id).length > 0 };
   }
   async directories(path?: string) {

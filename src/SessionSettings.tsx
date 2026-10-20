@@ -8,7 +8,7 @@ import { api, db, saveSessionChoices, useApp, useSyncedSessionChoices } from './
 import { useUpdatePreparation, useUpdateWork } from './updateSafety';
 
 const labels: Record<Effort, string> = { none: 'Off', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max', ultra: 'Ultra' };
-const currentSettingsLabel = (view?: SettingsView) => view?.source === 'live' ? 'Current session settings' : view?.source === 'saved' ? 'Current session settings (last saved)' : 'Current session settings are not fully confirmed';
+const cachedView = (view: SettingsView): SettingsView => ({ ...view, source: view.source === 'live' ? 'saved' : view.source, sources: Object.fromEntries(Object.entries(view.sources || Object.fromEntries(Object.keys(view.current).map(key => [key, view.source === 'live' ? 'live' : 'saved']))).map(([key, source]) => [key, source === 'live' ? 'last-known' : source])) });
 function useSettingsView(contextId?: string) {
   const state = useApp(), [view, setView] = useState<SettingsView>(), [error, setError] = useState(''), [loading, setLoading] = useState(false);
   const alive = useRef(true), sequence = useRef(0);
@@ -19,19 +19,19 @@ function useSettingsView(contextId?: string) {
       const query = new URLSearchParams({ ...(contextId ? { contextId } : {}), ...(force ? { refresh: 'true' } : {}) });
       const data: SettingsView = await api(`/session-settings?${query}`, undefined, undefined, 20000);
       if (alive.current && seq === sequence.current) { setView(data); setError(data.error || ''); await db.kv.put({ key: `settings-view:${contextId || 'defaults'}`, value: data }); }
-      return data;
-    } catch (e) { if (alive.current && seq === sequence.current) setError((e as Error).message); }
+      return alive.current && seq === sequence.current ? data : undefined;
+    } catch (e) { if (alive.current && seq === sequence.current) { setError((e as Error).message); setView(old => old && cachedView(old)); } }
     finally { if (alive.current && seq === sequence.current) setLoading(false); }
   };
   useEffect(() => {
-    alive.current = true; const seq = sequence.current;
-    void db.kv.get(`settings-view:${contextId || 'defaults'}`).then(row => { if (alive.current && seq === sequence.current && row) setView(row.value); });
-    return () => { alive.current = false; sequence.current++; };
+    alive.current = true; setView(undefined); setError(''); let active = true;
+    void db.kv.get(`settings-view:${contextId || 'defaults'}`).then(row => { if (active && row) setView(current => current || cachedView(row.value)); });
+    return () => { active = false; alive.current = false; sequence.current++; };
   }, [contextId]);
   const settings = state.snapshot.sessionSettings || emptySettings();
   const change = `${settings.defaults.revision}:${contextId ? settings.conversations[contextId]?.revision || 0 : ''}:${JSON.stringify(state.actions.filter(a => a.taskId === contextId && a.kind === 'send').slice(0, 1).map(a => [a.id, a.receipt, a.state === 'finished' || a.state === 'failed', a.settings]))}`;
   useEffect(() => { void refresh(); }, [contextId, state.online, state.gateway.online, change]);
-  const merged = view ? { ...view, defaults: settings.defaults, pending: contextId ? settings.conversations[contextId] || { revision: 0, values: {} } : view.pending } : undefined;
+  const merged = view ? { ...(state.online && state.gateway.online ? view : cachedView(view)), defaults: settings.defaults, pending: contextId ? settings.conversations[contextId] || { revision: 0, values: {} } : view.pending } : undefined;
   return { view: merged, error, loading, refresh };
 }
 
@@ -40,15 +40,18 @@ export function SessionSettingsControls({ context, onOpen, onClose }: { context:
   const local = state.settingsPending?.find(p => p.contextId === context.id), values = view ? effectiveSettings(view, !context.link) : {};
   const pending = hasSettings(view?.pending.values), saving = state.actions.some(a => a.taskId === context.id && a.kind === 'send' && a.receipt === 'pending');
   function open() { onOpen(); setEditing(true); }
-  const model = values.model?.id || (loading ? 'Loading settings…' : 'Model unknown');
-  const effort = values.effort === 'none' ? 'Reasoning off' : values.effort ? `${labels[values.effort]} effort` : 'Effort unknown';
+  const model = values.model?.id || view?.modelName || (loading ? 'Loading settings…' : 'Model unknown');
+  const effort = `${values.effort ? labels[values.effort].toLowerCase() : 'effort unknown'}${values.fast === true ? ' fast' : ''}`;
   const wireEffort = view?.wireEffort && !pending && view.wireEffort !== values.effort ? ` → ${view.wireEffort}` : '';
-  const note = [pending ? 'Applies on next Send' : context.link && view && view.source !== 'live' ? currentSettingsLabel(view) : '', local ? 'Saved on this device until synced' : ''].filter(Boolean).join(' · ');
+  const saved = view?.sources ? Object.values(view.sources).some(source => source === 'saved' || source === 'last-known') : view?.source === 'saved';
+  const note = pending ? 'Applies on next Send' : local ? 'Saved on device' : context.link && saved ? 'Last saved' : '';
   return <div className="session-settings-controls">
+    <div className="session-settings-summary">
     <button type="button" className="session-settings-button" aria-label={`Conversation settings: ${model} · ${effort}${wireEffort}`} aria-haspopup="dialog" aria-expanded={editing} title={`Conversation settings: ${model} · ${effort}${wireEffort}`} disabled={!view || saving} onClick={open}>
       <SlidersHorizontal size={18} aria-hidden="true"/><span className="session-settings-model">{model}</span><span aria-hidden="true">·</span><span className="session-settings-effort">{effort}{wireEffort}</span>
     </button>
-    {note && <p className="session-settings-note">{note}</p>}
+    <span className="session-settings-note session-settings-status" role="status">{note}</span>
+    </div>
     {local?.conflict && <p role="alert" className="inline-error">{local.conflict} <button type="button" className="text-button" onClick={() => void useSyncedSessionChoices(context.id)}>Use synced choices</button><button type="button" className="text-button" onClick={open}>Review choices</button></p>}
     {error && <p className="session-settings-note">{error} <button type="button" className="text-button" disabled={loading} onClick={() => void refresh(true)}>Refresh settings</button></p>}
     {editing && view && <SettingsDialog context={context} initial={view} reload={() => refresh(true)} close={() => { setEditing(false); onClose(); }}/>}
@@ -102,7 +105,7 @@ function SettingsDialog({ context, initial, reload, close }: { context?: Convers
   }
   async function refreshView() {
     setBusy(true); setError('');
-    try { const next = await reload(); if (next) { setView(next); setRevision(defaults ? next.defaults.revision : next.pending.revision); setReviewed(next.available && next.source !== 'unknown'); } }
+    try { const next = await reload(); if (next) { setView(next); setRevision(defaults ? next.defaults.revision : next.pending.revision); setReviewed(next.available && next.source !== 'unknown'); } else setError('Settings could not be refreshed. Try again.'); }
     finally { setBusy(false); }
   }
   const inheritedSource = (key: keyof SessionValues) => context?.link ? 'Current session setting' : !defaults && view.defaults.values[key] !== undefined ? 'Herts default' : 'Hermes default';
@@ -111,9 +114,8 @@ function SettingsDialog({ context, initial, reload, close }: { context?: Convers
     <form onSubmit={event => { event.preventDefault(); void work(save()); }}>
       <DialogHeading id="session-settings-title" close={close} busy={busy} description={!defaults ? 'Changes apply on your next Send.' : undefined}>{defaults ? 'New conversation defaults' : 'Conversation settings'}</DialogHeading>
       <div className="form-dialog-body">
-      {context?.link && view.source !== 'live' && <p className="subtle-note">{currentSettingsLabel(view)}</p>}
       {view.uncertain && <p role="alert" className="error-banner">An earlier settings change is unconfirmed. Refresh and review the current values. Applying reviewed choices allows them to be tried again only when you next press Send.</p>}
-      <ModelPicker models={view.models} value={values.model} onChange={value=>set('model',value)} search={search} setSearch={setSearch} disabled={busy} ariaLabel="Conversation model" inheritedLabel={`${inheritLabel('model')}${inherited.model ? ` (${inherited.model.id})` : ' (model unknown)'}`}/>
+      <ModelPicker models={view.models} value={values.model} onChange={value=>set('model',value)} search={search} setSearch={setSearch} disabled={busy} ariaLabel="Conversation model" inheritedLabel={`${inheritLabel('model')}${inherited.model?.id || (context?.link && view.modelName) ? ` (${inherited.model?.id || view.modelName})` : ' (model unknown)'}`}/>
       {values.model && <button type="button" className="text-button settings-inherit" disabled={busy} onClick={() => set('model', undefined)}>{inheritLabel('model')}</button>}
       <div className="session-settings-grid"><FormField label="Reasoning effort"><select aria-label="Reasoning effort" value={values.effort ?? ''} disabled={busy} onChange={e => set('effort', e.target.value ? e.target.value as Effort : undefined)}>
         <option value="">{inheritLabel('effort')}{inherited.effort ? ` (${labels[inherited.effort]})` : ' (effort unknown)'}</option>

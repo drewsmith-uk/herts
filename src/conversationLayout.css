@@ -88,8 +88,8 @@ body:has(.conversation-panel) .update-toast { max-height: min(40dvh, 260px); ove
 
 body.keyboard-open .conversation-panel .composer textarea { min-height:44px; max-height:clamp(44px, calc(var(--viewport-height, 100dvh) - 360px), 156px); }
 body.keyboard-open .conversation-scroll { min-height:24px; padding-block:0; }
+body.keyboard-open .conversation-panel .composer-wrap { margin-top:0; }
 body.keyboard-open .conversation-panel .composer-expanded { padding-block:0; }
-body.keyboard-open .conversation-panel .session-settings-controls { margin-bottom:4px; }
 body.keyboard-open .conversation-panel .composer-note { margin-block:4px; }
 
 .composer-loading-settings { display:flex; align-items:center; min-height:44px; color:var(--color-text-secondary); }
