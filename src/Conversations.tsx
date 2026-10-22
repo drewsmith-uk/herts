@@ -7,7 +7,7 @@ import { liveQuery } from 'dexie';
 import { Search, X, MessageSquare, LoaderCircle, Plus, Trash2, Eye, EyeOff } from 'lucide-react';
 import { db, useApp, api, setConversationHidden, contextForConversation, openConversation, createLocalConversation, deleteConversationDraft, saveConversationDraft, type Draft } from './data';
 import { conversationHidden, type Conversation } from '../shared/core';
-import { ComposerPlaceholder, MessageComposer } from './MessageComposer';
+import { ComposerPlaceholder } from './MessageComposer';
 import { useListState } from './listState';
 import { useConversationList } from './useConversationList';
 import { useEntryDraft } from './entryDraft';
@@ -161,6 +161,8 @@ export function ConversationView({ id }: {
 }
 export function NewConversation({ id, shared, initialId }: { id?: string; shared?: SharedContent; initialId?: string }) {
     const state = useApp(), [draftId] = useState(() => id || initialId || crypto.randomUUID());
+    const active = useRef(true);
+    useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
     const entry = useEntryDraft({ key: shared ? `share:${JSON.stringify(shared)}` : 'new', id: shared ? undefined : draftId, route: draftId => `/draft/${draftId}`,
       initialText: shared ? [shared.text, shared.url].filter((v, i, a) => v && a.indexOf(v) === i).join('\n') || shared.title : undefined,
       initialFields: shared?.title ? { title: shared.title } : undefined });
@@ -169,9 +171,16 @@ export function NewConversation({ id, shared, initialId }: { id?: string; shared
     useEffect(() => { if (!entry.id) return; const sub = liveQuery(() => db.kv.get(`context-draft-deleted:${entry.id}`)).subscribe(row => setDeleted(!!row)); return () => sub.unsubscribe(); }, [entry.id]);
     if ((deleted && !entry.context.link) || (id && entry.id && state.loaded && !state.snapshot.contexts.some(c => c.id === id))) return <><PageHeader title="Draft unavailable" description="This draft was deleted from this device."/><ButtonLink href="#/conversations">Back to conversations</ButtonLink></>;
     return <div className="conversation-detail"><ConversationHeader title={entry.context.title} backHref="#/conversations" backLabel="Conversations" context={entry.id ? entry.context : undefined}>{entry.id && <ConversationTitle context={entry.context}/>}</ConversationHeader>
-      {!entry.context.link && entry.context.title !== 'New conversation' && <h2 className="conversation-content-title">{entry.context.title}</h2>}
       {!entry.id && <ComposerPlaceholder/>}
-      {entry.id && (entry.context.link ? <ConversationPanel fullTitle={entry.context.title} context={entry.context} showActions={false} showHeading={false}/> : <MessageComposer context={entry.context} persist={entry.persist} allowSaveEmpty={entry.context.title !== 'New conversation'} saveLabel="Save draft" onSaved={async () => { await entry.complete(); location.hash = '/conversations'; }} onSent={async () => { await entry.complete(); history.replaceState(null, '', `/#/draft/${entry.id}`); dispatchEvent(new PopStateEvent('popstate')); }}/>) }
+      {entry.id && <ConversationPanel key={entry.id} fullTitle={entry.context.title} context={entry.context} showActions={false} showHeading={false} entryComposer={{
+        persist: entry.persist, allowSaveEmpty: entry.context.title !== 'New conversation',
+        onSaved: async () => { await entry.complete(); if (active.current) location.hash = '/conversations'; },
+        onSent: async () => {
+          await entry.complete();
+          if (!active.current) return;
+          history.replaceState(null, '', `/#/draft/${entry.id}`); dispatchEvent(new PopStateEvent('popstate'));
+        },
+      }}/>}
       {entry.error && <p role="alert">{entry.error}</p>}
     </div>;
 }

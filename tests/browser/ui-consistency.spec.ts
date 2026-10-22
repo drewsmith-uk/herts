@@ -4,6 +4,59 @@ import { openConnectionDetails } from './navigation-helpers';
 import { test, expect } from '@playwright/test';
 import { pinnedPlugin, pinnedReady, seedPin } from './pinned-helpers';
 import { builtinThemes, themeStorageKey } from '../../shared/themeValues';
+import { detailsField, saveTitle } from './composer-helpers';
+
+for (const [width, height] of [[320, 844], [390, 844], [768, 844], [1280, 844], [390, 480]]) {
+  test(`first send uses the conversation layout in Press at ${width}x${height}`, async ({ page, request }) => {
+    await page.setViewportSize({ width, height });
+    await page.goto('/#/conversation/existing');
+    await expect(page.locator('[data-history-message]').first()).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'Message Hermes', exact: true })).toBeEditable();
+    await page.screenshot({ path: `output/first-send/existing-${width}x${height}.png` });
+    await page.goto('/#/new');
+    const editor = page.getByRole('textbox', { name: 'Message Hermes', exact: true });
+    const text = 'Review the travel plan, including the accessible station entrance and the return journey.\n\nSources: https://example.com/' + 'journey-details/'.repeat(12);
+    await editor.fill(text);
+    const title = 'Review the travel plan and confirm all arrangements for the project meeting with the regional team';
+    await (await detailsField(page, 'Conversation title')).fill(title); await saveTitle(page); await closePageActions(page);
+    await page.locator('.session-settings-button').click();
+    await expect(page.getByRole('dialog', { name: 'Conversation settings', exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.locator('.session-settings-button')).toBeFocused();
+    await page.locator('input[type=file]').setInputFiles({ name: 'travel-plan-and-accessibility-notes.txt', mimeType: 'text/plain', buffer: Buffer.from('Synthetic travel plan') });
+    await expect(page.getByRole('button', { name: 'Remove travel-plan-and-accessibility-notes.txt' })).toBeVisible();
+    await request.post('/__test/session-creation', { headers: { 'x-herts-request': '1' }, data: { hold: true } });
+    try {
+      await page.getByRole('button', { name: 'Send', exact: true }).click();
+      const message = page.locator('.outgoing-message');
+      await expect(message).toContainText(text);
+      await expect(message).toContainText('1 attachment');
+      await expect(message.getByRole('status')).toContainText('preparing conversation');
+      await expect(editor).toHaveValue('');
+      await expect(page.locator('html')).toHaveAttribute('data-theme', 'press');
+      await expect(page.getByRole('link', { name: 'Back to Conversations', exact: true })).toHaveAttribute('href', '#/conversations');
+      await page.getByRole('link', { name: 'Back to Conversations', exact: true }).focus();
+      await expect(page.getByRole('link', { name: 'Back to Conversations', exact: true })).toBeFocused();
+      for (const selector of ['.conversation-page-header', '.conversation-scroll', '.composer', '.outgoing-message']) {
+        const bounds = (await page.locator(selector).boundingBox())!;
+        expect(bounds.x).toBeGreaterThanOrEqual(0);
+        expect(bounds.x + bounds.width).toBeLessThanOrEqual(width + 1);
+      }
+      await expect(editor).toBeInViewport();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await page.screenshot({ path: `output/first-send/pending-${width}x${height}.png` });
+      await page.getByRole('button', { name: 'Actions', exact: true }).click();
+      await expect(page.getByRole('dialog', { name: 'Page actions', exact: true })).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'Actions', exact: true })).toBeFocused();
+    } finally { await request.post('/__test/session-creation', { headers: { 'x-herts-request': '1' }, data: { hold: false } }); }
+    await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase', 'complete');
+    await expect(page.locator('[data-history-message].from-user')).toContainText('Review the travel plan');
+    await page.screenshot({ path: `output/first-send/confirmed-${width}x${height}.png` });
+  });
+}
 
 test('model settings wrap only when the available width requires it', async ({ page }) => {
   await page.route('**/api/v1/session-settings?*', async route => {

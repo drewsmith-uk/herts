@@ -1,6 +1,6 @@
 import { ActionRow } from './ui';
 import { createPortal } from 'react-dom';
-import { MessageComposer } from './MessageComposer';
+import { MessageComposer, type MessageComposerProps } from './MessageComposer';
 import { outgoingInHistory, outgoingStatus, liveReplyReplacement, type OutgoingMessage } from './transcriptFeedback';
 import type { ConversationContext } from '../shared/conversations';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -23,16 +23,19 @@ import { ConversationContributions } from './plugins';
 
 const finished = (a?: Action) => !!a && ['finished','failed','ready','unknown'].includes(a.state);
 
-export function ConversationPanel({ context: task, initialText = '', showActions = true, showHeading = true, readOnly = false, saveDraftAction, refreshVersion = 0, fullTitle }: { fullTitle?: string; context: ConversationContext; initialText?: string; showActions?: boolean; showHeading?: boolean; showEmptyNotice?: boolean; readOnly?: boolean; saveDraftAction?: () => void; refreshVersion?: string | number }) {
+export function ConversationPanel({ context: task, initialText = '', showActions = true, showHeading = true, readOnly = false, saveDraftAction, refreshVersion = 0, fullTitle, entryComposer }: { fullTitle?: string; context: ConversationContext; initialText?: string; showActions?: boolean; showHeading?: boolean; showEmptyNotice?: boolean; readOnly?: boolean; saveDraftAction?: () => void; refreshVersion?: string | number; entryComposer?: Pick<MessageComposerProps, 'persist' | 'onSaved' | 'onSent' | 'allowSaveEmpty'> }) {
   const state = useApp(); const [error, setError] = useState(''), [busy, setBusy] = useState(false);
+  const [submitting, setSubmitting] = useState<OutgoingMessage>();
   const [statusHost, setStatusHost] = useState<HTMLDivElement | null>(null), [savedHost, setSavedHost] = useState<HTMLDivElement | null>(null);
   const main = state.actions.find(a => !a.cancelled && a.taskId === task.id && ['send','continue'].includes(a.kind)); const binding = state.bindings[task.id];
   const active = !!main && !finished(main) && !binding?.unavailable; const [historyVersion, setHistoryVersion] = useState(0), [sendVersion, setSendVersion] = useState(0);
   const send = state.actions.find(a => !a.cancelled && a.taskId === task.id && a.kind === 'send');
   const local = state.outgoing.filter(s => s.taskId === task.id && !state.actions.some(a => a.id === s.id && a.cancelled)).sort((a,b) => b.at - a.at)[0];
   const latestOutgoing: OutgoingMessage | undefined = local && (!send || local.id === send.id || local.at > send.createdAt) ? local : send ? { id: send.id, taskId: task.id, text: send.text, uploadIds: send.uploadIds, at: send.createdAt } : undefined;
-  const outgoingAction = state.actions.find(a => a.id === latestOutgoing?.id);
-  const outgoing = outgoingAction?.savedMessageDeletedAt ? undefined : latestOutgoing;
+  const displayedOutgoing = submitting && submitting.id !== latestOutgoing?.id ? submitting : latestOutgoing;
+  const outgoingAction = state.actions.find(a => a.id === displayedOutgoing?.id);
+  const outgoing = outgoingAction?.savedMessageDeletedAt ? undefined : displayedOutgoing;
+  const showConversation = !entryComposer || !!task.link || !!outgoing;
   const historyChange = `${refreshVersion}:${historyVersion}:${main?.id}:${main?.sendStage}:${main?.receipt}:${main?.state}:${main?.phase}:${main?.terminal}`;
   useEffect(() => { if (main?.terminal || main?.state === 'finished') setHistoryVersion(v => v + 1); }, [main?.terminal, main?.state]);
   async function control(kind: Action['kind'], approvalId?: string, text?: string, answers?: Record<string, string>) {
@@ -47,11 +50,12 @@ export function ConversationPanel({ context: task, initialText = '', showActions
   const needsInput = active && (main.state === 'awaiting_input' || !!main.approvals?.length || !!main.clarification);
   const attention = !!(needsInput || main?.promptWarning || failedControls.length || main?.error || main?.state === 'failed' || main?.state === 'unknown' || main?.receipt === 'unknown' || uncertainControls.length || error || modelConfirmation);
   const statusLabel = needsInput ? 'Needs your input' : modelConfirmation ? 'Confirm model switch' : attention ? main?.sendStage === 'preparing' || main?.receipt === 'rejected' ? 'Message not sent' : main?.state === 'failed' ? 'Conversation failed' : 'Check conversation' : main?.state === 'stopping' ? 'Stopping…' : main?.phase === 'stopped' ? 'Stopped' : main?.state === 'preparing' ? 'Preparing…' : `Working${main?.phase && !['working','streaming'].includes(main.phase) ? ` · ${main.phase}` : '…'}`;
-  return <section className="conversation-panel" data-phase={main?.phase || 'idle'}>
-    <div className="conversation-scroll" tabIndex={0} aria-label="Conversation messages">
+  return <section className={showConversation ? 'conversation-panel' : 'conversation-entry'} data-phase={main?.phase || 'idle'}>
+    {entryComposer && !showConversation && fullTitle !== 'New conversation' && <h2 className="conversation-content-title">{fullTitle}</h2>}
+    <div className="conversation-scroll" hidden={!showConversation} tabIndex={0} aria-label="Conversation messages">
     {showActions&&<ConversationContributions context={task}/>}
     {showHeading && <div className="conversation-heading"><span><MessageSquare size={17}/> Conversation</span></div>}
-    <HistoryView assistantName={task.botChat ? task.title : undefined} key={task.link?.storedId || task.id} conversationId={task.link?.storedId || ''} version={historyChange} liveText={main?.liveText} working={active} phase={main?.phase} outgoing={outgoing} outgoingAction={outgoingAction} sendVersion={sendVersion}/>
+    {showConversation && <HistoryView assistantName={task.botChat ? task.title : undefined} key={task.link?.storedId || task.id} conversationId={task.link?.storedId || ''} version={historyChange} liveText={main?.liveText} working={active} phase={main?.phase} outgoing={outgoing} outgoingAction={outgoingAction} submitting={!!submitting} sendVersion={sendVersion}/>}
     {(active || attention || main?.phase === 'stopped') && <ConversationActivity statusHost={statusHost} label={statusLabel} active={active} attention={attention} stopping={main?.state === 'stopping'} disabled={busy || !state.online || !state.gateway.online || !binding} onStop={() => void control('stop')} onLatest={() => setSendVersion(v => v + 1)}>
       {attention && <>
         {main?.error && !modelConfirmation && <p className="inline-error" role="alert">{main.error}</p>}
@@ -68,7 +72,7 @@ export function ConversationPanel({ context: task, initialText = '', showActions
       </>}
     </ConversationActivity>}
     <div ref={setSavedHost}/>
-    </div><div className="conversation-control-slot" ref={setStatusHost}/>{readOnly ? <div className="composer-placeholder" role="status">{state.online ? 'Opening message controls…' : 'Connect once to enable messaging for this conversation.'}</div> : <MessageComposer key={task.id} savedMessagesHost={savedHost} docked={!!task.link} context={task} saveLabel={saveDraftAction ? 'Save draft' : undefined} onSaved={saveDraftAction} initialText={initialText} canSend={state.online && state.gateway.online && !active && !busy} onSending={() => setSendVersion(v => v + 1)} onSent={() => { setHistoryVersion(v => v + 1); }}/>}
+    </div><div className="conversation-control-slot" ref={setStatusHost}/>{readOnly ? <div className="composer-placeholder" role="status">{state.online ? 'Opening message controls…' : 'Connect once to enable messaging for this conversation.'}</div> : <MessageComposer key={task.id} savedMessagesHost={showConversation ? savedHost : undefined} docked={!!task.link || (!!entryComposer && showConversation)} context={task} saveLabel={saveDraftAction || (entryComposer && !showConversation) ? 'Save draft' : undefined} onSaved={entryComposer?.onSaved || saveDraftAction} persist={task.link ? undefined : entryComposer?.persist} allowSaveEmpty={entryComposer?.allowSaveEmpty} initialText={initialText} canSend={state.online && state.gateway.online && !active && !busy} onSending={() => setSendVersion(v => v + 1)} onSubmissionChange={entryComposer ? draft => setSubmitting(draft ? { id: draft.submissionId!, taskId: task.id, text: draft.text, uploadIds: draft.files, at: Date.now() } : undefined) : undefined} onSent={async () => { setHistoryVersion(v => v + 1); await entryComposer?.onSent?.(); }}/>}
   </section>;
 }
 function ModelSwitchConfirmation({ action }: { action: Action }) {
@@ -85,13 +89,13 @@ function ModelSwitchConfirmation({ action }: { action: Action }) {
 }
 
 
-export function HistoryView({ conversationId, assistantName = 'Hermes', version = 0, liveText, working = false, phase, outgoing, outgoingAction, sendVersion = 0 }: { conversationId: string; assistantName?: string; version?: number | string; liveText?: string; working?: boolean; phase?: string; outgoing?: OutgoingMessage; outgoingAction?: Action; sendVersion?: number }) {
+export function HistoryView({ conversationId, assistantName = 'Hermes', version = 0, liveText, working = false, phase, outgoing, outgoingAction, submitting = false, sendVersion = 0 }: { conversationId: string; assistantName?: string; version?: number | string; liveText?: string; working?: boolean; phase?: string; outgoing?: OutgoingMessage; outgoingAction?: Action; submitting?: boolean; sendVersion?: number }) {
   const feedback = `${outgoing?.id}:${outgoingStatus(outgoingAction)}:${working}:${version}`;
   const { pages, cached, busy, error, newMessages, latest, refresh, older, root, end, pauseFollowing } = useConversationHistory(conversationId, version, liveText, working, sendVersion, feedback);
   const [toolbar, setToolbar] = useState<HTMLElement | null>(null);
   useEffect(() => { setToolbar(root.current?.closest('.page-content')?.querySelector<HTMLElement>('.header-secondary-actions') || null); }, []);
   const confirmed = useRef(new Set<string>());
-  if (outgoing && outgoingInHistory(outgoing, pages)) confirmed.current.add(outgoing.id);
+  if (outgoing && (!submitting || outgoingAction) && outgoingInHistory(outgoing, pages)) confirmed.current.add(outgoing.id);
   const showOutgoing = outgoing && !confirmed.current.has(outgoing.id);
   const previousGroups = useRef<HistoryGroup[]>([]);
   const groups = useMemo(() => previousGroups.current = groupHistory(pages, previousGroups.current), [pages]);
@@ -112,15 +116,15 @@ export function HistoryView({ conversationId, assistantName = 'Hermes', version 
     {error && <p className="inline-error" role="alert">{error}<button onClick={() => void refresh()} disabled={busy}>Try again</button></p>}
     {pages[0]?.hasMore && <button className="load-more" disabled={busy} onClick={() => void older()}>{busy ? 'Loading…' : 'Load older messages'}</button>}
     {groups.map(group => group.kind === 'message' ? renderMessage(group.entry) : <HistoryDisclosure key={group.key} activityKey={group.key} label={<><span className="hermes-mark">H</span><span>{assistantName} activity</span><span className="activity-count">{activitySummary(group)}</span></>} onInteract={pauseFollowing}>{group.entries.map(renderMessage)}</HistoryDisclosure>)}
-    {showOutgoing && <OutgoingFeedback message={outgoing} action={outgoingAction}/>}
+    {showOutgoing && <OutgoingFeedback message={outgoing} action={outgoingAction} submitting={submitting}/>}
     {showLive && <article className="message live-message"><div className="message-author"><span className="hermes-mark">{assistantName.slice(0, 1)}</span>{assistantName} </div><MessageMarkdown text={liveText || ''} conversationId={conversationId}/></article>}
     {!pages.some(p => p.messages.length) && !outgoing && !liveText && !busy && !error && <p className="history-empty">No messages are available yet.</p>}
     {newMessages && <button className="history-latest" onClick={() => void latest()}>Show latest messages</button>}
     <div ref={end}/>
   </div>;
 }
-function OutgoingFeedback({ message, action }: { message: OutgoingMessage; action?: Action }) {
-  return <article className="message from-user outgoing-message" data-outgoing-id={message.id}><div className="message-author">You <span className="submission-status">{outgoingStatus(action)}</span></div>{message.text && <div className="outgoing-text">{message.text}</div>}{message.uploadIds.length > 0 && <div className="subtle-note">{message.uploadIds.length} attachment{message.uploadIds.length === 1 ? '' : 's'}</div>}</article>;
+function OutgoingFeedback({ message, action, submitting }: { message: OutgoingMessage; action?: Action; submitting: boolean }) {
+  return <article className="message from-user outgoing-message" data-outgoing-id={message.id}><div className="message-author">You <span className="submission-status" role="status">{submitting && !action ? 'Sending…' : outgoingStatus(action)}</span></div>{message.text && <div className="outgoing-text">{message.text}</div>}{message.uploadIds.length > 0 && <div className="subtle-note">{message.uploadIds.length} attachment{message.uploadIds.length === 1 ? '' : 's'}</div>}</article>;
 }
 
 const HistoryMessage = memo(function HistoryMessage({ entry: { key: entryKey, message: m, page, index }, conversationId, assistantName, speaking, preparing, speechError, onSpeak, pauseFollowing }: {
