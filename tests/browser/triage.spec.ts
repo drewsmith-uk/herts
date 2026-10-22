@@ -4,10 +4,15 @@ import { test, expect, type Locator, type Page } from '@playwright/test';
 async function swipeBox(item: Locator) {
   await expect(item).toHaveAttribute('aria-busy', 'false');
   const row = item.locator('.conversation-row');
-  await row.scrollIntoViewIfNeeded();
+  // Center the row above fixed navigation before choosing touch coordinates.
+  await row.evaluate(node => node.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' }));
   // The wrapper stays still while its content returns from the previous swipe.
   // Read coordinates only after that animation finishes.
   await expect(item.locator('.conversation-item-content')).toHaveCSS('transform', 'matrix(1, 0, 0, 1, 0, 0)');
+  await expect.poll(() => row.evaluate(node => {
+    const box = node.getBoundingClientRect();
+    return [.2, .8].every(fraction => node.contains(document.elementFromPoint(box.x + box.width * fraction, box.y + 38)));
+  }), { message: 'Both swipe starting points must reach the conversation row.' }).toBe(true);
   return (await row.boundingBox())!;
 }
 
@@ -65,6 +70,7 @@ test('phone swipes respect scrolling and cancellation, hide with undo, and creat
     await page.getByLabel('Show all').check(); await expect(item).toBeVisible();
     const state = await (await request.get('/api/v1/state')).json();
     expect(state.snapshot.tasks.filter((t: any) => t.link?.key === 'swipe-first')).toHaveLength(1);
+    await page.evaluate(() => scrollTo(0, 0));
     await swipe(item, 150); await expect((await detailsField(page, 'Task title'))).toHaveValue('Swipe conversation one');
     expect((await (await request.get('/api/v1/state')).json()).snapshot.tasks.filter((t: any) => t.link?.key === 'swipe-first')).toHaveLength(1);
     const after: string[] = await (await request.get('http://127.0.0.1:8791/calls')).json();
