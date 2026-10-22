@@ -584,12 +584,26 @@ export async function deleteConversationDraft(id: string) {
 }
 const titleWrites = new Map<string, Promise<void>>();
 export function renameConversationTitle(id: string, title: string, baseTitle: string) {
+    if (titleWrites.has(id)) return Promise.reject(new Error('Wait for the current title change to finish.'));
     const work = (async () => {
         const context = state.snapshot.contexts.find(c => c.id === id);
         if (!context) throw new Error('This conversation is not available.');
         if (state.remote.contexts.some(c => c.id === id)) {
-            const result = await api(`/contexts/${id}/title`, { title, baseTitle });
+            const key = `title-edit:${id}`;
+            const previous = (await db.kv.get(key))?.value as { title: string; baseTitle: string; operationId: string } | undefined;
+            const edit = previous?.title === title && previous.baseTitle === baseTitle ? previous : { title, baseTitle, operationId: crypto.randomUUID() };
+            await db.kv.put({ key, value: edit });
+            const clearEdit = () => db.transaction('rw', db.kv, async () => {
+                if ((await db.kv.get(key))?.value?.operationId === edit.operationId) await db.kv.delete(key);
+            });
+            let result;
+            try { result = await api(`/contexts/${id}/title`, edit); }
+            catch (error) {
+                if (error instanceof ApiError && error.data?.operationRejected === true) await clearEdit();
+                throw error;
+            }
             await acceptSnapshot(result.snapshot);
+            await clearEdit();
         } else {
             await db.transaction('rw', db.kv, async () => { await assertDraftAvailable(id); await db.kv.put({ key: `context:${id}`, value: { ...context, title } }); });
         }

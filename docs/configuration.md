@@ -16,6 +16,10 @@ node --env-file=/private/path/app.env --import tsx server/index.ts
 | `HERTS_PLUGINS_DIR` | Prepared plugin folder directory; default `./plugins`. The installer also accepts `--plugins-dir`. |
 | `HERTS_PORT` | Loopback port; default `8787`. |
 | `HERTS_DEV` | `1` bypasses Tailscale identity on loopback for development only; default off. |
+| `HERMES_CONNECTION` | `standalone` by default. Use `gateway` for a local shared gateway. |
+| `HERMES_HOME` | Absolute Hermes home path. Required in gateway mode. |
+| `HERMES_PYTHON` | Absolute path to the Hermes Python interpreter. Required in gateway mode. |
+| `HERMES_SOURCE` | Absolute Hermes source path. Required in gateway mode. |
 | `HERMES_BASE_URL` | Backend HTTP(S) origin. HTTP is allowed only on loopback. |
 | `HERMES_TOKEN_FILE` | Private UTF-8 file containing the backend session token. Takes precedence over `HERMES_TOKEN`. |
 | `HERMES_TOKEN` | Alternative token via process environment; a file is preferable. Never a `VITE_*` variable. |
@@ -29,3 +33,9 @@ Legacy `TASKS_DATA_DIR`, `TASKS_ORIGIN`, `TASKS_IDENTITY`, `TASKS_DEV`, `TASKS_P
 Each data directory is bound to its Hermes endpoint and profile. Once it contains conversation references or action records, Herts refuses a different target. Use a separate data directory for another backend/profile. For the first upgrade of a legacy store, keep its original endpoint and `default` profile. Herts then records that binding. You can rotate a token for the **same** backend. Moving the backend to another URL requires a planned and verified migration. An environment change alone is insufficient.
 
 See [Installation](installation.md) for service setup and [Backups and upgrades](maintenance.md) before changes to an existing installation.
+
+Gateway mode discovers an existing local Hermes service and obtains private, temporary connection tickets.
+Herts does not start or restart that service.
+The selected gateway must serve each profile that Herts uses.
+Herts does not change to another connection mode when discovery fails.
+Follow the verified transition procedure before changing an existing data directory to gateway mode.
