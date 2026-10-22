@@ -5,8 +5,8 @@ async function dismissEditor(page: Page) {
   const cancel = editor.getByRole('button', { name: 'Cancel', exact: true });
   const state = await cancel.evaluateAll(nodes => nodes.map(node => ({ disabled: (node as HTMLButtonElement).disabled })));
   if (state.length !== 1) return;
-  if (state[0].disabled) await expect(editor).toBeHidden();
-  else await cancel.click();
+  if (!state[0].disabled) await cancel.click();
+  await expect(editor).toBeHidden();
 }
 
 /** Follow the same explicit disclosure step a reader uses before editing metadata. */

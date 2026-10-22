@@ -33,7 +33,7 @@ export function migrateLegacyPlugins(store: Store, storage: PluginStorage) {
         const blank = { inbox: { ids: [], version: 0 }, next: { ids: [], version: 0 }, waiting: { ids: [], version: 0 }, parked: { ids: [], version: 0 }, snoozed: { ids: [], version: 0 }, done: { ids: [], version: 0 } };
         store.setMeta('snapshot', { revision: snapshot.revision, lists: blank });
         store.setMeta('plugin-data-migrated', true);
-        store.db.pragma('user_version = 6');
+        if (Number(store.db.pragma('user_version', { simple: true })) < 6) store.db.pragma('user_version = 6');
     })();
 }
 export function legacyReceipt(store: Store, id: string, command: string, input: any, prepared?: any) {

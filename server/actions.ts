@@ -11,7 +11,7 @@ import { obsoletePreviewWarning } from './promptRequests.js';
 
 export interface ActionInput { id: string; taskId?: string; contextId?: string; kind: Action['kind']; text?: string; answers?: Record<string, string>; uploadIds?: string[]; targetId?: string; generation?: string; approvalId?: string; settingsRevision?: number; defaultsRevision?: number; settingsConfirmation?: string }
 const activeStates = new Set(['preparing', 'running', 'awaiting_input', 'stopping']);
-const missingRuntime = (error: unknown): error is GatewayError => error instanceof GatewayError && !error.uncertain && error.code === 4001;
+const missingRuntime = (error: unknown): error is GatewayError => error instanceof GatewayError && !error.uncertain && (error.reason === 'not_found' || (!error.reason && error.code === 4001));
 const unavailableSessionMessage = 'The previous Hermes session is no longer available. Check the conversation history before sending another message.';
 export function controlBusy(control: any): boolean {
   if (!control || typeof control !== 'object') return true;
@@ -91,7 +91,9 @@ export class Actions {
   }
   async step(a: Action, phase: string, method: string, params: any) {
     Object.assign(a, this.store.action(a.id), { phase }); this.store.saveAction(a);
-    return this.gateway.rpc(method, params, method === 'session.resume' ? 180_000 : 60_000);
+    const intent = method === 'prompt.submit' ? a.id : `${a.id}:${phase}`;
+    if (method === 'prompt.submit' && this.gateway.protocol === 'hermes-gateway-v1') { a.submissionId = intent; this.store.saveAction(a); }
+    return this.gateway.rpc(method, params, method === 'session.resume' ? 180_000 : 60_000, intent);
   }
   async dispatch(a: Action, input: ActionInput) {
     const profile = this.store.context(a.taskId)?.profile || this.gateway.profile;
@@ -112,7 +114,7 @@ export class Actions {
       if (a.kind === 'send' && task.link && b?.ready && b.epoch === this.gateway.epoch) {
         try { await this.verifyBinding(b); }
         catch (error) {
-          if (!(error instanceof GatewayError) || ![4001, 404].includes(error.code || 0)) throw error;
+          if (!missingRuntime(error) && !(error instanceof GatewayError && error.code === 404)) throw error;
           b.ready = false; // An idle runtime can have been reaped since its last readiness check.
         }
       }
@@ -145,6 +147,7 @@ export class Actions {
           const r = await this.step(a, 'preparing conversation', 'session.resume', { session_id: c.id, profile: this.gateway.profile, source: 'desktop', lazy: false, defer_history: false, omit_messages: true, eager_build: true });
           if (!r.session_id || !r.session_key || (r.info?.profile_name !== undefined && r.info.profile_name !== this.gateway.profile) || (!c.aliases.includes(r.session_key) && r.session_key !== c.id)) throw new GatewayError('The resumed conversation identity could not be verified.', true);
           b = { profile: this.gateway.profile, runtimeId: r.session_id, storedId: r.session_key, epoch: this.gateway.epoch, generation: randomUUID(), seq: previous && previous.runtimeId === r.session_id && previous.epoch === this.gateway.epoch ? previous.seq : 0, ready: false, monitored: true, known: !!(r.messages_omitted && typeof r.running === 'boolean' && ['idle', 'working', 'waiting', 'starting'].includes(r.status)) || !!(r.messages_omitted && Object.hasOwn(r, 'inflight') && r.resumed) || !!(previous?.known && previous.runtimeId === r.session_id && previous.epoch === this.gateway.epoch) };
+          if (r.remote) { b.remote = r.remote; b.seq = r.remote.sequence; }
           Object.assign(a, this.store.action(a.id)); a.binding = b;
           if (a.kind === 'continue') { a.receipt = 'accepted'; a.state = r.auto_continue || r.running ? 'running' : 'preparing'; }
           a.phase = r.auto_continue ? 'recovering interrupted work' : 'preparing conversation';
@@ -160,6 +163,7 @@ export class Actions {
           const r = await this.step(a, 'creating conversation', 'session.create', { profile: this.gateway.profile, source: 'desktop', close_on_disconnect: false, ...this.settings.createParams(a) });
           if (!r.session_id || !r.stored_session_id || r.info?.profile_name !== this.gateway.profile) throw new GatewayError('Conversation creation identity is not confirmed.', true);
           b = { profile: this.gateway.profile, runtimeId: r.session_id, storedId: r.stored_session_id, epoch: this.gateway.epoch, generation: randomUUID(), seq: 0, ready: false, monitored: true, known: true };
+          if (r.remote) { b.remote = r.remote; b.seq = r.remote.sequence; }
           this.store.db.transaction(() => {
             this.store.linkNew(task.id, { profile: this.gateway.profile, key: r.stored_session_id, storedId: r.stored_session_id, title: task.title, source: 'desktop' });
             this.store.saveBinding(task.id, b!);
@@ -194,6 +198,7 @@ export class Actions {
         this.store.saveAction(a); dispatched = true;
         const result = await this.step(a, 'submitting message', 'prompt.submit', { session_id: b.runtimeId, text });
         const updated = this.store.action(a.id)!;
+        if (result.admission_id) { updated.admissionId = result.admission_id; updated.remoteOutcome = result.outcome; }
         updated.receipt = 'accepted'; updated.sendStage = 'submitted'; updated.phase = result.status || 'accepted';
         updated.awaitingTurn = result.status === 'queued' && !updated.turnStarted;
         if (updated.awaitingTurn || (result.status === 'streaming' && !updated.turnStarted && updated.terminal !== 'error')) updated.terminal = undefined;
@@ -202,7 +207,9 @@ export class Actions {
       }
       b = this.store.binding(a.taskId)!;
       controlBinding = b;
+      const execution = b.remote?.executionGeneration;
       await this.verifyBinding(b);
+      if (execution !== undefined && execution !== b.remote?.executionGeneration) throw new GatewayError('The running work changed. Refresh before using this control.');
       if (b.generation !== input.generation || this.main(a.taskId)?.id !== input.targetId) throw new GatewayError('Control no longer matches the active work.');
       a.binding = b;
       if (this.gateway.promptProtocol === 'requests' && ['approve', 'deny', 'clarify'].includes(a.kind)) {
@@ -365,6 +372,11 @@ export class Actions {
       const suffix = attempt ? ` (${attempt + 1})` : '';
       const title = [...base].slice(0, 100 - suffix.length).join('') + suffix;
       this.checkSendNotCancelled(a.id);
+      if (this.gateway.protocol === 'hermes-gateway-v1') {
+        const found = await this.gateway.rpc('session.list', { title, include_hidden: true, limit: 200 });
+        if (!Array.isArray(found.sessions)) throw new GatewayError('Conversation titles could not be checked. Your message remains saved.');
+        if (found.sessions.some((row: any) => (row.resolved_id || row.session_id || row.id) !== parseConversationRef(b.storedId).id)) continue;
+      }
       try {
         const result = await this.step(a, 'saving conversation', 'session.title', { session_id: b.runtimeId, title });
         if (result.title !== title || result.pending) throw new GatewayError('The conversation title could not be confirmed. Your message remains saved.', true);
@@ -391,6 +403,7 @@ export class Actions {
       b.storedId = live.session_key;
     }
     const owner = this.store.bindings().find(([, saved]) => saved.generation === b.generation)?.[0];
+    if (live.remote) { b.remote = live.remote; b.seq = live.remote.sequence; if (owner) this.store.saveBinding(owner, b); }
     if (owner) this.settings.observe(owner, live.info, b);
     return live;
   }
@@ -445,6 +458,7 @@ export class Actions {
       observed = b;
       const seq = b.seq;
       const live = await this.verifyBinding(b);
+      if (this.gateway.protocol === 'hermes-gateway-v1') { await this.reconcileCanonical(taskId, b, a, live); return; }
       const pending = await this.gateway.rpc('approval.pending', { session_id: b.runtimeId });
       const ctl = await this.gateway.rpc('session.control.read', { session_id: b.runtimeId });
       const latestBinding = this.store.binding(taskId)!;
@@ -475,6 +489,63 @@ export class Actions {
     }
     finally { this.polling.delete(taskId); }
   }
+  private async reconcileCanonical(taskId: string, b: Binding, action: Action, live: any) {
+    if (!b.remote) return;
+    const pending = Array.isArray(live.pending) ? live.pending : [];
+    const older = this.store.actions(taskId).filter(prior => prior.id !== action.id && prior.kind === 'send' && prior.submissionId &&
+      prior.binding?.storedId === b.storedId && !['finished', 'failed'].includes(prior.state));
+    await Promise.allSettled(older.map(async prior => {
+      const row = prior.admissionId ? await this.gateway.rpc('prompt.receipt', { session_id: b.runtimeId, admission_id: prior.admissionId })
+        : pending.find((item: any) => item.input_id === prior.submissionId);
+      if (!row || this.store.binding(taskId)?.generation !== b.generation || b.epoch !== this.gateway.epoch) return;
+      const receipt = this.gateway.canonical.receipt(row, this.gateway.canonical.state(b.runtimeId)!, prior.admissionId);
+      const saved = this.store.action(prior.id); if (!saved || saved.submissionId !== prior.submissionId) return;
+      saved.admissionId = receipt.admission_id; saved.receipt = 'accepted'; saved.sendStage = 'submitted'; saved.remoteOutcome = receipt.outcome;
+      if (receipt.status === 'terminal' && ['completed', 'failed', 'cancelled', 'interrupted'].includes(receipt.outcome || '')) {
+        saved.terminal = receipt.outcome === 'completed' ? 'complete' : receipt.outcome === 'failed' ? 'error' : 'interrupted';
+        saved.state = saved.terminal === 'error' ? 'failed' : 'finished'; saved.phase = saved.terminal === 'interrupted' ? 'stopped' : saved.terminal;
+        saved.awaitingTurn = false; delete saved.error;
+      }
+      if (JSON.stringify({ ...saved, updatedAt: 0 }) !== JSON.stringify({ ...prior, updatedAt: 0 })) this.store.saveAction(saved);
+    }));
+    let receipt = action.admissionId ? await this.gateway.rpc('prompt.receipt', { session_id: b.runtimeId, admission_id: action.admissionId })
+      : action.submissionId ? pending.find((row: any) => row.input_id === action.submissionId) : undefined;
+    if (receipt) receipt = this.gateway.canonical.receipt(receipt, this.gateway.canonical.state(b.runtimeId)!, action.admissionId);
+    const current = this.store.action(action.id), binding = this.store.binding(taskId);
+    if (!current || this.main(taskId)?.id !== action.id || binding?.generation !== b.generation || this.dispatching.has(action.id)) return;
+    this.projectPrompts(current, b);
+    if (receipt) {
+      current.admissionId = receipt.admission_id; current.remoteOutcome = receipt.outcome;
+      current.receipt = 'accepted'; current.sendStage = 'submitted';
+      if (receipt.status === 'terminal' && ['completed', 'failed', 'cancelled', 'interrupted'].includes(receipt.outcome || '')) {
+        current.awaitingTurn = false;
+        current.terminal = receipt.outcome === 'failed' ? 'error' : ['cancelled', 'interrupted'].includes(receipt.outcome || '') ? 'interrupted' : 'complete';
+        current.state = current.terminal === 'error' ? 'failed' : 'finished';
+        current.phase = current.terminal === 'interrupted' ? 'stopped' : current.terminal;
+        delete current.error;
+        this.store.notify(`${current.id}:${current.terminal}`, taskId, current.state === 'failed' ? 'failure' : 'completion');
+        for (const stop of this.store.actions(taskId).filter(a => a.kind === 'stop' && a.targetId === current.id && a.state === 'stopping')) {
+          stop.state = 'finished'; stop.phase = 'work ended'; this.store.saveAction(stop);
+        }
+      } else if (['unknown', 'terminal'].includes(receipt.status)) {
+        current.state = 'unknown'; current.phase = 'outcome unconfirmed';
+        current.error = 'Hermes cannot confirm this work. Review its history before sending again.';
+      } else {
+        delete current.error;
+        current.awaitingTurn = receipt.status === 'queued'; current.turnStarted = receipt.status === 'started';
+        const waiting = current.approvals?.length || current.clarification;
+        current.state = waiting ? 'awaiting_input' : current.state === 'stopping' ? 'stopping' : 'running';
+        current.phase = waiting ? current.approvals?.length ? 'approval needed' : 'question from Hermes' : receipt.status === 'queued' ? 'queued' : 'working';
+      }
+    } else if (current.submissionId && current.receipt === 'unknown') {
+      current.state = 'unknown'; current.phase = 'submission unconfirmed';
+    } else if (current.kind === 'continue') {
+      current.state = live.running ? 'running' : 'ready'; current.phase = live.running ? 'working' : 'ready to send';
+    }
+    b.ready = !live.running && !pending.length && !current.approvals?.length && !current.clarification;
+    this.store.saveBinding(taskId, b);
+    if (JSON.stringify({ ...current, updatedAt: 0 }) !== JSON.stringify({ ...action, updatedAt: 0 })) this.store.saveAction(current);
+  }
   private projectPrompts(action: Action, binding: Binding) {
     const requests = this.gateway.prompts.list(binding.runtimeId);
     action.approvals = requests.filter(p => p.method === 'approval').map(p => ({ ...p.params, request_id: p.id }));
@@ -497,11 +568,20 @@ export class Actions {
   event(event: any) {
     if (event.type === 'sessions.changed') this.gateway.metadata = undefined;
     if (!event.session_id) return;
+    if (event.type === 'session.replay_gap' && this.gateway.protocol === 'hermes-gateway-v1') {
+      for (const [id, b] of this.store.bindings()) if (b.runtimeId === event.session_id && b.epoch === this.gateway.epoch) void this.reconcile(id);
+      return;
+    }
     for (const [taskId, b] of this.store.bindings()) {
       if (b.unavailable || b.runtimeId !== event.session_id || b.epoch !== this.gateway.epoch || !Number.isInteger(event.seq) || event.seq <= b.seq) continue;
       if (event.type === 'session.info') this.settings.observe(taskId, event.payload, b);
       const a = this.main(taskId); if (!a) continue;
       b.seq = event.seq;
+      if (event.remote) {
+        b.remote = event.remote; this.store.saveBinding(taskId, b);
+        const admission = event.admission_id || event.payload?.admission_id;
+        if (!a.admissionId || admission !== a.admissionId) continue;
+      }
       const p = event.payload || {};
       const preparingSend = a.kind === 'send' && a.sendStage === 'preparing';
       if (event.type === 'message.start') { b.ready = false; if (!preparingSend) { a.turnStarted = true; a.awaitingTurn = false; a.state = 'running'; a.phase = 'working'; a.terminal = undefined; } a.liveText = ''; }
@@ -519,7 +599,11 @@ export class Actions {
     }
   }
   async replay(taskId: string, b: Binding, freshSend = false) {
-    const result = await this.gateway.rpc('session.events.since', { session_id: b.runtimeId, last_seen: b.seq });
+    const result = await this.gateway.rpc('session.events.since', { session_id: b.runtimeId, last_seen: b.seq, ...(b.remote ? { replay_epoch: b.remote.replayEpoch } : {}) });
+    if (this.gateway.protocol === 'hermes-gateway-v1') {
+      if (result.remote) { b.remote = result.remote; b.seq = result.remote.sequence; this.store.saveBinding(taskId, b); }
+      return;
+    }
     if (result.epoch !== b.epoch || result.truncated || (result.latest_seq < b.seq)) {
       // A new, deliberate Send can start observing from the current event boundary. Missing
       // earlier events must not be attributed to this message or change any previous receipt.
@@ -534,6 +618,17 @@ export class Actions {
   async reconnect() {
     for (const [taskId, b] of this.store.bindings()) {
       if (b.unavailable) continue;
+      if (this.gateway.protocol === 'hermes-gateway-v1') {
+        try {
+          const live = await this.gateway.rpc('session.resume', { session_id: b.storedId, profile: b.profile || this.gateway.profile, omit_messages: true });
+          if (live.stored_session_id !== b.storedId || !live.remote) throw new GatewayError('Conversation identity could not be verified.');
+          if (this.store.binding(taskId)?.generation !== b.generation) continue;
+          Object.assign(b, { runtimeId: live.session_id, epoch: this.gateway.epoch, remote: live.remote, seq: live.remote.sequence, ready: false, known: true });
+          this.store.saveBinding(taskId, b);
+          await this.reconcile(taskId);
+        } catch { b.ready = false; b.known = false; this.store.saveBinding(taskId, b); }
+        continue;
+      }
       if (b.epoch !== this.gateway.epoch) {
         b.ready = false; b.known = false; this.store.saveBinding(taskId, b);
         const a = this.main(taskId); if (a && activeStates.has(a.state)) { a.state = 'unknown'; a.error = 'Hermes restarted. Review the available history. Sending a new message will prepare this conversation again; the previous message will not be resent.'; this.store.saveAction(a); } continue;

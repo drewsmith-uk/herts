@@ -167,6 +167,23 @@ See [Troubleshooting](docs/maintenance.md#troubleshooting) if installation or co
 Open an existing conversation to read its history or send another message.
 The settings beside the message field control the model, reasoning effort, and working folder for the next send.
 
+### Recover a message that was not sent
+
+A failed title check can prevent a message from reaching Hermes.
+Herts keeps the message under **Saved message · not sent**.
+An app update does not send saved messages automatically.
+
+1. Open the affected conversation.
+2. Expand **Saved message · not sent**.
+3. Select **Use this message**.
+4. Review the message and attachments in the message field.
+5. Select **Send**.
+
+**Use this message** adds the saved content to your current draft.
+You do not need to create another conversation.
+For **Saved submitted message** or an unknown outcome, check the conversation history before sending again.
+Hermes might already have received that request.
+
 ### Organise tasks and reading
 
 Enable **Tasks** or **Reading** in **Settings → Plugins**.

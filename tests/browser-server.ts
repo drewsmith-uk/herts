@@ -71,14 +71,17 @@ const server = createServer({ keepAliveTimeout: 0 }, async (req, res) => {
   }
   if (url.pathname === '/api/files') { const path = url.searchParams.get('path') || '/projects'; if (path === '/missing') { res.statusCode = 404; return res.end(JSON.stringify({ detail: 'Folder not found' })); } return res.end(JSON.stringify({ path, parent: path === '/projects' ? null : '/projects', entries: path === '/projects' ? [{ name: 'work', path: '/projects/work', is_directory: true }, { name: 'private.txt', path: '/projects/private.txt', is_directory: false }] : [] })); }
   const id = url.pathname.split('/')[3];
+  if (url.pathname.endsWith('/mutation-snapshot')) return res.end(JSON.stringify({ session_id: id, exists: rows.has(id), runtime_revision: rows.get(id)?.revision || 0 }));
   if (req.method === 'GET' && url.pathname === `/api/sessions/${id}` && rows.has(id)) { const row = rows.get(id), settings = row.settings || profileSettings; return res.end(JSON.stringify({ ...row, profile: 'default', model: settings.model, cwd: settings.cwd, model_config: { provider: settings.provider, reasoning_config: { effort: settings.reasoning_effort }, service_tier: settings.fast ? 'priority' : 'normal' } })); }
   if (req.method === 'PATCH' && url.pathname.startsWith('/api/sessions/')) {
     const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk));
-    const { title, profile } = JSON.parse(Buffer.concat(chunks).toString());
+    const { title, profile, request_id, expected_revision } = JSON.parse(Buffer.concat(chunks).toString());
     const row = rows.get(id), duplicate = [...rows.values()].find(other => other.id !== id && other.title === title);
     if (!row || profile !== 'default') { res.statusCode = 404; return res.end('{}'); }
+    if (!request_id || expected_revision !== (row.revision || 0)) { res.statusCode = 409; return res.end(JSON.stringify({ detail: 'revision_conflict' })); }
     if (duplicate) { res.statusCode = 400; return res.end(JSON.stringify({ detail: `Title '${title}' is already in use by session ${duplicate.id}` })); }
-    row.title = title; return res.end(JSON.stringify({ ok: true, title }));
+    row.title = title; row.revision = (row.revision || 0) + 1;
+    return res.end(JSON.stringify({ ok: true, session_id: id, revision: row.revision, title }));
   }
   if (url.pathname.endsWith('/messages')) { const all = rows.get(id)?.messages || [], offset = Number(url.searchParams.get('offset') || 0), limit = Number(url.searchParams.get('limit') || 200); const start = url.searchParams.get('order') === 'latest' ? Math.max(0, all.length - offset - limit) : offset; const end = url.searchParams.get('order') === 'latest' ? Math.max(0, all.length - offset) : offset + limit; const messages = all.slice(start, end); return res.end(JSON.stringify({ session_id: id, profile: 'default', messages, pagination: { returned: messages.length } })); }
   if (url.pathname === '/api/audio/transcribe') return res.end(JSON.stringify({ transcript: 'Please draft a packing list.' }));

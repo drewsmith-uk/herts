@@ -1,8 +1,52 @@
 # Hermes backend compatibility
 
+## Connection modes
+
+Standalone mode remains the default and uses the configured `hermes serve` endpoint.
+Gateway mode uses the local shared Hermes service through `hermes-gateway-v1`.
+It uses authenticated discovery, temporary tickets, and explicit profile ownership checks.
+The adapter retains the existing Herts conversation controls and plugin interfaces.
+
+Gateway submissions have durable submission IDs and admission receipts.
+Herts saves submission IDs before dispatch and uses receipts to check outcomes after reconnecting.
+A matching pending submission can recover a lost acknowledgement.
+Matching message text alone cannot establish acceptance.
+An unknown outcome remains unknown when Hermes supplies no matching receipt.
+Herts never repeats message submission during reconnection.
+
+Gateway event replay uses each session's replay epoch, sequence, and execution generation.
+A replay gap requires a fresh snapshot.
+Herts checks the saved admission receipt before reporting completion.
+Events from another client's admission cannot complete the saved Herts action.
+Approvals and questions use generation checks and acknowledged responses.
+
+Gateway model, reasoning, workspace, and title changes use revision-fenced mutations.
+Deferred settings and unknown outcomes prevent message submission.
+Current settings also use the canonical `session.info` read.
+The standalone protocol details below apply only to standalone mode.
+
+## Protected title changes
+
+Current Hermes releases require a request ID and a session revision for title changes.
+Herts reads the mutation snapshot before it checks the current title.
+It saves the request before submission and verifies the returned revision and session identity.
+After an unknown outcome, Herts checks the current title without repeating the write.
+A conflicting edit requires a refresh and review.
+The connection check verifies revision reads but does not test writes.
+
+Messages blocked before sending remain saved after an update.
+Follow the [message recovery steps](../README.md#recover-a-message-that-was-not-sent) to send them manually.
+
 Herts uses the Desktop-compatible HTTP and JSON-RPC/WebSocket gateway provided by `hermes serve`. It does not scrape the Desktop UI or read Hermes's SQLite files directly.
 
-The integration was reviewed against Hermes Agent 0.21.2 source at upstream commit `5eb99eb2844b22ebb723711b8e6a0bbb80bb5f04`. The deployed default-profile backend was checked independently with read-only status/session queries. The source version is not a claim that an already-running backend has reloaded that exact commit. Isolated fixtures and the upstream API contract cover named-profile behaviour. Check this behaviour against the actual backend you select.
+The compatibility update was checked against Hermes v0.22.4, commit `4d04303818b61bf3aa09278af48356315515965b`.
+It was also checked against installed source `944c3a434071f43e64b443d033f3eba30c64434c`.
+Isolated checks covered both connection modes, profiles, Bot Chat, history, protected renaming, and routine changes.
+Gateway checks also covered reasoning, workspace, speed, attachment staging, and idle controls.
+No model prompts were submitted.
+Synthetic tests covered admissions, lost acknowledgements, prompt responses, replay, and ownership checks.
+These checks do not verify live model providers or audio providers.
+An installed source version does not prove that an existing backend process uses that version.
 
 Primary references: [Hermes documentation](https://hermes-agent.nousresearch.com/docs/), [dashboard and backend](https://hermes-agent.nousresearch.com/docs/user-guide/features/web-dashboard), and [Hermes source](https://github.com/NousResearch/hermes-agent).
 
@@ -41,8 +85,8 @@ The session settings contract was checked against Hermes Agent 0.21.3 source at 
 
 The optional controls require `model.options` with configured provider/model capabilities and `config.get` (reasoning, fast, project). They also require profile-stamped `GET /api/sessions/:id` metadata and directory browsing through `GET /api/files`. Herts returns only model/provider, effort, speed, and folder fields to the browser. It never forwards raw model configuration or provider credentials.
 
-Desktop provides `session.info` events, but it does not provide a `session.info` request.
-Herts does not send that unsupported request.
+Standalone mode provides `session.info` events but does not provide a `session.info` request.
+Herts uses that request only in gateway mode.
 
 Herts reads current stored settings through the existing session detail HTTP endpoint.
 Missing effort uses profile configuration from `GET /api/config` with `include_defaults=false`.
@@ -77,6 +121,12 @@ Bots additionally uses `profiles.list`, `profiles.describe`, `profiles.create`, 
 
 Routine management uses profile-stamped `GET /api/cron/jobs`, creation, `PUT /api/cron/jobs/:id`, pause/resume/trigger/delete endpoints, and run history. Every item mutation first verifies membership in the selected profile. Hermes item routes can search other profiles when a hint does not contain the job. `GET /api/config` supplies only the scheduling timezone to the browser. Routine transcripts are read only after verifying their membership in that routine’s run history.
 
-Profile routing and identity encoding are tested with identical stored-session IDs across profiles. Existing database records are stamped with the installation’s configured profile; browser storage and default-profile IDs remain unchanged. The database version is 7. Rollback requires the matching pre-migration backup described in [Backups and upgrades](maintenance.md).
+Profile routing tests use identical stored-session IDs across profiles.
+Existing records retain their configured profile, conversation IDs, drafts, and receipts.
+Database version 8 stores gateway identities and receipts in existing JSON records.
+Rollback requires the matching backup described in [Backups and upgrades](maintenance.md).
 
 Run the opt-in isolated source check with `node --import tsx scripts/check-bots-source.ts /path/to/hermes-agent`. It creates a temporary Hermes home and loopback server. It checks profile metadata, an empty canonical chat, and a routine scheduled far in the future. It removes them after the checks. It never submits model prompts or uses production profiles.
+
+Add `--gateway` to check shared gateway mode against the same source.
+Set `HERTS_TEST_PYTHON` to use an existing Hermes interpreter with an exported source tree.

@@ -4,7 +4,7 @@ import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
-import { mkdir, open, readFile, rename, stat, writeFile, rm } from 'node:fs/promises';
+import { mkdir, open, readFile, rename, stat, writeFile, rm, realpath } from 'node:fs/promises';
 import { existsSync, createReadStream } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
@@ -22,6 +22,7 @@ import { registerThemes } from './themes.js';
 import { mediaRefs } from '../shared/media.js';
 import { discardedUploads } from './discardedUploads.js';
 import { Transcriptions } from './transcriptions.js';
+import { TitleEdits } from './titleEdits.js';
 
 const uuid = z.string().uuid();
 const historyOrder = z.enum(['oldest', 'latest']).default('oldest');
@@ -30,13 +31,14 @@ const actionSchema = z.object({ id: uuid, taskId: uuid.optional(), contextId: uu
   if (v.kind === 'send' && !v.text?.trim() && !v.uploadIds?.length) ctx.addIssue({ code: 'custom', message: 'Write a message or attach a file.' });
   if (v.kind === 'clarify' && !v.text?.trim() && !Object.keys(v.answers || {}).length) ctx.addIssue({ code: 'custom', message: 'An answer is required.' });
 });
-export interface Config { staticDir?: string; pluginsDir?: string; dataDir: string; origin: string; identity: string; dev?: boolean; hermesBase: string; hermesToken: string; excluded?: string[]; hermesProfile?: string }
+export interface Config { staticDir?: string; pluginsDir?: string; dataDir: string; origin: string; identity: string; dev?: boolean; hermesBase: string; hermesToken: string; excluded?: string[]; hermesProfile?: string; hermesNative?: import('./nativeGateway.js').NativeGatewayOptions }
 export async function createApp(config: Config) {
+  if (config.hermesNative) config = { ...config, hermesNative: { ...config.hermesNative, home: await realpath(config.hermesNative.home) } };
   await mkdir(config.dataDir, { recursive: true, mode: 0o700 });
   const uploadDir = join(config.dataDir, 'uploads'); await mkdir(uploadDir, { recursive: true, mode: 0o700 });
   const store = new Store(join(config.dataDir, 'tasks.sqlite'));
   const profile = config.hermesProfile || 'default';
-  try { bindHermesTarget(store, config.hermesBase, profile); } catch (error) { store.close(); throw error; }
+  try { bindHermesTarget(store, config.hermesBase, profile, config.hermesNative?.home); } catch (error) { store.close(); throw error; }
   store.scrubDeletedMessages();
   const transcriptions = new Transcriptions(store);
   await transcriptions.migrateLegacy(); transcriptions.sweep();
@@ -44,12 +46,14 @@ export async function createApp(config: Config) {
   // A disk cleanup failure must not take away conversation and stop controls.
   // Metadata is removed first; the durable queue retries remaining bytes later.
   await cleanDiscardedUploads().catch(() => {});
-  const gateway = new Gateway(config.hermesBase, config.hermesToken, config.excluded, () => store.contexts().flatMap(c => c.aliases), profile);
+  const gateway = new Gateway(config.hermesBase, config.hermesToken, config.excluded, () => store.contexts().flatMap(c => c.aliases), profile, config.hermesNative);
+  gateway.persistence = store;
   gateway.botChats = (owner, id) => store.contexts().some(c => c.botChat && c.profile === owner && c.aliases.includes(id));
   const plugins = new PluginRegistry(store,gateway,config.pluginsDir || resolve('plugins'),config.dataDir);
   migrateLegacyPlugins(store,plugins.storage);
   store.bindProfiles(profile);
   const actions = new Actions(store,gateway,uploadDir);
+  const titleEdits = new TitleEdits(store, gateway);
   plugins.hermes = new Bots(store, gateway, actions);
   await plugins.initialise(store.legacyInstallation);
   const notifications = new Notifications(store,config.origin.startsWith('https:') ? config.origin : undefined,plugins);
@@ -74,14 +78,14 @@ export async function createApp(config: Config) {
   app.setErrorHandler((error, req, reply) => {
     if (error instanceof z.ZodError) return reply.code(400).send({ error: error.issues.map(i => i.message).join(' ') });
     if (error instanceof Conflict) return reply.code(409).send({ error: error.message, snapshot: clientSnapshot(store,req) });
-    if (error instanceof GatewayError) return reply.code(error.code === 404 ? 404 : 503).send({ error: error.message });
+    if (error instanceof GatewayError) return reply.code(error.code === 404 ? 404 : 503).send({ error: error.message, uncertain: error.uncertain, reason: error.reason, ...(error.operationRejected ? { operationRejected: true } : {}) });
     if((error as any)?.name==='ZodError'&&Array.isArray((error as any).issues))return reply.code(400).send({error:(error as any).issues.map((i:any)=>i.message).join(' ')});
     const e = error as Error & { statusCode?: number };
     if(e.statusCode===409)return reply.code(409).send({error:e.message,snapshot:clientSnapshot(store,req),pluginData:plugins.data()});
     reply.code(e.statusCode && e.statusCode < 500 ? e.statusCode : 500).send({ error: e.statusCode && e.statusCode < 500 ? e.message : 'The request could not be completed. Your saved work is retained.' });
   });
   registerThemes(app);
-  app.get('/api/v1/state', async req => ({ snapshot: clientSnapshot(store,req), actions: store.actions(), bindings: Object.fromEntries(store.bindings()), gateway: { online: gateway.online, configured: !!config.hermesToken, profile, promptProtocol: gateway.promptProtocol, promptError: gateway.promptError, promptWarning: gateway.promptWarning }, plugins:plugins.catalogue(), pluginData:plugins.data(), pushKey: notifications.keys.publicKey }));
+  app.get('/api/v1/state', async req => ({ snapshot: clientSnapshot(store,req), actions: store.actions(), bindings: Object.fromEntries(store.bindings()), gateway: { online: gateway.online, configured: gateway.configured, profile, promptProtocol: gateway.promptProtocol, promptError: gateway.promptError, promptWarning: gateway.promptWarning }, plugins:plugins.catalogue(), pluginData:plugins.data(), pushKey: notifications.keys.publicKey }));
 
   app.get('/manifest.webmanifest',async(_req,reply)=>{const manifest=JSON.parse(await readFile(resolve('public/manifest.webmanifest'),'utf8'));manifest.description='Private Hermes conversations with optional plugins';manifest.shortcuts=plugins.catalogue().entries.filter(e=>plugins.enabled(e.manifest.id)).flatMap(e=>(e.manifest.shortcuts||[]));return reply.type('application/manifest+json').header('Cache-Control','no-cache').send(manifest);});
   app.get('/api/v1/contexts/:id',async(req,reply)=>{const context=store.context((req.params as any).id);return context?{context}:reply.code(404).send({error:'Conversation reference not found.'});});
@@ -122,7 +126,7 @@ export async function createApp(config: Config) {
   registerSessionSettings(app, actions.settings);
   app.post('/api/v1/contexts/:id/title', async req => {
     const id = uuid.parse((req.params as any).id);
-    const { title, baseTitle } = z.object({ title: z.string().trim().min(1).max(100), baseTitle: z.string().max(2000) }).strict().parse(req.body);
+    const { title, baseTitle, operationId } = z.object({ title: z.string().trim().min(1).max(100), baseTitle: z.string().max(2000), operationId: uuid.optional() }).strict().parse(req.body);
     const context = store.context(id);
     if (context?.botChat) throw new Conflict('Edit the bot title in Bots; its permanent chat title is reserved.');
     if (!context) throw new Conflict('This conversation is not available. Refresh before renaming.');
@@ -135,7 +139,7 @@ export async function createApp(config: Config) {
         store.openConversation({ ...link, storedId: conversation.id, title: conversation.title }, conversation.aliases);
         throw new Conflict('The conversation title changed in Hermes. Refresh before renaming.');
       }
-      await gateway.withProfile(context.profile || profile, () => gateway.renameConversation(conversation.id, title));
+      await gateway.withProfile(context.profile || profile, () => titleEdits.rename(id, conversation.id, title, baseTitle, operationId));
       link = { ...link, storedId: conversation.id, title };
     }
     const updated = store.saveContext({ ...store.context(id)!, title, link });
@@ -291,6 +295,6 @@ export async function createApp(config: Config) {
   app.addHook('preClose', async () => { for (const s of streams) s.end(); });
   const cleanupTimer = setInterval(() => { void (async () => { transcriptions.sweep(); await cleanDiscardedUploads(); })().catch(() => {}); }, 60000); cleanupTimer.unref();
   app.addHook('onClose', async () => { clearInterval(cleanupTimer); plugins.remoteActions.close(); await plugins.close(); actions.close(); notifications.close(); gateway.close(); await cleanDiscardedUploads().catch(() => {}); store.close(); });
-  if (config.hermesBase && config.hermesToken) void gateway.connect().catch(() => {});
+  if (gateway.configured) void gateway.connect().catch(() => {});
   return { app, store, gateway, actions, plugins, articles:plugins.web };
 }
