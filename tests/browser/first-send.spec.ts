@@ -54,7 +54,7 @@ test('first send stays visible through delayed preparation, acknowledgement and 
     releaseContext();
     await expect.poll(async () => (await execution(request)).slice(before.length)).toEqual(['session.create']);
     await expect(message).toContainText(text);
-    await expect(page.getByRole('button', { name: 'Check status', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Check again', exact: true })).toHaveCount(0);
     releaseReceipt();
     await expect(editor(page)).toBeEnabled();
     await expect(editor(page)).toHaveValue('');
@@ -127,23 +127,25 @@ test('an unconfirmed first send keeps its message offline without repeating the 
   await editor(page).fill(text);
   await page.evaluate(() => navigator.serviceWorker.ready);
   await send(page).click();
-  await expect(page.getByRole('button', { name: 'Check status', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Check again', exact: true })).toBeVisible();
   await expect(page.locator('.outgoing-message')).toContainText(text);
   await expect(page.locator('.composer-note')).toHaveCount(0);
+  await editor(page).focus();
   await expect(send(page)).toBeDisabled();
-  await page.getByRole('button', { name: 'Check status', exact: true }).click();
+  await page.getByRole('button', { name: 'Check again', exact: true }).click();
   await context.setOffline(true);
   await page.reload();
   await expect(page.locator('.outgoing-message')).toContainText(text);
-  await expect(page.getByRole('button', { name: 'Check status', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Check status', exact: true })).toBeInViewport();
+  await expect(page.getByRole('button', { name: 'Check again', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Check again', exact: true })).toBeInViewport();
   await page.screenshot({ path: 'output/first-send/unconfirmed-offline-390.png' });
   await expect(editor(page)).toHaveValue(text);
   expect((await savedDraft(page)).text).toBe(text);
+  await editor(page).focus();
   await expect(send(page)).toBeDisabled();
   await context.setOffline(false);
   await page.reload();
-  await expect(page.getByRole('button', { name: 'Check status', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Check again', exact: true })).toBeVisible();
   expect(attempts).toBe(1);
   expect(await execution(request)).toEqual(before);
 });
@@ -177,6 +179,44 @@ test('a delayed first-send reply preserves navigation and another draft', async 
     }, previousUrl)).toBe('');
     await expect(page).toHaveURL(nextUrl);
     await expect(editor(page)).toHaveValue('Keep this separate draft while the earlier receipt arrives.');
+  } finally { release(); }
+});
+
+test('confirmation checks preserve edits and recover automatically without another send', async ({ page, context, request }) => {
+  const before = await execution(request);
+  const text = 'Recover this accepted message after its reply is lost.';
+  let reveal = false, checking = false, release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/v1/state', async route => {
+    if (reveal) { checking = true; await gate; }
+    const response = await route.fetch(), data = await response.json();
+    if (!reveal) data.actions = data.actions.filter((action: { text: string }) => action.text !== text);
+    await route.fulfill({ response, json: data });
+  });
+  let sends = 0;
+  await page.route('**/api/v1/actions', async route => { sends++; await route.fetch(); await route.abort(); });
+  await page.goto('/#/new');
+  await editor(page).fill(text);
+  await send(page).click();
+  const message = page.locator('.outgoing-message');
+  await expect(message.getByRole('button', { name: 'Check again', exact: true })).toBeVisible();
+  await expect(page.locator('[data-history-message].from-user')).toContainText(text);
+  await expect(message).toContainText(text);
+  await editor(page).fill('Keep my next draft while the previous message is confirmed.');
+  await context.setOffline(true);
+  await expect(message.getByRole('button', { name: 'Check again', exact: true })).toBeDisabled();
+  reveal = true;
+  try {
+    await context.setOffline(false);
+    await expect.poll(() => checking).toBe(true);
+    await expect(message.getByRole('status')).toHaveText('Checking…');
+    await expect(send(page)).toBeDisabled();
+    release();
+    await expect(page.getByRole('button', { name: 'Check again', exact: true })).toHaveCount(0);
+    await expect(message).toHaveCount(0);
+    await expect(editor(page)).toHaveValue('Keep my next draft while the previous message is confirmed.');
+    expect(sends).toBe(1);
+    expect((await execution(request)).slice(before.length)).toEqual(['session.create', 'prompt.submit']);
   } finally { release(); }
 });
 

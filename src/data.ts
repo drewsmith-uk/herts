@@ -96,6 +96,7 @@ export interface State {
     settingsPending?: PendingSettings[];
     online: boolean;
     connectionChecked?: boolean;
+    checkingStatus?: boolean;
     syncActive?: boolean;
     syncError?: string;
     connectionVersion: number;
@@ -317,6 +318,7 @@ export async function refresh(recover = false) {
         return;
     }
     refreshing = true;
+    publish({ checkingStatus: true });
     const controller = new AbortController(); refreshRequest = controller;
     try {
         const data = await api('/state', undefined, 'GET', 10000, controller.signal), actions = new Map(state.actions.map(a => [a.id, a]));
@@ -343,6 +345,7 @@ export async function refresh(recover = false) {
         refreshing = false;
         refreshRequest = undefined;
         if (refreshAgain) { const recovery = recoverAfterRefresh; refreshAgain = false; recoverAfterRefresh = false; void refresh(recovery); }
+        else publish({ checkingStatus: false });
     }
 }
 /** Erase saved copies on reconnect too, while keeping independent drafts and history. */

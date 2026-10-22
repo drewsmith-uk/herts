@@ -58,6 +58,55 @@ for (const [width, height] of [[320, 844], [390, 844], [768, 844], [1280, 844], 
   });
 }
 
+for (const width of [320, 1280]) {
+  test(`unconfirmed message recovery stays compact at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.route('**/api/v1/actions', route => route.abort());
+    await page.goto('/#/new');
+    const editor = page.getByRole('textbox', { name: 'Message Hermes', exact: true });
+    await editor.fill('Keep this message and attachment available while checking confirmation.');
+    await page.locator('input[type=file]').setInputFiles({ name: 'journey-planning-notes.txt', mimeType: 'text/plain', buffer: Buffer.from('Synthetic planning notes') });
+    await expect(page.getByRole('button', { name: 'Remove journey-planning-notes.txt' })).toBeVisible();
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    const recovery = page.locator('.outgoing-message .submission-recovery');
+    const check = recovery.getByRole('button', { name: 'Check again', exact: true });
+    await expect(check).toBeEnabled();
+    await expect(recovery.getByRole('status')).toHaveText('Unconfirmed');
+    await expect(page.locator('.composer-wrap .submission-recovery')).toHaveCount(0);
+    expect(Math.abs((await check.boundingBox())!.y - (await recovery.locator('summary').boundingBox())!.y)).toBeLessThan(1);
+    await check.focus(); await expect(check).toBeFocused();
+    let hold = true, release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    await page.route('**/api/v1/state', async route => { if (hold) await gate; await route.continue(); });
+    try {
+      await check.click();
+      await expect(recovery.getByRole('status')).toHaveText('Checking…');
+      await expect(check).toBeDisabled();
+      await page.screenshot({ path: `output/first-send/checking-${width}.png` });
+      hold = false; release();
+      await expect(check).toBeEnabled();
+      await expect(recovery.getByRole('status')).toHaveText('Unconfirmed');
+      await page.screenshot({ path: `output/first-send/unconfirmed-compact-${width}.png` });
+      await recovery.locator('summary').focus();
+      await page.keyboard.press('Enter');
+      const cancel = recovery.getByRole('button', { name: 'Cancel if not yet received', exact: true });
+      await expect(cancel).toBeVisible();
+      for (const control of [recovery, check, cancel]) {
+        const bounds = (await control.boundingBox())!;
+        expect(bounds.x).toBeGreaterThanOrEqual(0);
+        expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+      }
+      await page.screenshot({ path: `output/first-send/unconfirmed-${width}.png` });
+      await cancel.click();
+      await expect(recovery).toHaveCount(0);
+      await expect(editor).toHaveValue('Keep this message and attachment available while checking confirmation.');
+      await editor.focus();
+      await expect(page.getByRole('button', { name: 'Remove journey-planning-notes.txt' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
+    } finally { hold = false; release(); }
+  });
+}
+
 test('model settings wrap only when the available width requires it', async ({ page }) => {
   await page.route('**/api/v1/session-settings?*', async route => {
     const response = await route.fetch();

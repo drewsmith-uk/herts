@@ -37,12 +37,12 @@ describe('submitted transcript feedback',()=>{
   });
   it('distinguishes preparation, accepted, queued, rejected and uncertain submissions',()=>{
     const action=(patch:Partial<Action>)=>patch as Action;
-    expect(outgoingStatus()).toContain('Awaiting');
+    expect(outgoingStatus()).toBe('Unconfirmed');
     expect(outgoingStatus(action({sendStage:'preparing',receipt:'pending'}))).toBe('Saved · preparing conversation');
     expect(outgoingStatus(action({sendStage:'preparing',receipt:'unknown'}))).toBe('Not sent');
     expect(outgoingStatus(action({sendStage:'submitted',receipt:'accepted'}))).toBe('Sent to Hermes');
     expect(outgoingStatus(action({sendStage:'submitted',receipt:'accepted',awaitingTurn:true}))).toBe('Queued for Hermes');
-    expect(outgoingStatus(action({sendStage:'submitting',receipt:'unknown'}))).toBe('Submission unconfirmed');
+    expect(outgoingStatus(action({sendStage:'submitting',receipt:'unknown'}))).toBe('Unconfirmed');
     expect(outgoingStatus(action({sendStage:'submitting',receipt:'rejected'}))).toBe('Not sent');
   });
 });

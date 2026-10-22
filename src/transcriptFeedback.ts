@@ -34,9 +34,9 @@ export function outgoingInHistory(outgoing: OutgoingMessage, pages: History[]): 
 }
 
 export function outgoingStatus(action?: Action): string {
-  if (!action) return 'Awaiting submission confirmation';
+  if (!action) return 'Unconfirmed';
   if (action.sendStage === 'preparing') return action.receipt === 'pending' ? 'Saved · preparing conversation' : 'Not sent';
-  if (action.receipt === 'unknown') return 'Submission unconfirmed';
+  if (action.receipt === 'unknown') return 'Unconfirmed';
   if (action.receipt === 'rejected') return 'Not sent';
   if (action.receipt === 'accepted') return action.awaitingTurn ? 'Queued for Hermes' : 'Sent to Hermes';
   return 'Sending to Hermes';

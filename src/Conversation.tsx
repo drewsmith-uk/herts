@@ -1,6 +1,7 @@
 import { ActionRow } from './ui';
 import { createPortal } from 'react-dom';
 import { MessageComposer, type MessageComposerProps } from './MessageComposer';
+import { SubmissionRecovery } from './SubmissionRecovery';
 import { outgoingInHistory, outgoingStatus, liveReplyReplacement, type OutgoingMessage } from './transcriptFeedback';
 import type { ConversationContext } from '../shared/conversations';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -72,7 +73,7 @@ export function ConversationPanel({ context: task, initialText = '', showActions
       </>}
     </ConversationActivity>}
     <div ref={setSavedHost}/>
-    </div><div className="conversation-control-slot" ref={setStatusHost}/>{readOnly ? <div className="composer-placeholder" role="status">{state.online ? 'Opening message controls…' : 'Connect once to enable messaging for this conversation.'}</div> : <MessageComposer key={task.id} savedMessagesHost={showConversation ? savedHost : undefined} docked={!!task.link || (!!entryComposer && showConversation)} context={task} saveLabel={saveDraftAction || (entryComposer && !showConversation) ? 'Save draft' : undefined} onSaved={entryComposer?.onSaved || saveDraftAction} persist={task.link ? undefined : entryComposer?.persist} allowSaveEmpty={entryComposer?.allowSaveEmpty} initialText={initialText} canSend={state.online && state.gateway.online && !active && !busy} onSending={() => setSendVersion(v => v + 1)} onSubmissionChange={entryComposer ? draft => setSubmitting(draft ? { id: draft.submissionId!, taskId: task.id, text: draft.text, uploadIds: draft.files, at: Date.now() } : undefined) : undefined} onSent={async () => { setHistoryVersion(v => v + 1); await entryComposer?.onSent?.(); }}/>}
+    </div><div className="conversation-control-slot" ref={setStatusHost}/>{readOnly ? <div className="composer-placeholder" role="status">{state.online ? 'Opening message controls…' : 'Connect once to enable messaging for this conversation.'}</div> : <MessageComposer key={task.id} recoveryInHistory={!!outgoing && state.localSubmissions.some(s => s.id === outgoing.id)} savedMessagesHost={showConversation ? savedHost : undefined} docked={!!task.link || (!!entryComposer && showConversation)} context={task} saveLabel={saveDraftAction || (entryComposer && !showConversation) ? 'Save draft' : undefined} onSaved={entryComposer?.onSaved || saveDraftAction} persist={task.link ? undefined : entryComposer?.persist} allowSaveEmpty={entryComposer?.allowSaveEmpty} initialText={initialText} canSend={state.online && state.gateway.online && !active && !busy} onSending={() => setSendVersion(v => v + 1)} onSubmissionChange={entryComposer ? draft => setSubmitting(draft ? { id: draft.submissionId!, taskId: task.id, text: draft.text, uploadIds: draft.files, at: Date.now() } : undefined) : undefined} onSent={async () => { setHistoryVersion(v => v + 1); await entryComposer?.onSent?.(); }}/>}
   </section>;
 }
 function ModelSwitchConfirmation({ action }: { action: Action }) {
@@ -94,9 +95,10 @@ export function HistoryView({ conversationId, assistantName = 'Hermes', version 
   const { pages, cached, busy, error, newMessages, latest, refresh, older, root, end, pauseFollowing } = useConversationHistory(conversationId, version, liveText, working, sendVersion, feedback);
   const [toolbar, setToolbar] = useState<HTMLElement | null>(null);
   useEffect(() => { setToolbar(root.current?.closest('.page-content')?.querySelector<HTMLElement>('.header-secondary-actions') || null); }, []);
+  const uncertain = useApp().localSubmissions.some(s => s.id === outgoing?.id);
   const confirmed = useRef(new Set<string>());
-  if (outgoing && (!submitting || outgoingAction) && outgoingInHistory(outgoing, pages)) confirmed.current.add(outgoing.id);
-  const showOutgoing = outgoing && !confirmed.current.has(outgoing.id);
+  if (outgoing && !uncertain && (!submitting || outgoingAction) && outgoingInHistory(outgoing, pages)) confirmed.current.add(outgoing.id);
+  const showOutgoing = outgoing && (uncertain || !confirmed.current.has(outgoing.id));
   const previousGroups = useRef<HistoryGroup[]>([]);
   const groups = useMemo(() => previousGroups.current = groupHistory(pages, previousGroups.current), [pages]);
   const lastAssistant = pages.flatMap(p => p.messages).findLast(m => m.role === 'assistant' && messageText(m).trim());
@@ -124,7 +126,8 @@ export function HistoryView({ conversationId, assistantName = 'Hermes', version 
   </div>;
 }
 function OutgoingFeedback({ message, action, submitting }: { message: OutgoingMessage; action?: Action; submitting: boolean }) {
-  return <article className="message from-user outgoing-message" data-outgoing-id={message.id}><div className="message-author">You <span className="submission-status" role="status">{submitting && !action ? 'Sending…' : outgoingStatus(action)}</span></div>{message.text && <div className="outgoing-text">{message.text}</div>}{message.uploadIds.length > 0 && <div className="subtle-note">{message.uploadIds.length} attachment{message.uploadIds.length === 1 ? '' : 's'}</div>}</article>;
+  const uncertain = useApp().localSubmissions.some(s => s.id === message.id);
+  return <article className="message from-user outgoing-message" data-outgoing-id={message.id}><div className="message-author">You {uncertain && !submitting ? <SubmissionRecovery id={message.id}/> : <span className="submission-status" role="status">{submitting && !action ? 'Sending…' : outgoingStatus(action)}</span>}</div>{message.text && <div className="outgoing-text">{message.text}</div>}{message.uploadIds.length > 0 && <div className="subtle-note">{message.uploadIds.length} attachment{message.uploadIds.length === 1 ? '' : 's'}</div>}</article>;
 }
 
 const HistoryMessage = memo(function HistoryMessage({ entry: { key: entryKey, message: m, page, index }, conversationId, assistantName, speaking, preparing, speechError, onSpeak, pauseFollowing }: {
