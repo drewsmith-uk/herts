@@ -4,6 +4,7 @@ import { readingTitle, undoableAction, PageHeader, ComposerPlaceholder, MessageC
 import { ReadingList, ReadingCapture, ReadingDetail, Reader, BookmarkLink, ReadingSettings } from './Reading';
 import { applyReadingOp, emptyReading, conversationReadingItems, type ReadingState, type ReadingOp } from './model';
 import { useApp, resolveReadingConflict, startReading, db } from './data';
+import { startReadingNavigation } from './navigation';
 function ReadingBadge({ conversation }: ConversationActionProps) {
     const { snapshot } = useApp();
     const count = conversationReadingItems(conversation, snapshot.reading, snapshot.contexts).length;
@@ -22,6 +23,6 @@ export default function activate(): ClientPlugin {
         reduce(records, operation) { return { ...records, state: applyReadingOp((records.state || emptyReading()) as ReadingState, operation.input as ReadingOp, false) }; },
         async reconcile(result, operation) { const op = operation.input as ReadingOp; if (result.itemId && result.itemId !== op.itemId)
             await db.kv.put({ key: `reading-alias:${op.itemId}`, value: result.itemId }); },
-        start: startReading,
+        start() { const stopNavigation = startReadingNavigation(), stopReading = startReading(); return () => { stopReading(); stopNavigation(); }; },
     };
 }

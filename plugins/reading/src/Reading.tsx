@@ -10,6 +10,7 @@ import { emptyReading, normalizeUrl, sharedUrls, type ReadingItem, type Article 
 import { useApp, addReading, readingChange, changeReadingWithUndo, db, sync, publish, getArticle } from './data';
 import { ConversationPanel } from '@herts/plugin-api/client';
 import { ConversationHeader } from '@herts/plugin-api/client';
+import { readingReturnTarget, saveReadingReturnTarget, replaceReadingAlias } from './navigation';
 const navigate = (path: string) => { location.hash = path; };
 const date = (at: number) => new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(at);
 function useReadingAction() {
@@ -92,12 +93,14 @@ function savedSplit(id: string) { try { return sessionStorage.getItem(`herts:rea
 const articlePositions = new Map<string, number>();
 export function ReadingDetail({ id, initialMode = 'discussion' }: { id: string; initialMode?: ReadingMode }) {
     const state = useApp(), item = state.snapshot.reading?.items.find(i => i.id === id);
+    const back = readingReturnTarget(id, item?.readAt != null);
+    useLayoutEffect(() => { if (item) saveReadingReturnTarget(back); }, [id, item, back.href, back.label]);
     const { run, error } = useReadingAction();
     const [mode, setMode] = useState<ReadingMode>(initialMode), [split, setSplit] = useState(() => savedSplit(id));
     const [wide, setWide] = useState(() => matchMedia('(min-width:1280px)').matches);
     useEffect(() => { setMode(initialMode); }, [initialMode]);
     useEffect(() => { const query = matchMedia('(min-width:1280px)'); const update = () => setWide(query.matches); query.addEventListener('change', update); return () => query.removeEventListener('change', update); }, []);
-    useEffect(() => { let current = true; if (!item) void db.kv.get(`reading-alias:${id}`).then(row => { if (current && row) navigate(`/reading-item/${row.value}`); }); return () => { current = false; }; }, [id, item, state.snapshot.revision]);
+    useEffect(() => { let current = true; if (!item) void db.kv.get(`reading-alias:${id}`).then(row => { if (current && row) replaceReadingAlias(id, row.value); }); return () => { current = false; }; }, [id, item, state.snapshot.revision]);
     const context = state.snapshot.contexts?.find(c => c.id === item?.contextId) || (item ? { id: item.contextId, title: item.title, link: null, aliases: [] } : undefined);
     if (!item) return <EmptyState icon={<BookOpen/>} title={state.online ? 'Reading item unavailable' : 'Reading item not saved on this device'} description={state.online ? 'Refresh to check this item.' : 'Reconnect to check this item.'}><ButtonLink href="#/reading">Reading list</ButtonLink><Button disabled={!state.online} onClick={() => void sync()}>Refresh</Button></EmptyState>;
     const alongside = wide && split;
@@ -106,7 +109,7 @@ export function ReadingDetail({ id, initialMode = 'discussion' }: { id: string; 
     function chooseMode(next: ReadingMode) { setMode(next); try { sessionStorage.setItem(`herts:reading-mode:${id}`, next); } catch {} }
     function toggleSplit() { const next = !split; setSplit(next); try { sessionStorage.setItem(`herts:reading-split:${id}`, String(next)); } catch {} }
     return <div className={`reading-detail reading-workspace ${alongside ? 'reading-split' : ''}`}>
-      <ConversationHeader title={item.title} backHref={item.readAt === null ? '#/reading' : '#/reading/read'} backLabel="Reading list" context={context}>
+      <ConversationHeader title={item.title} backHref={back.href} backLabel={back.label} context={context}>
         <ReadingTitle item={item}/><ActionRowLink icon={<ExternalLink size={20}/>} href={item.url} target="_blank" rel="noopener noreferrer">Open original</ActionRowLink><ActionRow icon={<Check size={20}/>} onClick={() => run(() => readingChange(id, { kind: 'read', read: item.readAt === null }))}>{item.readAt === null ? 'Mark read' : 'Mark unread'}</ActionRow>
         <OfflineControls item={item}/>{error && <StatusMessage>{error}</StatusMessage>}
       </ConversationHeader>
