@@ -46,6 +46,9 @@ test('reading titles save explicitly, reject blank edits, and survive offline re
   await expect((await detailsField(page, 'Reading title'))).toHaveValue('Finished article title');
   await expect((await detailsControl(page, 'button', 'Mark unread'))).toBeVisible();
   await closePageActions(page); await page.getByRole('link', { name: 'Back to Reading list', exact: true }).click();
+  await expect(page).toHaveURL(/#\/reading$/);
+  await expect(page.getByRole('link', { name: 'Finished article title', exact: true })).toHaveCount(0);
+  await page.getByRole('link', { name: /^Read \d/ }).click();
   await expect(page.getByRole('link', { name: 'Finished article title', exact: true })).toBeVisible();
   expect(await agentCalls(request)).toEqual(before);
 });
