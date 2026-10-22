@@ -59,15 +59,18 @@ describe('private API and upload recovery', () => {
     const link = { key: 'root', storedId: 'tip', title: 'Old name', source: 'telegram' };
     store.saveContext({ id, title: link.title, link, aliases: ['root', 'tip'] });
     gateway.conversation = async () => ({ id: 'tip', key: 'root', title: 'Old name', aliases: ['root', 'tip'], preview: '', source: 'telegram', updatedAt: 1 });
-    const http = vi.spyOn(gateway, 'http').mockResolvedValue({ ok: true, title: 'New name' });
+    const http = vi.spyOn(gateway, 'http').mockImplementation(async (path, _body, method) => method === 'PATCH'
+      ? { session_id: 'tip', revision: 4, title: 'New name' }
+      : path.includes('mutation-snapshot') ? { session_id: 'tip', exists: true, runtime_revision: 3 }
+      : { id: 'tip', profile: 'default', title: 'Old name' });
     const rpc = vi.spyOn(gateway, 'rpc');
     const response = await app.inject({ method: 'POST', url: `/api/v1/contexts/${id}/title`, headers: { 'x-herts-request': '1' }, payload: { title: 'New name', baseTitle: 'Old name' } });
     expect(response.statusCode).toBe(200);
-    expect(http).toHaveBeenCalledWith('/api/sessions/tip', { profile: 'default', title: 'New name' }, 'PATCH');
+    expect(http).toHaveBeenCalledWith('/api/sessions/tip', expect.objectContaining({ profile: 'default', title: 'New name', expected_revision: 3, request_id: expect.any(String) }), 'PATCH');
     expect(rpc).not.toHaveBeenCalled();
     expect(store.context(id)).toMatchObject({ title: 'New name', link: { key: 'root', storedId: 'tip', title: 'New name' } });
     const conflict = await app.inject({ method: 'POST', url: `/api/v1/contexts/${id}/title`, headers: { 'x-herts-request': '1' }, payload: { title: 'Stale rename', baseTitle: 'Old name' } });
-    expect(conflict.statusCode).toBe(409); expect(http).toHaveBeenCalledTimes(1);
+    expect(conflict.statusCode).toBe(409); expect(http).toHaveBeenCalledTimes(3);
   });
   it('opens one shared conversation reference without agent work or a task, and reuses it after linking', async () => {
     const { app, store, gateway, articles } = await fixture();

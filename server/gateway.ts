@@ -5,17 +5,32 @@ import { randomUUID } from 'node:crypto';
 import WebSocket from 'ws';
 import type { Conversation, History, HistoryOrder } from '../shared/core.js';
 import { PromptRequests, previewUnavailable, type PromptRequest } from './promptRequests.js';
+import { NativeGateway, type NativeGatewayOptions, type NativeEndpoint } from './nativeGateway.js';
+import { CanonicalGateway } from './canonicalGateway.js';
+import type { Store } from './store.js';
 
 export class GatewayError extends Error {
-  constructor(message: string, public uncertain = false, public code?: number) { super(message); }
+  operationRejected?: boolean;
+  constructor(message: string, public uncertain = false, public code?: number, public reason?: string) { super(message); }
 }
-export const personalSources = ['desktop', 'telegram', 'cli', 'tui', 'webui'];
+export const personalSources = ['desktop', 'gui', 'telegram', 'cli', 'tui', 'webui'];
 export function isPersonal(row: any, excluded: string[] = [], owned = false) {
   const source = String(row.source || '').toLowerCase();
   const ids = [row.id, row._lineage_root_id, ...(row._lineage_ids || [])];
   return personalSources.includes(source) && !row.hidden && !row.room_plumbing && !ids.some(id => excluded.includes(id)) && (owned || !/^(?:test|e2e|smoke|probe|fixture|qa)(?:[\s:_-]|$)/i.test(row.title || ''));
 }
 export class Gateway extends EventEmitter {
+  protocol: 'standalone' | 'hermes-gateway-v1' = 'standalone';
+  readonly native?: NativeGateway;
+  private endpoint?: NativeEndpoint;
+  private instance = '';
+  private runtimeDescription?: Record<string, any>;
+  private ticket = '';
+  private verifiedProfiles = new Set<string>();
+  readonly canonical = new CanonicalGateway((id, profile) => this.ref(id, profile), event => this.emit('event', event),
+    (session, prompts, version) => this.prompts.restore(session, prompts, version));
+  set persistence(store: Pick<Store, 'getMeta' | 'setMeta'>) { this.canonical.store = store; }
+  get configured() { return !!this.native || !!(this.base && this.token); }
   socket?: WebSocket; epoch = ''; online = false; closing = false;
   pending = new Map<string, { method: string; params: any; version: number; resolve: (v: any) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
   promptProtocol: 'unknown' | 'legacy' | 'requests' = 'unknown';
@@ -48,16 +63,27 @@ export class Gateway extends EventEmitter {
   get fetchingMetadata() { return this.fetchingByProfile.get(this.profile); }
   set fetchingMetadata(value: Promise<Conversation[]> | undefined) { if (value) this.fetchingByProfile.set(this.profile, value); else this.fetchingByProfile.delete(this.profile); }
   botChats: (profile: string, id: string) => boolean = () => false;
-  constructor(public base: string, private token: string, private excluded: string[] = [], private owned: () => string[] = () => [], public readonly defaultProfile = 'default') { super(); }
+  constructor(public base: string, private token: string, private excluded: string[] = [], private owned: () => string[] = () => [], public readonly defaultProfile = 'default', private readonly nativeOptions?: NativeGatewayOptions) { super(); if (nativeOptions) this.native = new NativeGateway(nativeOptions); }
   async http(path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST'): Promise<any> {
-    if (!this.base || !this.token) throw new GatewayError('Hermes connection is not configured.');
+    if (!this.configured) throw new GatewayError('Hermes connection is not configured.');
+    let base = this.base, headers: Record<string, string> = { 'X-Hermes-Session-Token': this.token };
+    if (this.native) {
+      const target = new URL(path, 'http://localhost');
+      const profile = target.searchParams.get('profile') || (body as any)?.profile || this.profile;
+      const grant = await this.native.access(profile, 'native-http');
+      base = grant.endpoint.api_origin; headers = { 'X-Hermes-Gateway-Ticket': grant.ticket! };
+    }
     let response: Response;
-    try { response = await fetch(new URL(path, this.base), { method, redirect: 'error', headers: { 'X-Hermes-Session-Token': this.token, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(body === undefined ? 30_000 : 180_000) }); }
+    try { response = await fetch(new URL(path, base), { method, redirect: 'error', headers: { ...headers, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(body === undefined ? 30_000 : 180_000) }); }
     catch { throw new GatewayError('Hermes is unreachable. Your work is saved in Herts.', body !== undefined); }
     if (!response.ok) {
       const speech = path.split('?')[0] === '/api/audio/speak';
-      const detail = method === 'PATCH' || speech ? await response.json().catch(() => ({})) : {};
+      const detail = await response.json().catch(() => ({}));
       let message = typeof detail?.detail === 'string' ? detail.detail : `Hermes request failed (${response.status}).`;
+      const reason = typeof detail?.detail === 'string' && /^[a-z_]{1,80}$/.test(detail.detail) ? detail.detail : undefined;
+      if (reason === 'revision_conflict') message = 'The conversation changed in Hermes. Refresh and review your edit.';
+      if (reason === 'session_busy') message = 'The conversation is busy. Wait for its work to finish.';
+      if (reason === 'stale_generation') message = 'The running work changed. Refresh before using this control.';
       if (speech) {
         const reason = typeof detail?.detail === 'string' ? detail.detail : '';
         message = /\bedge\b/i.test(reason) && /\b403\b/.test(reason)
@@ -66,28 +92,64 @@ export class Gateway extends EventEmitter {
             ? 'Speech credentials are missing or invalid for this profile. Check its speech settings in Hermes.'
             : `Hermes could not prepare audio for this profile (${response.status}). Check its speech settings in Hermes.`;
       }
-      throw new GatewayError(message, method !== 'GET' && response.status >= 500, response.status);
+      for (const secret of [this.token, headers['X-Hermes-Gateway-Ticket']]) if (secret) message = message.replaceAll(secret, '[redacted]');
+      throw new GatewayError(message, method !== 'GET' && response.status >= 500, response.status, reason);
     }
     try { return await response.json(); }
     catch { throw new GatewayError('Hermes returned an invalid response.', body !== undefined); }
   }
-  async renameConversation(id: string, title: string) {
-    const result = await this.http(`/api/sessions/${encodeURIComponent(parseConversationRef(id).id)}`, { profile: this.profile, title }, 'PATCH');
-    if (result.title !== title) throw new GatewayError('The new conversation title could not be confirmed. Refresh to check it.', true);
+  async sessionDetail(id: string) {
+    const sid = parseConversationRef(id).id;
+    const row = await this.http(`/api/sessions/${encodeURIComponent(sid)}?profile=${encodeURIComponent(this.profile)}`);
+    if (row.id !== sid || row.profile !== this.profile) throw new GatewayError('Conversation identity could not be verified.');
+    return row;
+  }
+  async mutationSnapshot(id: string): Promise<{ session_id: string; runtime_revision: number; runtime_generation?: number }> {
+    const sid = parseConversationRef(id).id;
+    const row = await this.http(`/api/sessions/${encodeURIComponent(sid)}/mutation-snapshot?profile=${encodeURIComponent(this.profile)}`);
+    if (row.session_id !== sid || row.exists !== true || !Number.isSafeInteger(row.runtime_revision) || row.runtime_revision < 0)
+      throw new GatewayError('Hermes did not provide a session revision. Refresh before editing.');
+    return row;
+  }
+  async renameConversation(id: string, title: string, requestId: string, revision: number) {
+    const sid = parseConversationRef(id).id;
+    const result = await this.http(`/api/sessions/${encodeURIComponent(sid)}`, { profile: this.profile, title, request_id: requestId, expected_revision: revision }, 'PATCH');
+    if (result.session_id !== sid || result.title !== title || !Number.isSafeInteger(result.revision) || result.revision <= revision)
+      throw new GatewayError('The new conversation title could not be confirmed. Refresh to check it.', true);
     this.metadata = undefined;
     return title;
   }
   connect(): Promise<void> {
     if (this.online) return Promise.resolve();
     if (this.connecting) return this.connecting;
-    if (!this.base || !this.token) return Promise.reject(new GatewayError('Hermes connection is not configured.'));
-    this.connecting = new Promise<void>((resolve, reject) => {
+    if (!this.configured) return Promise.reject(new GatewayError('Hermes connection is not configured.'));
+    this.connecting = this.open().catch(error => {
+      this.connecting = undefined;
+      if (!this.closing) { clearTimeout(this.reconnectTimer); this.reconnectTimer = setTimeout(() => { void this.connect().catch(() => {}); }, 5000); }
+      throw error;
+    });
+    return this.connecting;
+  }
+  private async open(): Promise<void> {
+    let base = this.base, protocols: string[] | undefined;
+    if (this.native) {
+      const grant = await this.native.access(this.defaultProfile, 'interactive');
+      this.ticket = grant.ticket!;
+      this.endpoint = grant.endpoint; base = grant.endpoint.api_origin;
+      protocols = ['hermes-gateway-v1', `hermes-gateway-ticket.${grant.ticket}`];
+    }
+    if (this.closing) throw new GatewayError('Herts is closing.');
+    return new Promise<void>((resolve, reject) => {
       this.promptProtocol = 'unknown'; this.promptError = undefined; this.serverRequestMethods = [];
       this.previewDeclines = false;
       this.promptWarning = undefined; this.backendContract = undefined;
       this.prompts.reset(); this.answering.clear();
-      const url = new URL('/api/ws', this.base); url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'; url.searchParams.set('token', this.token);
-      const ws = new WebSocket(url, { handshakeTimeout: 15_000, maxPayload: 64 * 1024 * 1024 }); this.socket = ws;
+      this.canonical.reset();
+      this.runtimeDescription = undefined;
+      this.verifiedProfiles.clear();
+      const url = new URL('/api/ws', base); url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+      if (!protocols) url.searchParams.set('token', this.token);
+      const ws = new WebSocket(url, protocols, { handshakeTimeout: 15_000, maxPayload: 64 * 1024 * 1024 }); this.socket = ws;
       const readyTimer = setTimeout(() => { ws.terminate(); reject(new GatewayError('Hermes did not become ready.')); }, 20_000);
       ws.on('message', bytes => {
         if (ws !== this.socket) return;
@@ -100,12 +162,26 @@ export class Gateway extends EventEmitter {
             clearTimeout(readyTimer); this.epoch = event.payload?.replay_epoch || '';
             if (!this.epoch) { reject(new GatewayError('Hermes event identity is unavailable.')); ws.close(); return; }
             // Finish the capability handshake before any session can start work.
-            void this.negotiatePrompts().then(() => {
+            this.protocol = event.payload?.session_authority === true ? 'hermes-gateway-v1' : 'standalone';
+            void (async () => {
+              if (this.native && (this.protocol !== 'hermes-gateway-v1' || ws.protocol !== 'hermes-gateway-v1')) throw new GatewayError('Hermes gateway protocol mismatch.');
+              if (this.protocol === 'hermes-gateway-v1') {
+                const info = await this.request('runtime.describe', {}, 15000);
+                if (typeof info.instance_id !== 'string' || !Number.isSafeInteger(info.authority_epoch) ||
+                    (this.endpoint && (info.instance_id !== this.endpoint.instance_id || info.profile_id !== this.endpoint.profile_id || info.authority_epoch !== this.endpoint.authority_epoch))) throw new GatewayError('Hermes gateway identity changed.');
+                this.canonical.identify(this.defaultProfile, info); this.instance = info.instance_id;
+                this.runtimeDescription = info;
+                this.verifiedProfiles.add(this.defaultProfile);
+                this.epoch = `${info.instance_id}:${info.authority_epoch}`;
+                this.promptProtocol = 'requests';
+              } else await this.negotiatePrompts();
+            })().then(() => {
               if (ws !== this.socket || ws.readyState !== WebSocket.OPEN) return;
               this.online = true; this.connecting = undefined; resolve(); this.emit('connected');
               clearInterval(this.heartbeat); this.heartbeat = setInterval(() => { void this.rpc('gateway.ping', {}, 15_000).catch(() => ws.terminate()); }, 20_000);
             }).catch(() => { this.promptError = 'Herts could not confirm Hermes prompt compatibility. Reconnect or update Herts and Hermes before sending.'; reject(new GatewayError(this.promptError)); ws.close(); });
           } else if (event) {
+            if (this.protocol === 'hermes-gateway-v1') { this.canonical.event(event); return; }
             if (event.type === 'session.info') this.observeContract(event.payload);
             if (event.type === 'message.start') this.prompts.clearWarning(event.session_id);
             if (event.type === 'request.cancel' && typeof event.payload?.id === 'string') this.prompts.close(event.payload.id, event.session_id);
@@ -117,13 +193,16 @@ export class Gateway extends EventEmitter {
           const pending = this.pending.get(String(frame.id)); if (!pending) return;
           clearTimeout(pending.timer); this.pending.delete(String(frame.id));
           if (frame.error) {
-            const mutating = ['session.create', 'session.title', 'session.resume', 'prompt.submit', 'file.attach', 'approval.respond', 'clarify.respond', 'request.answer', 'session.interrupt', 'config.set', 'session.cwd.set', 'profiles.create', 'profiles.configure', 'cron.manage'].includes(pending.method);
+            const mutating = ['session.mutate', 'session.create', 'session.title', 'session.resume', 'prompt.submit', 'file.attach', 'approval.respond', 'clarify.respond', 'request.answer', 'session.interrupt', 'config.set', 'session.cwd.set', 'profiles.create', 'profiles.configure', 'cron.manage'].includes(pending.method);
             const validation = (frame.error.code >= 4000 && frame.error.code < 4100) || [-32601, -32602].includes(frame.error.code);
-            pending.reject(new GatewayError(String(frame.error.message || 'Hermes refused the request.').replaceAll(this.token, '[redacted]'), mutating && !validation, frame.error.code));
+            const reason = typeof frame.error.data?.reason === 'string' && /^[a-z_]{1,80}$/.test(frame.error.data.reason) ? frame.error.data.reason : this.protocol === 'hermes-gateway-v1' ? 'unclassified' : undefined;
+            let message = String(frame.error.message || 'Hermes refused the request.');
+            for (const secret of [this.token, this.ticket]) if (secret) message = message.replaceAll(secret, '[redacted]');
+            pending.reject(new GatewayError(message, mutating && !validation, frame.error.code, reason));
           } else {
             try {
               this.observeContract(frame.result?.info || frame.result);
-              if (['session.activate', 'session.resume', 'session.events.since'].includes(pending.method)) {
+              if (this.protocol === 'standalone' && ['session.activate', 'session.resume', 'session.events.since'].includes(pending.method)) {
                 const result = frame.result;
                 if (this.promptProtocol === 'requests') {
                   // Hermes omits open_requests when no prompts are pending.
@@ -144,13 +223,36 @@ export class Gateway extends EventEmitter {
         if (!this.closing) this.reconnectTimer = setTimeout(() => { void this.connect().catch(() => {}); }, 5_000);
       });
     });
-    return this.connecting;
   }
-  async rpc(method: string, params: any, timeout = 60_000): Promise<any> {
+  async rpc(method: string, params: any, timeout = 60_000, intentId?: string): Promise<any> {
     await this.connect();
     const profile = params.profile || parseConversationRef(params.session_id || '').profile || this.profile;
     const wire = { ...params };
     if (wire.session_id) wire.session_id = parseConversationRef(wire.session_id).id;
+    if (this.protocol === 'hermes-gateway-v1') {
+      const socket = this.socket;
+      if (this.native && !this.verifiedProfiles.has(profile)) {
+        const { endpoint } = await this.native.access(profile);
+        if (socket !== this.socket || endpoint.api_origin !== this.endpoint?.api_origin) throw new GatewayError('This profile is not served by the connected Hermes gateway.');
+        // runtime.describe accepts no profile parameter. Verify capabilities through a socket owned by the selected profile.
+        const owner = new Gateway('', '', [], () => [], profile, this.nativeOptions);
+        try {
+          await owner.connect();
+          const info = owner.runtimeDescription;
+          if (socket !== this.socket || !this.online || owner.endpoint?.api_origin !== endpoint.api_origin ||
+              info?.profile_id !== endpoint.profile_id || info?.instance_id !== endpoint.instance_id ||
+              info?.authority_epoch !== endpoint.authority_epoch)
+            throw new GatewayError('The Hermes profile owner changed. Reconnect before continuing.');
+          this.canonical.identify(profile, info); this.verifiedProfiles.add(profile);
+        } finally { owner.close(); }
+      }
+      return this.canonical.call(method, { ...wire, profile }, async (name, values) => {
+        if (socket !== this.socket || !this.online) throw new GatewayError('Hermes connection changed. Refresh before continuing.');
+        const result = await this.request(name, values, timeout);
+        if (socket !== this.socket || !this.online) throw new GatewayError('Hermes connection changed before confirmation.', true);
+        return result;
+      }, this.prompts.version, this.instance, intentId);
+    }
     const result = await this.request(method, wire, timeout);
     if (['session.create', 'session.resume', 'session.activate'].includes(method)) {
       if (result.session_key) result.session_key = this.ref(result.session_key, profile);
@@ -192,6 +294,10 @@ export class Gateway extends EventEmitter {
     const prompt = this.prompts.list(session).find(p => p.id === id);
     if (!prompt || this.answering.has(id)) throw new GatewayError('This prompt is no longer pending or a response was already submitted.');
     this.answering.add(id);
+    if (this.protocol === 'hermes-gateway-v1' && this.canonical.state(session)?.snapshot.prompts.some(p => this.canonical.promptId(session, p.prompt_id) === id)) {
+      await this.canonical.answer(session, id, result, (method, params) => this.request(method, params, 60000));
+      return;
+    }
     try {
       // Official proxy for response frames: unlike a socket write, it confirms
       // whether the still-open request accepted the answer (also after reconnect).
@@ -264,5 +370,5 @@ export class Gateway extends EventEmitter {
     if (!Array.isArray(data.messages) || data.profile !== this.profile) throw new GatewayError('Conversation identity could not be verified.');
     return { profile: this.profile, order, sessionId: data.session_id, messages: data.messages.filter((m: any) => m.display_kind !== 'hidden' && !['system', 'developer'].includes(m.role)), offset, hasMore: data.pagination?.returned === 200, fetchedAt: Date.now() };
   }
-  close() { this.closing = true; clearTimeout(this.reconnectTimer); clearInterval(this.heartbeat); this.socket?.close(); }
+  close() { this.closing = true; clearTimeout(this.reconnectTimer); clearInterval(this.heartbeat); this.socket?.close(); this.native?.close(); }
 }

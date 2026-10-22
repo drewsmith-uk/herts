@@ -17,7 +17,7 @@ export class Store extends LegacyFeatures {
     super();
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     this.db = new Database(path);
-    if(Number(this.db.pragma('user_version',{simple:true}))>7){this.db.close();throw new Error('This database needs a newer Herts version.');}
+    if(Number(this.db.pragma('user_version',{simple:true}))>8){this.db.close();throw new Error('This database needs a newer Herts version.');}
     this.legacyInstallation = Number(this.db.pragma('user_version', { simple: true })) > 0;
     this.db.pragma('journal_mode = WAL'); this.db.pragma('synchronous = FULL'); this.db.pragma('foreign_keys = ON');
     this.db.exec(`
@@ -75,7 +75,8 @@ export class Store extends LegacyFeatures {
       for (const context of this.contexts()) if (!context.profile) this.saveContext({ ...context, profile, link: context.link ? { ...context.link, profile } : null });
       for (const [id, binding] of this.bindings()) if (!binding.profile) this.saveBinding(id, { ...binding, profile: this.context(id)?.profile || profile });
       this.setMeta('profiles-bound', true);
-      this.db.pragma('user_version = 7');
+      // Version 8 retains gateway identities and receipts in existing JSON records.
+      this.db.pragma('user_version = 8');
     })();
   }
   getMeta<T = any>(key: string): T | undefined { const r = this.db.prepare('SELECT value FROM meta WHERE key=?').get(key) as any; return r ? JSON.parse(r.value) : undefined; }

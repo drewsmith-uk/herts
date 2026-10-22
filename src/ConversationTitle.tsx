@@ -6,7 +6,7 @@ import { cleanConversationTitle } from '../shared/conversationTitles';
 export function ConversationTitle({ context }: { context: ConversationContext }) {
   const { online } = useApp();
   if (context.botChat) return null;
-  return <RenameAction title={context.link?.title || context.title} label="Rename conversation" fieldLabel="Conversation title" maxLength={100} disabled={!!context.link && !online}
+  return <RenameAction title={context.link?.title || context.title} label="Rename conversation" fieldLabel="Conversation title" maxLength={100} draftKey={`rename-draft:${context.id}`} saveDisabled={!!context.link && !online}
     save={async (title, base) => {
       const next = cleanConversationTitle(title);
       if (!next || next === base) return;

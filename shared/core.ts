@@ -14,7 +14,11 @@ export type HistoryOrder = 'oldest' | 'latest';
 export interface History { profile?: string; order?: HistoryOrder; sessionId: string; messages: ChatMessage[]; offset: number; hasMore: boolean; fetchedAt: number }
 export type ActionState = 'preparing' | 'running' | 'awaiting_input' | 'stopping' | 'finished' | 'failed' | 'unknown' | 'ready';
 export interface Approval { request_id: string; command?: string; description?: string; choices?: string[]; [key: string]: unknown }
-export interface Binding { profile?: string; runtimeId: string; storedId: string; epoch: string; generation: string; seq: number; ready: boolean; monitored: boolean; known: boolean; unavailable?: boolean }
+export interface RemoteSession {
+  protocol: 'hermes-gateway-v1'; profileId: string; instanceId: string; authorityEpoch: number;
+  revision: number; executionGeneration: number; replayEpoch: string; sequence: number; subscriptionId: string;
+}
+export interface Binding { profile?: string; runtimeId: string; storedId: string; epoch: string; generation: string; seq: number; ready: boolean; monitored: boolean; known: boolean; unavailable?: boolean; remote?: RemoteSession }
 // taskId is the legacy wire/storage field for the canonical context ID. New
 // requests use contextId; the server resolves legacy task IDs before dispatch.
 export interface Action {
@@ -26,6 +30,7 @@ export interface Action {
   savedMessageDeletedAt?: number;
   sendStage?: 'preparing' | 'submitting' | 'submitted'; turnStarted?: boolean; awaitingTurn?: boolean; cancelSend?: boolean;
   settings?: import('./sessionSettings').SendSettings;
+  submissionId?: string; admissionId?: string; remoteOutcome?: string | null;
   // Durable proof that this action created a new session, before any prompt.
   createdSession?: Pick<Binding, 'runtimeId' | 'storedId' | 'epoch'>;
 }

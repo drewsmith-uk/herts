@@ -10,15 +10,18 @@ try {
   const state = await response.json().catch(() => { throw new Error('Herts returned an invalid status response.'); });
   if (!state.snapshot || !state.gateway) throw new Error('The app returned an incompatible status response.');
   console.log('Herts authenticated access: OK.');
-  if (config.hermesBase) {
-    gateway = new Gateway(config.hermesBase, config.hermesToken, [], () => [], config.hermesProfile);
+  if (config.hermesBase || config.hermesNative) {
+    gateway = new Gateway(config.hermesBase, config.hermesToken, [], () => [], config.hermesProfile, config.hermesNative);
     const result = await gateway.http(`/api/sessions?profile=${encodeURIComponent(config.hermesProfile)}&limit=1&order=recent&archived=include`);
     if (!Array.isArray(result.sessions) || result.sessions.some((row: any) => row.profile !== config.hermesProfile)) throw new Error('Hermes session listing/profile identity could not be verified. Check backend compatibility and HERMES_PROFILE.');
     await gateway.rpc('gateway.ping', {}, 15_000);
+    console.log(`Hermes connection protocol: ${gateway.protocol}.`);
     console.log(`Hermes interactive prompts: ${gateway.promptProtocol === 'requests' ? 'current request protocol' : 'legacy event protocol'} verified.`);
     if (gateway.promptWarning) console.log(gateway.promptWarning);
     const session = result.sessions[0];
     if (session) {
+      await gateway.mutationSnapshot(session.id);
+      console.log('Hermes protected session edits: revision reads verified; writes were not tested.');
       const settings = await gateway.http(`/api/sessions/${encodeURIComponent(session.id)}?profile=${encodeURIComponent(config.hermesProfile)}`);
       if (settings.id !== session.id || settings.profile !== config.hermesProfile) {
         throw new Error('Hermes session settings identity could not be verified. Check backend compatibility.');

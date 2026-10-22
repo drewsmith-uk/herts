@@ -1,5 +1,40 @@
 # Backups and upgrades
 
+## Shared gateway transition
+
+Keep standalone mode until its update checks pass.
+Gateway mode requires an existing local Hermes service that serves the selected profiles.
+Herts does not start or restart Hermes during this transition.
+Finish active Hermes work before switching connections.
+The verification command refuses a transition while Herts records active work.
+
+1. Stop the Herts app service.
+2. Make a private backup with the procedure below.
+3. Keep the standalone endpoint and token settings in the environment file.
+4. Add absolute `HERMES_HOME`, `HERMES_PYTHON`, and `HERMES_SOURCE` paths.
+5. Run the verification command without `--apply`.
+
+```sh
+node --env-file=data/app.env --import tsx scripts/transition-gateway.ts
+```
+
+The command compares installation identity and every saved conversation identity across both connections.
+Missing records or changed identities prevent the transition.
+The command does not submit messages or change Hermes data.
+
+6. Repeat the command with `--apply` to save the verified target.
+7. Set `HERMES_CONNECTION=gateway` in the environment file.
+8. Start the Herts app service.
+9. Run `scripts/check-connection.ts` with the same environment file.
+
+Existing installations can use `hermes-tasks.service` instead of `herts.service`.
+Keep the backup and previous build until the checks pass.
+Database version 8 retains the previous target, conversation links, and uncertain receipts.
+For rollback, stop Herts and restore the matching application and data backup.
+Restore the standalone environment settings before starting Herts.
+Review work completed after the backup before you use restored receipts.
+Never repeat an uncertain message only because you restored a backup.
+
 Run these commands from the Herts checkout.
 The examples use `herts.service`.
 Use the installed service name if it differs, such as `hermes-tasks.service`.

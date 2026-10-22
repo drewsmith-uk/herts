@@ -157,6 +157,11 @@ export class SessionSettings {
           current = {}; modelName = undefined; wireEffort = undefined;
           for (const key of settingKeys) delete sources[key];
           apply(values, name, 'current');
+          if (this.gateway.protocol === 'hermes-gateway-v1') {
+            const info = await this.gateway.rpc('session.info', { session_id: saved.storedId });
+            const live = sessionValues(info);
+            apply(live, live.model?.id, 'live'); wireEffort = info.reasoning_effort_wire;
+          }
           if (this.readVersions.get(context.id) === version) {
             this.readings.set(context.id, { storedId: saved.storedId, linkId: context.link.storedId, profile: this.gateway.profile, values, modelName: name });
           }
