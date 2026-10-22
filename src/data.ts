@@ -195,7 +195,7 @@ export async function rebuild() {
     // A slower read must not replace a newer snapshot and briefly remove a
     // draft created while its device-storage reads were in flight.
     if (version !== rebuildVersion) return;
-    publish({ snapshot, pluginData, pluginPending, visibilityPending, settingsPending, outgoing, localSubmissions });
+    publish({ snapshot, pluginData, pluginPending, visibilityPending, settingsPending, outgoing, localSubmissions, checkingStatus: !!localSubmissions.length && refreshing });
 }
 export async function acceptPlugins(catalogue: PluginCatalogue, data: Record<string, PluginData> = state.pluginRemote) {
     if (catalogue.revision < state.plugins.revision)
@@ -318,7 +318,7 @@ export async function refresh(recover = false) {
         return;
     }
     refreshing = true;
-    publish({ checkingStatus: true });
+    if (state.localSubmissions.length) publish({ checkingStatus: true });
     const controller = new AbortController(); refreshRequest = controller;
     try {
         const data = await api('/state', undefined, 'GET', 10000, controller.signal), actions = new Map(state.actions.map(a => [a.id, a]));
@@ -345,7 +345,7 @@ export async function refresh(recover = false) {
         refreshing = false;
         refreshRequest = undefined;
         if (refreshAgain) { const recovery = recoverAfterRefresh; refreshAgain = false; recoverAfterRefresh = false; void refresh(recovery); }
-        else publish({ checkingStatus: false });
+        else if (state.checkingStatus) publish({ checkingStatus: false });
     }
 }
 /** Erase saved copies on reconnect too, while keeping independent drafts and history. */
