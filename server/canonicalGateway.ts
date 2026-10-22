@@ -107,6 +107,7 @@ export class CanonicalGateway {
   receipt(value: unknown, state: State, admissionId?: string): AdmissionReceipt {
     const parsed = receiptSchema.safeParse(value);
     if (!parsed.success || parsed.data.ref.session_id !== state.id || parsed.data.ref.profile_id !== state.remote.profileId ||
+        parsed.data.authority_epoch !== state.remote.authorityEpoch ||
         (admissionId && parsed.data.admission_id !== admissionId)) throw new GatewayError('Hermes did not confirm the message receipt identity.', true);
     return parsed.data;
   }

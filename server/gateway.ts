@@ -24,6 +24,7 @@ export class Gateway extends EventEmitter {
   readonly native?: NativeGateway;
   private endpoint?: NativeEndpoint;
   private instance = '';
+  private runtimeDescription?: Record<string, any>;
   private ticket = '';
   private verifiedProfiles = new Set<string>();
   readonly canonical = new CanonicalGateway((id, profile) => this.ref(id, profile), event => this.emit('event', event),
@@ -62,7 +63,7 @@ export class Gateway extends EventEmitter {
   get fetchingMetadata() { return this.fetchingByProfile.get(this.profile); }
   set fetchingMetadata(value: Promise<Conversation[]> | undefined) { if (value) this.fetchingByProfile.set(this.profile, value); else this.fetchingByProfile.delete(this.profile); }
   botChats: (profile: string, id: string) => boolean = () => false;
-  constructor(public base: string, private token: string, private excluded: string[] = [], private owned: () => string[] = () => [], public readonly defaultProfile = 'default', native?: NativeGatewayOptions) { super(); if (native) this.native = new NativeGateway(native); }
+  constructor(public base: string, private token: string, private excluded: string[] = [], private owned: () => string[] = () => [], public readonly defaultProfile = 'default', private readonly nativeOptions?: NativeGatewayOptions) { super(); if (nativeOptions) this.native = new NativeGateway(nativeOptions); }
   async http(path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST'): Promise<any> {
     if (!this.configured) throw new GatewayError('Hermes connection is not configured.');
     let base = this.base, headers: Record<string, string> = { 'X-Hermes-Session-Token': this.token };
@@ -144,6 +145,7 @@ export class Gateway extends EventEmitter {
       this.promptWarning = undefined; this.backendContract = undefined;
       this.prompts.reset(); this.answering.clear();
       this.canonical.reset();
+      this.runtimeDescription = undefined;
       this.verifiedProfiles.clear();
       const url = new URL('/api/ws', base); url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
       if (!protocols) url.searchParams.set('token', this.token);
@@ -168,6 +170,7 @@ export class Gateway extends EventEmitter {
                 if (typeof info.instance_id !== 'string' || !Number.isSafeInteger(info.authority_epoch) ||
                     (this.endpoint && (info.instance_id !== this.endpoint.instance_id || info.profile_id !== this.endpoint.profile_id || info.authority_epoch !== this.endpoint.authority_epoch))) throw new GatewayError('Hermes gateway identity changed.');
                 this.canonical.identify(this.defaultProfile, info); this.instance = info.instance_id;
+                this.runtimeDescription = info;
                 this.verifiedProfiles.add(this.defaultProfile);
                 this.epoch = `${info.instance_id}:${info.authority_epoch}`;
                 this.promptProtocol = 'requests';
@@ -231,7 +234,17 @@ export class Gateway extends EventEmitter {
       if (this.native && !this.verifiedProfiles.has(profile)) {
         const { endpoint } = await this.native.access(profile);
         if (socket !== this.socket || endpoint.api_origin !== this.endpoint?.api_origin) throw new GatewayError('This profile is not served by the connected Hermes gateway.');
-        this.canonical.identify(profile, endpoint); this.verifiedProfiles.add(profile);
+        // runtime.describe accepts no profile parameter. Verify capabilities through a socket owned by the selected profile.
+        const owner = new Gateway('', '', [], () => [], profile, this.nativeOptions);
+        try {
+          await owner.connect();
+          const info = owner.runtimeDescription;
+          if (socket !== this.socket || !this.online || owner.endpoint?.api_origin !== endpoint.api_origin ||
+              info?.profile_id !== endpoint.profile_id || info?.instance_id !== endpoint.instance_id ||
+              info?.authority_epoch !== endpoint.authority_epoch)
+            throw new GatewayError('The Hermes profile owner changed. Reconnect before continuing.');
+          this.canonical.identify(profile, info); this.verifiedProfiles.add(profile);
+        } finally { owner.close(); }
       }
       return this.canonical.call(method, { ...wire, profile }, async (name, values) => {
         if (socket !== this.socket || !this.online) throw new GatewayError('Hermes connection changed. Refresh before continuing.');

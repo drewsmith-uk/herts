@@ -67,6 +67,17 @@ describe('canonical gateway protocol', () => {
       await expect(f.call('prompt.submit', { session_id: 'stored', text: 'Synthetic' })).rejects.toMatchObject({ uncertain: true });
     }
   });
+  it.each(['prompt.submit', 'prompt.receipt'])('rejects obsolete authority receipts from %s', async method => {
+    const f = fixture();
+    f.adapter.identify('default', { ...identity(), authority_epoch: 2 });
+    f.request.mockResolvedValueOnce(snapshot('default', { authority_epoch: 2 }));
+    await f.call('session.resume', { session_id: 'stored' });
+    const params = { session_id: 'stored', admission_id: 'admission', text: 'Saved text' };
+    f.request.mockResolvedValueOnce(receipt());
+    await expect(f.call(method, params)).rejects.toMatchObject({ uncertain: true });
+    f.request.mockResolvedValueOnce(receipt({ authority_epoch: 2 }));
+    expect(await f.call(method, params)).toMatchObject({ authority_epoch: 2 });
+  });
   it('retains model confirmation tokens and uses the generation returned by a settings change', async () => {
     const f = fixture(); await f.call('session.resume', { session_id: 'stored' });
     const params = { session_id: 'stored', key: 'model', value: 'synthetic-model --provider custom --session' };
@@ -131,6 +142,22 @@ describe('canonical action recovery', () => {
     const engine = new Actions(f.store, gateway, '/tmp'); cleanup.push(() => { engine.close(); gateway.close(); });
     return { ...f, gateway, engine, context };
   }
+  it.each(['pending', 'receipt'])('retains unknown work when %s belongs to an obsolete authority', async source => {
+    const f = actionFixture(), live = await f.call('session.resume', { session_id: 'stored' });
+    f.store.saveBinding(f.context.id, { runtimeId: 'stored', storedId: 'stored', epoch: f.gateway.epoch, generation: 'binding', seq: 4,
+      ready: false, monitored: true, known: true, remote: live.remote });
+    f.store.saveAction({ id: 'action', taskId: f.context.id, kind: 'send', text: 'Saved text', uploadIds: [], createdAt: 1, updatedAt: 1,
+      state: 'unknown', phase: 'unknown', receipt: 'unknown', sendStage: 'submitting', submissionId: 'submission',
+      ...(source === 'receipt' ? { admissionId: 'admission' } : {}) });
+    f.adapter.identify('default', { ...identity(), authority_epoch: 2 });
+    f.request.mockImplementation(async method => method === 'session.resume'
+      ? snapshot('default', { authority_epoch: 2, pending: source === 'pending' ? [receipt({ input_id: 'submission', text: 'Saved text' })] : [] })
+      : receipt({ status: 'terminal', outcome: 'completed', execution_generation: 2 }));
+    await f.engine.reconcile(f.context.id);
+    expect(f.store.action('action')).toMatchObject({ receipt: 'unknown', state: 'unknown', text: 'Saved text' });
+    expect(f.store.action('action')?.terminal).toBeUndefined();
+    expect(f.request.mock.calls.some(([method]) => method === 'prompt.submit')).toBe(false);
+  });
   it('recovers a lost acknowledgement by submission identity, then reads its terminal receipt', async () => {
     const f = actionFixture();
     const live = await f.call('session.resume', { session_id: 'stored' });
