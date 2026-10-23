@@ -33,11 +33,11 @@ export function snoozeTask(task: Task, until: number) { const now = current().sn
     throw new Error('This task or reminder changed. Close this picker and open it again.'); if (!Number.isFinite(until) || until <= Date.now())
     throw new Error('Choose a future date and time.'); return mutate({ id: crypto.randomUUID(), taskId: task.id, kind: 'snooze', spaceId: taskSpaceId(task), baseSpaceId: taskSpaceId(task), baseStatus: task.status, baseSnoozeId: task.snoozeId || null, snoozedUntil: until, at: Date.now() }); }
 export function contextForTask(id: string) { const state = current(), task = state.snapshot.tasks.find(t => t.id === id); return task ? (state.snapshot.contexts.find(c => c.id === task.contextId) || { id: task.contextId || task.id, title: task.title, link: task.link, aliases: task.link ? [task.link.key, task.link.storedId] : [] }) : undefined; }
-export async function createTaskFromConversation(id: string, title: string, spaceId = current().snapshot.defaultSpaceId || originalSpaceId) {
+export async function createTaskFromConversation(id: string, title: string, spaceId = current().snapshot.defaultSpaceId || originalSpaceId, status: Status = 'inbox') {
     const key = `link-intent:${id}`, prior = (await db.kv.get(key))?.value;
-    if (prior && prior.title !== title)
-        throw new Error('A previous task-creation request is unconfirmed. Use the original title to check it.');
-    const intent = prior || { id: crypto.randomUUID(), taskId: crypto.randomUUID(), title, spaceId, at: Date.now() };
+    if (prior && (prior.title !== title || (prior.spaceId || originalSpaceId) !== spaceId || (prior.status || 'inbox') !== status))
+        throw new Error('A previous task-creation request is unconfirmed. Use the original title, space, and list to check it.');
+    const intent = prior || { id: crypto.randomUUID(), taskId: crypto.randomUUID(), title, spaceId, status, at: Date.now() };
     if (!prior)
         await db.kv.put({ key, value: intent });
     if (!current().snapshot.tasks.some(t => t.id === intent.taskId) && !getCore().pluginPending.some(p => p.id === intent.id))

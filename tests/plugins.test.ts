@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mkdtemp, cp, rm, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -17,6 +17,26 @@ async function fixture(legacy=false){
 }
 const op=(command:string,input:any,generation=0)=>({id:input.id,generation,command,input});
 describe('public plugin framework',()=>{
+  it('creates linked tasks in selected lists atomically and replays without duplicates', async () => {
+    const f = await fixture(); await f.plugins.activate('tasks');
+    const spaceId = randomUUID();
+    await f.plugins.command('tasks', op('space', { id: randomUUID(), spaceId, kind: 'create', name: 'Chosen space', at: 1 }));
+    vi.spyOn(f.gateway, 'conversation').mockImplementation(async key => ({ key, id: key, title: 'Fixture', source: 'desktop', aliases: [] }) as any);
+    for (const status of [undefined, 'inbox', 'next', 'waiting', 'parked', 'done']) {
+      const input = { id: randomUUID(), taskId: randomUUID(), spaceId, title: 'Chosen list', conversationId: randomUUID(), at: 5, ...(status ? { status } : {}) };
+      await f.plugins.command('tasks', op('link', input));
+      const before = structuredClone(f.plugins.storage.data('tasks'));
+      await f.plugins.command('tasks', op('link', input));
+      expect(f.plugins.storage.data('tasks')).toEqual(before);
+      const state = before.records.state as any;
+      expect(state.tasks.find((task: any) => task.id === input.taskId)).toMatchObject({ spaceId, status: status || 'inbox', completedAt: status === 'done' ? 5 : null });
+      expect(state.spaceLists[spaceId][status || 'inbox'].ids).toContain(input.taskId);
+    }
+    const before = structuredClone(f.plugins.storage.data('tasks'));
+    await expect(f.plugins.command('tasks', op('link', { id: randomUUID(), taskId: randomUUID(), spaceId, title: 'Invalid snooze', conversationId: randomUUID(), status: 'snoozed', at: 5 }))).rejects.toThrow();
+    expect(f.plugins.storage.data('tasks')).toEqual(before);
+  });
+
   it('deletes only empty added spaces, preserves task data, and handles concurrent edits and replay', async () => {
     const f = await fixture(); await f.plugins.activate('tasks');
     const original = '00000000-0000-4000-8000-000000000001', spaceId = randomUUID();

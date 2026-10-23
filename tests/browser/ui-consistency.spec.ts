@@ -1107,3 +1107,67 @@ for (const width of [320, 390, 768, 1280]) test(`Press loading composer keeps ta
   await editor.fill('A long draft with https://example.com/' + 'long-path/'.repeat(12));
   await expect(editor).toHaveValue(/A long draft/);
 });
+for (const [width, height] of [[320, 844], [390, 844], [768, 844], [1280, 844], [390, 480]]) {
+  test(`Press make-task dialog fits at ${width}x${height}`, async ({ page, context }) => {
+    await page.setViewportSize({ width, height });
+    await page.goto('/#/conversation/existing');
+    await (await pageAction(page, 'button', 'Rename conversation')).click();
+    await page.screenshot({ path: `output/make-task/reference-${width}-${height}.png` });
+    await page.getByRole('dialog', { name: 'Rename conversation', exact: true }).getByRole('button', { name: 'Cancel', exact: true }).click();
+    await (await pageAction(page, 'button', 'Make a task')).click();
+    const dialog = page.getByRole('dialog', { name: 'Make a task', exact: true });
+    const field = dialog.getByRole('textbox');
+    await expect(field).toBeEditable();
+    await field.focus();
+    await expect(field).toBeFocused();
+    const title = 'Review the delivery arrangements and https://example.com/' + 'long-reference/'.repeat(20);
+    await field.fill(title);
+    await expect(dialog).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+    const submit = dialog.getByRole('button', { name: 'Create task', exact: true });
+    await expect(submit).toHaveCSS('background-color', 'rgb(30, 60, 255)');
+    for (const control of [dialog, field, ...await dialog.getByRole('combobox').all(), submit, dialog.getByRole('button', { name: 'Cancel', exact: true })]) {
+      const box = (await control.boundingBox())!;
+      expect(box.x).toBeGreaterThanOrEqual(0); expect(box.x + box.width).toBeLessThanOrEqual(width);
+      expect(box.y).toBeGreaterThanOrEqual(0); expect(box.y + box.height).toBeLessThanOrEqual(height);
+    }
+    await page.screenshot({ path: `output/make-task/dialog-${width}-${height}.png` });
+    await context.setOffline(true);
+    await expect(field).toHaveValue(title);
+    await context.setOffline(false);
+    await expect(field).toHaveValue(title);
+    await expect(submit).toBeEnabled();
+    await field.focus();
+    await page.keyboard.press('Tab');
+    await expect(dialog.getByRole('combobox', { name: 'Space', exact: true })).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await (await pageAction(page, 'button', 'Make a task')).click();
+    await dialog.getByRole('button', { name: 'Close dialog', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+  });
+}
+
+test('make-task dialog protects its title during delayed submission and failure', async ({ page }) => {
+  await page.goto('/#/conversation/existing');
+  await (await pageAction(page, 'button', 'Make a task')).click();
+  const dialog = page.getByRole('dialog', { name: 'Make a task', exact: true });
+  const field = dialog.getByRole('textbox');
+  const title = 'Keep this task title after a failed submission';
+  await field.fill(title);
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/v1/plugins/tasks/commands', async route => { await gate; await route.abort(); });
+  await dialog.getByRole('button', { name: 'Create task', exact: true }).click();
+  try {
+    await expect(field).toBeDisabled();
+    await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeDisabled();
+    await expect(dialog.getByRole('button', { name: 'Close dialog', exact: true })).toBeDisabled();
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeVisible();
+    await expect(field).toHaveValue(title);
+  } finally { release(); }
+  await expect(dialog.getByRole('alert')).toContainText('request is saved');
+  await expect(field).toHaveValue(title);
+  await expect(field).toBeEditable();
+  await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeEnabled();
+});

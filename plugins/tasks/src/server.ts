@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { ServerServices, ServerPlugin, Transaction } from '@herts/plugin-api/server';
 import { Conflict } from '@herts/plugin-api/types';
-import { applySpaceOp, applyTaskOp, emptySnapshot, statuses, type Snapshot, type TaskOp, type SpaceOp, spaceName } from './model.js';
+import { applySpaceOp, applyTaskOp, emptySnapshot, originalSpaceId, spaceLists, statuses, type Snapshot, type TaskOp, type SpaceOp, spaceName } from './model.js';
 const uuid = z.string().uuid();
 const taskSchema = z.object({ id: uuid, taskId: uuid, kind: z.enum(['create', 'title', 'move', 'snooze']), at: z.number().int().positive(), title: z.string().trim().min(1).max(2000).optional(), status: z.enum(statuses).optional(), spaceId: uuid.optional(), baseSpaceId: uuid.optional(), beforeId: uuid.nullable().optional(), baseTitle: z.string().optional(), baseStatus: z.enum(statuses).optional(), listVersion: z.number().int().nonnegative().optional(), snoozedUntil: z.number().int().positive().max(8640000000000000).optional(), restoreCompletedAt: z.number().int().positive().max(8640000000000000).optional(), baseSnoozeId: uuid.nullable().optional() }).strict().superRefine((v, ctx) => {
     if (['create', 'title'].includes(v.kind) && !v.title)
@@ -11,7 +11,7 @@ const taskSchema = z.object({ id: uuid, taskId: uuid, kind: z.enum(['create', 't
         ctx.addIssue({ code: 'custom', message: 'Task status and reminder time are required.' });
 });
 const spaceSchema = z.object({ id: uuid, spaceId: uuid, kind: z.enum(['create', 'rename', 'default', 'delete']), at: z.number().int().positive(), name: z.string().trim().min(1).max(80).optional(), baseName: z.string().optional(), baseDefaultSpaceId: uuid.optional() }).strict();
-const linkedSchema = z.object({ id: uuid, taskId: uuid, title: z.string().trim().min(1).max(2000), spaceId: uuid.optional(), at: z.number().int().positive(), conversationId: z.string().min(1).max(300) }).strict();
+const linkedSchema = z.object({ id: uuid, taskId: uuid, title: z.string().trim().min(1).max(2000), spaceId: uuid.optional(), status: z.enum(['inbox', 'next', 'waiting', 'parked', 'done']).optional(), at: z.number().int().positive(), conversationId: z.string().min(1).max(300) }).strict();
 export function taskMutation(tx: Transaction, input: unknown) {
     const op = taskSchema.parse(input) as TaskOp;
     const next = applyTaskOp(tx.get<Snapshot>('state') || emptySnapshot(), op);
@@ -58,7 +58,8 @@ export default function activate(api: ServerServices): ServerPlugin {
                     const before = tx.get<Snapshot>('state') || emptySnapshot();
                     if (before.tasks.some(t => t.contextId === context.id))
                         throw new Conflict('This conversation already belongs to a task.');
-                    const next = applyTaskOp(before, { ...op, kind: 'create' });
+                    let next = applyTaskOp(before, { ...op, kind: 'create' });
+                    if (op.status && op.status !== 'inbox') next = applyTaskOp(next, { ...op, kind: 'move', baseStatus: 'inbox', baseSpaceId: op.spaceId, listVersion: spaceLists(next, op.spaceId || originalSpaceId)[op.status].version });
                     const task = next.tasks.find(t => t.id === op.taskId)!;
                     task.contextId = context.id;
                     task.link = context.link;
