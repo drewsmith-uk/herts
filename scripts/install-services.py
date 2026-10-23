@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Install a new Herts instance without replacing configuration or other services."""
 import argparse
+import json
 from pathlib import Path
 import os
 import re
@@ -92,7 +93,7 @@ def parser():
     p.add_argument('--backend-port', type=int, default=8788, help='Managed mode only')
     p.add_argument('--hermes-home', type=Path, default=Path.home() / '.hermes', help='Root Hermes home; named profiles live under profiles/NAME')
     p.add_argument('--hermes-bin', help='Managed mode: Hermes executable')
-    p.add_argument('--node', help='Node.js 24+ executable')
+    p.add_argument('--node', help='Supported Node.js 24 executable; see .node-version')
     p.add_argument('--backend-url', help='Existing mode: Desktop-compatible backend origin')
     p.add_argument('--token-file', type=Path, help='Existing mode: file containing that backend’s session token')
     p.add_argument('--dry-run', action='store_true', help='Validate and describe the installation without writing or starting anything')
@@ -115,8 +116,19 @@ def plan(args, root, units):
             fail('Ports must be from 1 to 65535.')
     node = executable(args.node, 'node')
     version = subprocess.run([node, '--version'], check=True, capture_output=True, text=True).stdout.strip()
-    if not re.match(r'^v(?:2[4-9]|[3-9]\d|\d{3,})\.', version):
-        fail('Node.js 24 or newer is required.')
+    minimum = (root / '.node-version').read_text().strip()
+    pattern = r'(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)'
+    required = re.fullmatch(pattern, minimum)
+    if not required:
+        fail('Invalid .node-version. Restore the release files.')
+    floor = tuple(map(int, required.groups()))
+    expected = f'>={minimum} <{floor[0] + 1}'
+    if json.loads((root / 'package.json').read_text())['engines']['node'] != expected:
+        fail('Node.js requirements differ. Restore the release files.')
+    installed = re.fullmatch('v' + pattern, version)
+    current = tuple(map(int, installed.groups())) if installed else None
+    if not current or current[0] != floor[0] or current < floor:
+        fail(f'Node.js {version} is unsupported. Install Node.js {expected}.')
     managed = args.mode == 'managed'
     if managed and (args.backend_url or args.token_file):
         fail('--backend-url and --token-file are for existing mode only.')

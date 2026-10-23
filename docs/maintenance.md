@@ -72,3 +72,39 @@ Herts keeps the historical IndexedDB name `hermes-tasks` and SQLite filename `ta
 | Article is only an excerpt | Some sites require login or an extra step. Use the original link; Herts does not bypass access controls. |
 
 Logs are available with `journalctl --user -u herts.service` (and `herts-backend.service` in managed mode). Inspect/redact logs before sharing: Hermes logs can contain conversation data. See [SECURITY.md](../SECURITY.md) for reporting a vulnerability. Herts is [MIT licensed](../LICENSE). Builds include `THIRD_PARTY_NOTICES.txt` in `dist/` and every prepared plugin folder; retain those files when distributing builds. The app serves its notices at `/THIRD_PARTY_NOTICES.txt`, also available offline.
+
+
+## Node.js security updates
+
+Herts requires Node.js 24.22.1 or a later stable Node.js 24 release.
+Node.js 25 and other major versions are not supported by this release.
+The October 2026 security release updates TLS validation, Brotli, Undici, and certificate trust.
+See the [Node.js security advisory](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases).
+
+1. Install the verified runtime in a separate, versioned directory.
+2. Put that directory first in `PATH` for builds and dependency installation.
+3. Run `npm ci` in a separate checkout to rebuild native dependencies for the selected runtime.
+4. Run `npm run check:release` before deployment.
+5. Stop only the app service and make a private backup.
+6. Replace the application with the tested source, dependencies, and build.
+7. Set the service executable to the selected runtime's absolute path.
+8. Add `ExecStartPre` with that executable and `scripts/check-runtime.mjs`.
+9. Reload the user service configuration and start only the app service.
+10. Apply Update to enabled plugins whose prepared package hashes changed.
+11. Verify the running executable, plugin hashes, and read-only connection check.
+
+Keep the existing service name, origin, data directory, profile, and credentials.
+Keep previous hashed browser assets for clients with older open pages.
+A restart retains installed plugin packages until their separate Update operation completes.
+Do not reinstall the service or restart Hermes for this update.
+
+Operating-system certificate updates do not replace Node.js certificate updates.
+Check custom CA files separately, and keep certificate verification enabled.
+An npm dependency update does not update Node.js or its bundled Undici.
+Check both the npm lockfile and the selected runtime's security release.
+
+Retain private backups and previous assets for at least seven days after successful verification.
+For recovery, rebuild the previous application dependencies under the patched Node.js 24 runtime.
+Do not restore an unsupported runtime as the normal recovery procedure.
+Restore a database backup only when application compatibility requires it.
+Preserve newer data before restoring a database backup.

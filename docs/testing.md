@@ -1,7 +1,13 @@
 # Testing and release checks
 
-Use Node.js 24 or later, Python 3, and a clean checkout.
+Use Node.js 24.22.1 or a later stable Node.js 24 release.
+Use Python 3 and a clean checkout.
+CI selects the version in `.node-version`.
+The package requirements and installer must accept the same stable Node.js 24 releases.
+Run `npm run check:runtime` to check the active executable.
+Run `npm run test:runtime` and `npm run test:installer` after runtime requirement changes.
 Install dependencies with `npm ci`.
+The project rejects unsupported runtime versions during installation.
 Never point tests at production data or a real Hermes backend.
 
 ```sh

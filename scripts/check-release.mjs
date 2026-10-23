@@ -1,3 +1,4 @@
+import { assertRuntime } from './check-runtime.mjs';
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -109,11 +110,12 @@ export function runBrowserSpecs(specs, options, execute = run) {
 
 export function main(args = process.argv.slice(2)) {
   const options = parseOptions(args);
+  assertRuntime();
   const env = { ...process.env, HERTS_TEST_DIST_DIR: resolve(dist) };
   if (options.phase !== 'browser') {
     run(process.execPath, ['scripts/design.mjs'], env);
     run(process.execPath, ['scripts/check-docs.mjs'], env);
-    run(process.execPath, ['--test', 'tests/docs-style.test.mjs', 'tests/release-runner.test.mjs'], env);
+    run(process.execPath, ['--test', 'tests/docs-style.test.mjs', 'tests/release-runner.test.mjs', 'tests/runtime.test.mjs'], env);
     run(process.execPath, ['node_modules/typescript/bin/tsc', '--noEmit'], env);
     run(process.execPath, ['scripts/build-plugins.mjs', ...pluginRoots], env);
     run(process.execPath, ['node_modules/vite/bin/vite.js', 'build', '--outDir', resolve(dist)], env);
