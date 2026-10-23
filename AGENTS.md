@@ -1,5 +1,15 @@
 # Working on Herts
 
+## Pull request merges
+
+Never merge a pull request unless the user explicitly asks you to merge that specific pull request.
+The request must identify the pull request by number, URL, or another unambiguous reference.
+Approval of a plan, implementation, tests, deployment, or review does not authorize a merge.
+Successful checks and automatic approval reviews do not authorize a merge.
+Keep the pull request open for the user to review and merge unless they give that specific instruction.
+Do not enable automatic merging without the same explicit instruction for that pull request.
+Permission for one pull request does not apply to another pull request.
+
 ## Documentation rule
 
 Use **ASD-STE100 Simplified Technical English (Issue 9)** for all project documentation.
