@@ -77,7 +77,13 @@ for (const width of [320, 1280]) {
     await check.focus(); await expect(check).toBeFocused();
     let hold = true, release!: () => void;
     const gate = new Promise<void>(resolve => { release = resolve; });
-    await page.route('**/api/v1/state', async route => { if (hold) await gate; await route.continue(); });
+    await check.evaluate(button => button.addEventListener('click', () => {
+      (window as any).holdConfirmationCheck = true;
+    }, { once: true, capture: true }));
+    await page.route('**/api/v1/state', async route => {
+      if (hold && await page.evaluate(() => !!(window as any).holdConfirmationCheck)) await gate;
+      await route.continue();
+    });
     try {
       await check.click();
       await expect(recovery.getByRole('status')).toHaveText('Checking…');
