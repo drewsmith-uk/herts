@@ -78,8 +78,10 @@ async function readArticle(id: string): Promise<Article> {
     }
     const article = await pluginQuery('reading', 'article', { id }) as Article;
     const state = current(), item = state.snapshot.reading.items.find(i => i.id === id);
-    if (state.plugins.entries.find(e => e.manifest.id === 'reading')?.generation !== startGeneration || item?.downloadVersion !== article.version)
+    if (state.plugins.entries.find(e => e.manifest.id === 'reading')?.generation !== startGeneration)
         throw new Error('Reading data was reset.');
+    if (item?.downloadVersion !== article.version)
+        return article;
     if (item && retainsArticle(item, state.snapshot.reading) && item.downloadVersion === article.version && !state.readingPending.some(p => p.op.itemId === id || p.op.kind === 'settings')) {
         try {
             await local.articles.put(article);
