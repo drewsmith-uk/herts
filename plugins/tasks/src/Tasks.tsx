@@ -5,7 +5,7 @@ import { Inbox, ArrowRight, Clock3, Pause, Check, Plus, ChevronLeft, ArrowUp, Ar
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { ConversationPanel, ConversationHeader, Voice, useDraftPersistence, useUpdateWork, useUpdatePreparation, pluginLocal, type RouteProps, type ConversationActionProps, conversationDrafts } from '@herts/plugin-api/client';
 import { labels, statuses, originalSpaceId, taskSpaceId, spaceLists, spaceName, spacePath, type Status, type Task } from './model';
-import { useApp, db, createTask, renameTask, moveTask, contextForTask, rememberSpace, refresh, createTaskFromConversation, resolveConflict } from './data';
+import { useApp, db, createTask, renameTask, moveTask, contextForTask, rememberSpace, refresh, createTaskFromConversation, conversationTaskIntent, discardLinkConflict, resolveConflict } from './data';
 import { TaskDragging, TaskDropLink, useTaskInteractions } from './TaskDragging';
 import { SpaceTabs, SpaceSwitcher, SpaceSettings, SpaceConflict } from './Spaces';
 import { TaskRow } from './TaskRow';
@@ -107,7 +107,7 @@ export function TaskActions({ context, conversation, suggestedTitle }: Conversat
         setOpen(true); setBusy(true); setError(''); setTitle(defaultTitle);
         setDestination(state.snapshot.defaultSpaceId || originalSpaceId); setList('inbox');
         try {
-            const prior = (await db.kv.get(`link-intent:${conversation.key}`))?.value;
+            const prior = await conversationTaskIntent(conversation.key);
             if (prior) { setTitle(prior.title); setDestination(prior.spaceId || originalSpaceId); setList(prior.status || 'inbox'); }
         } catch { setError('The saved request could not be read. Close this dialog and try again.'); }
         finally { setBusy(false); }
@@ -139,7 +139,23 @@ export function TaskActions({ context, conversation, suggestedTitle }: Conversat
         </FormDialog>}
     </>;
 }
-export function TaskConflicts() { const state = useApp(); return <>{state.pending.filter(p => p.conflict).map(p => <div className="conflict-banner" key={p.id}><strong>A change needs your choice</strong><p>{p.conflict}</p><p>Your change: {p.op.title || (p.op.kind === 'snooze' ? `Snooze until ${new Date(p.op.snoozedUntil!).toLocaleString()}` : p.op.status || 'Task reminder')}</p><p>Synced version: {state.remote.tasks.find(t => t.id === p.op.taskId)?.title}</p>{p.op.spaceId && !state.remote.spaces?.some(s => s.id === p.op.spaceId) && <p>The space was deleted. Keeping this change saves it in {spaceName(state.remote, state.remote.defaultSpaceId)} Inbox.</p>}<div className="button-row"><button onClick={() => void resolveConflict(p.id, true)}>Keep my change</button><button onClick={() => void resolveConflict(p.id, false)}>Use synced version</button></div></div>)}{state.spacePending.filter(p => p.conflict).map(p => <SpaceConflict key={p.id} pending={p}/>)}</>; }
+function LinkConflict({ pending }: { pending: ReturnType<typeof useApp>['linkPending'][number] }) {
+    const [busy, setBusy] = useState(false), [error, setError] = useState('');
+    async function discard() {
+        if (busy) return;
+        setBusy(true); setError('');
+        try { await discardLinkConflict(pending.id); }
+        catch (e) { setError((e as Error).message); }
+        finally { setBusy(false); }
+    }
+    return <StatusMessage tone="warning" className="conflict-banner">
+        <strong>The task could not be created</strong><p>{pending.op.title}</p><p>{pending.conflict}</p>
+        <p>Discard this request, then choose a space in Make a task.</p>
+        <Button disabled={busy} onClick={() => void discard()}>Discard task request</Button>
+        {error && <StatusMessage>{error}</StatusMessage>}
+    </StatusMessage>;
+}
+export function TaskConflicts() { const state = useApp(); return <>{state.linkPending.filter(p => p.conflict).map(p => <LinkConflict key={p.id} pending={p}/>)}{state.pending.filter(p => p.conflict).map(p => <div className="conflict-banner" key={p.id}><strong>A change needs your choice</strong><p>{p.conflict}</p><p>Your change: {p.op.title || (p.op.kind === 'snooze' ? `Snooze until ${new Date(p.op.snoozedUntil!).toLocaleString()}` : p.op.status || 'Task reminder')}</p><p>Synced version: {state.remote.tasks.find(t => t.id === p.op.taskId)?.title}</p>{p.op.spaceId && !state.remote.spaces?.some(s => s.id === p.op.spaceId) && <p>The space was deleted. Keeping this change saves it in {spaceName(state.remote, state.remote.defaultSpaceId)} Inbox.</p>}<div className="button-row"><button onClick={() => void resolveConflict(p.id, true)}>Keep my change</button><button onClick={() => void resolveConflict(p.id, false)}>Use synced version</button></div></div>)}{state.spacePending.filter(p => p.conflict).map(p => <SpaceConflict key={p.id} pending={p}/>)}</>; }
 function ReminderSummary({ id }: {
     id: string;
 }) { const state = useApp(); const tasks = (state.pluginData.tasks?.records[`catchup:${id}`] || []) as {
