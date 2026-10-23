@@ -238,3 +238,39 @@ test('article metadata stays compact and download failure offers an explicit ret
   await expect(pane.locator('.reader-article')).toContainText('A saved excerpt');
   await expect(pane.getByRole('alert')).toHaveCount(0);
 });
+
+test('article retry ignores an obsolete response while its command is delayed', async ({ page, request }) => {
+  const itemId = crypto.randomUUID(), before = await calls(request);
+  let retrying = false, unavailable = true;
+  let releaseCommand!: () => void, releaseRead!: () => void, readStarted!: () => void;
+  const commandGate = new Promise<void>(resolve => { releaseCommand = resolve; });
+  const readGate = new Promise<void>(resolve => { releaseRead = resolve; });
+  const readReady = new Promise<void>(resolve => { readStarted = resolve; });
+  await page.route('**/api/v1/plugins/reading/commands', async route => {
+    if (route.request().postDataJSON().input?.itemId === itemId && retrying) await commandGate;
+    await route.continue();
+  });
+  await page.route('**/api/v1/plugins/reading/queries/article', async route => {
+    const response = await route.fetch(), article = await response.json();
+    if (retrying) { readStarted(); await readGate; }
+    await route.fulfill({ response, json: { ...article, status: unavailable ? 'unavailable' : 'excerpt', html: unavailable ? '' : '<p>The recovered article.</p>', warning: unavailable ? 'Download interrupted.' : '' } });
+  });
+  await request.post('/api/v1/reading/sync', { headers, data: { id: crypto.randomUUID(), itemId, contextId: crypto.randomUUID(), kind: 'create', title: 'Delayed article retry', url: 'https://example.com/delayed-retry', at: Date.now() } });
+  await page.goto(`/#/reader/${itemId}`);
+  const pane = page.getByRole('region', { name: 'Article pane' });
+  await expect(pane.getByRole('alert')).toContainText('Download interrupted.');
+  retrying = true;
+  try {
+    await pane.getByRole('button', { name: 'Retry download', exact: true }).click();
+    await readReady;
+    await expect(pane.getByRole('status')).toBeVisible();
+    releaseRead();
+    await expect(pane.getByRole('status')).toHaveCount(0);
+    await expect(pane.getByRole('alert').filter({ hasText: 'Reading data was reset.' })).toHaveCount(0);
+  } finally {
+    retrying = false; unavailable = false; releaseRead(); releaseCommand();
+  }
+  await expect(pane.locator('.reader-article')).toContainText('The recovered article.');
+  await expect(pane.getByRole('alert')).toHaveCount(0);
+  expect(await calls(request)).toEqual(before);
+});
