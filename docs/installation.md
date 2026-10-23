@@ -5,7 +5,10 @@ Each installation provides private access for one Tailscale user.
 
 ## Requirements
 
-- Linux with a user systemd session, Python 3, Git, and **Node.js 24 or later** with npm. Native dependencies can require C/C++ build tools when no prepared binary is available.
+- Linux with a user systemd session, Python 3, Git, and npm.
+- **Node.js 24.22.1 or a later stable Node.js 24 release**.
+
+Native dependencies can require C/C++ build tools when no prepared binary is available.
 - Tailscale on the server and your devices, with HTTPS certificates/Serve enabled for your tailnet.
 - A configured [Hermes Agent](https://hermes-agent.nousresearch.com/docs/) installation for conversation, transcription and speech features, including its web/backend dependencies. Follow the [upstream prerequisites](https://hermes-agent.nousresearch.com/docs/user-guide/features/web-dashboard#prerequisites); for a source installation, run `uv pip install -e ".[web]"` from the Hermes checkout in its environment. Tasks remain usable without Hermes. Hermes owns model credentials, available models, project folders and tools; Herts exposes session settings through that backend.
 - A modern browser with IndexedDB and service workers. Optional features depend on browser and operating-system support.

@@ -21,6 +21,8 @@ class InstallerTests(unittest.TestCase):
         (self.root / 'dist').mkdir()
         (self.root / 'dist/index.html').write_text('<title>Fixture</title>')
         shutil.copytree(Path(__file__).resolve().parents[1] / 'deploy', self.root / 'deploy')
+        for name in ['.node-version', 'package.json']:
+            shutil.copy(Path(__file__).resolve().parents[1] / name, self.root / name)
         self.units = Path(self.temp.name) / 'units'
         self.home = Path(self.temp.name) / 'hermes'
         self.home.mkdir()
@@ -31,7 +33,7 @@ class InstallerTests(unittest.TestCase):
         self.port = patch.object(installer, 'free_port').start()
         self.running = patch.object(installer, 'active', return_value=False).start()
         self.exe = patch.object(installer, 'executable', side_effect=lambda value, name: '/usr/bin/' + name).start()
-        self.run = patch.object(installer.subprocess, 'run', return_value=type('Result', (), {'stdout': 'v24.1.0', 'returncode': 0})()).start()
+        self.run = patch.object(installer.subprocess, 'run', return_value=type('Result', (), {'stdout': 'v24.22.1', 'returncode': 0})()).start()
         self.addCleanup(patch.stopall)
 
     def args(self, mode='managed', *more):
@@ -48,6 +50,28 @@ class InstallerTests(unittest.TestCase):
         self.assertFalse(self.units.exists())
         self.assertFalse((self.root / 'data').exists())
         self.assertFalse(any(call.args[0][0] == 'systemctl' for call in self.run.call_args_list))
+
+    def test_unsupported_runtimes_fail_before_writes_or_service_checks(self):
+        for version in ['v22.23.4', 'v24.22.0', 'v25.6.1', 'v26.12.1', 'v24.22.1-rc.1', 'invalid']:
+            with self.subTest(version=version):
+                self.run.return_value.stdout = version
+                with self.assertRaisesRegex(ValueError, 'unsupported'):
+                    self.install(self.args())
+                self.assertFalse(self.units.exists())
+                self.assertFalse((self.root / 'data').exists())
+                self.running.assert_not_called()
+
+    def test_later_stable_runtime_passes_validation(self):
+        self.run.return_value.stdout = 'v24.23.0'
+        self.install(self.args('existing', '--dry-run'))
+        self.assertFalse(self.units.exists())
+
+    def test_inconsistent_runtime_requirements_fail_before_writes(self):
+        (self.root / '.node-version').write_text('24.22.2\n')
+        with self.assertRaisesRegex(ValueError, 'requirements differ'):
+            self.install(self.args())
+        self.assertFalse(self.units.exists())
+        self.running.assert_not_called()
 
     def test_managed_install_and_identical_rerun_retain_credentials(self):
         self.install(self.args())

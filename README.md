@@ -33,7 +33,8 @@ For an existing Herts installation, use the [upgrade instructions](docs/maintena
 
 Install these requirements:
 
-- Linux with a user systemd session, Node.js 24 or later, npm, Python 3, and Git.
+- Linux with a user systemd session, npm, Python 3, and Git.
+- Node.js 24.22.1 or a later stable Node.js 24 release.
 - [Hermes Agent](https://hermes-agent.nousresearch.com/docs/), including its [web backend dependencies](https://hermes-agent.nousresearch.com/docs/user-guide/features/web-dashboard#prerequisites).
 - Tailscale on the server and each device that will access Herts.
 

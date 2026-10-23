@@ -10,6 +10,7 @@ Type=simple
 WorkingDirectory=@ROOT@
 EnvironmentFile=@ENV@
 Environment=NODE_ENV=production
+ExecStartPre=@NODE@ scripts/check-runtime.mjs
 ExecStart=@NODE@ --import tsx server/index.ts
 Restart=on-failure
 RestartSec=3
