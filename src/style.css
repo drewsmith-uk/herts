@@ -113,10 +113,6 @@ main { margin-left: 242px; width: calc(100% - 242px); min-width: 0 }
 .conversation-detail-heading { align-items: flex-start }
 .conversation-detail-heading h1 { font-size: 1.5rem; overflow-wrap: anywhere }
 .conversation-detail-heading .primary-button { white-space: nowrap }
-.create-from-chat { background: var(--color-selected); border: var(--border-width, 1px) solid var(--color-border); padding: 20px; border-radius: var(--radius-panel); margin-bottom: 25px }
-.create-from-chat label { font-size: .85rem; color: var(--color-link); display: block }
-.create-from-chat input { display: block; width: 100%; margin: 8px 0 14px; border: var(--border-width, 1px) solid var(--color-control-border); background: var(--color-surface); border-radius: var(--radius-control); padding: 10px }
-.create-from-chat p { font-size: .74rem; color: var(--color-text-secondary); margin-top: 12px }
 .clarify-form input { padding: 8px; border: var(--border-width, 1px) solid var(--color-warning-border); border-radius: var(--radius-control); width: 100%; margin: 10px 0 }
 .mobile-nav,.mobile-lists { display: none }
 .spin { animation: spin 1s linear infinite }
@@ -218,7 +214,6 @@ main { margin: 0; width: 100%; padding-bottom: 70px }
 .conversation-page-header .detail-title { display: block; font-size: 1.4rem; line-height: 1.3; }
 .conversation-page-header .detail-controls { flex-wrap: wrap; margin-top: 8px; }
 .conversation-page-header .page-heading { margin-bottom: 0; }
-.conversation-page-header .create-from-chat { margin: 16px 0 0; }
 @media (max-width: 1000px) {
 .conversation-page-header { margin-inline: -18px; padding-inline: 18px; }
 .conversation-page-header .detail-title { font-size: 1.2rem; }

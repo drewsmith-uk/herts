@@ -328,6 +328,35 @@ app.post('/__test/notification-reply', async req => {
   return { ok: true };
 });
 app.get('/__test/notification-reply/:id', async req => ({ started: notificationReplies.get((req.params as { id: string }).id)?.started || 0 }));
+let actionReply: { reject: boolean; received: boolean; gate: Promise<void>; release(): void } | undefined;
+app.post('/__test/action-reply', async req => {
+  actionReply?.release();
+  actionReply = undefined;
+  const { hold, reject = false } = req.body as { hold: boolean; reject?: boolean };
+  if (hold) {
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    actionReply = { reject, received: false, gate, release };
+  }
+  return { ok: true };
+});
+app.get('/__test/action-reply', async () => ({ received: actionReply?.received || false }));
+app.addHook('onRequest', async (req, reply) => {
+  const pending = actionReply;
+  if (pending?.reject && req.method === 'POST' && req.url.split('?')[0] === '/api/v1/actions') {
+    pending.received = true;
+    await pending.gate;
+    return reply.code(409).send({ error: 'Message not sent. Review your draft and try again.' });
+  }
+});
+app.addHook('onSend', async (req, _reply, payload) => {
+  const pending = actionReply;
+  if (pending && req.method === 'POST' && req.url.split('?')[0] === '/api/v1/actions') {
+    pending.received = true;
+    await pending.gate;
+  }
+  return payload;
+});
 // Keep lost task replies on the server so service workers cannot bypass the fault.
 let taskLinkRecovery: { initial: string; hold: boolean; ids: string[]; refreshStarted: boolean; gate: Promise<void>; release: () => void } | undefined;
 app.post('/__test/task-link-recovery', async req => {
@@ -361,4 +390,4 @@ app.addHook('onSend', async (req, reply, payload) => {
 });
 articles.fetchHtml = async url => ({ url, html: `<html><head><title>Fixture article</title></head><body><article><h1>Fixture article</h1>${Array.from({length:8},(_,i)=>`<p>Article paragraph ${i}. ${'A detailed and useful piece of writing for offline reading. '.repeat(12)}</p>`).join('')}</article></body></html>` });
 await app.listen({ host: '127.0.0.1', port: 8790 });
-process.on('SIGTERM', () => { taskLinkRecovery?.release(); for (const reply of notificationReplies.values()) reply.release(); void app.close().then(() => { wss.close(); server.close(); process.exit(0); }); });
+process.on('SIGTERM', () => { actionReply?.release(); taskLinkRecovery?.release(); for (const reply of notificationReplies.values()) reply.release(); void app.close().then(() => { wss.close(); server.close(); process.exit(0); }); });

@@ -12,11 +12,20 @@ export interface PendingSpace {
     order: number;
     conflict?: string;
 }
+export interface LinkIntent {
+    id: string;
+    taskId: string;
+    conversationId: string;
+    title: string;
+    spaceId?: string;
+    status?: Status;
+    at: number;
+}
 function adapt(core: CoreState) {
     const data = (core.pluginData.tasks?.records.state || emptySnapshot()) as Snapshot, remote = (core.pluginRemote.tasks?.records.state || emptySnapshot()) as Snapshot;
     const project = (s: Snapshot) => ({ ...s, contexts: core.snapshot.contexts, tasks: s.tasks.map(t => ({ ...t, link: core.snapshot.contexts.find(c => c.id === t.contextId)?.link || t.link })) });
     const pending = core.pluginPending.filter(p => p.pluginId === 'tasks');
-    return { ...core, snapshot: project(data), remote: project(remote), pending: pending.filter(p => p.operation.command === 'task').map(p => ({ id: p.id, op: p.operation.input as TaskOp, order: p.order, conflict: p.conflict })), spacePending: pending.filter(p => p.operation.command === 'space').map(p => ({ id: p.id, op: p.operation.input as SpaceOp, order: p.order, conflict: p.conflict })), viewedSpaceId: data.spaces?.some(s => s.id === localViewed) ? localViewed : data.defaultSpaceId || originalSpaceId };
+    return { ...core, snapshot: project(data), remote: project(remote), pending: pending.filter(p => p.operation.command === 'task').map(p => ({ id: p.id, op: p.operation.input as TaskOp, order: p.order, conflict: p.conflict })), linkPending: pending.filter(p => p.operation.command === 'link').map(p => ({ id: p.id, op: p.operation.input as LinkIntent, conflict: p.conflict })), spacePending: pending.filter(p => p.operation.command === 'space').map(p => ({ id: p.id, op: p.operation.input as SpaceOp, order: p.order, conflict: p.conflict })), viewedSpaceId: data.spaces?.some(s => s.id === localViewed) ? localViewed : data.defaultSpaceId || originalSpaceId };
 }
 let localViewed = '';
 export function useApp() { return adapt(useCore()); }
@@ -33,11 +42,21 @@ export function snoozeTask(task: Task, until: number) { const now = current().sn
     throw new Error('This task or reminder changed. Close this picker and open it again.'); if (!Number.isFinite(until) || until <= Date.now())
     throw new Error('Choose a future date and time.'); return mutate({ id: crypto.randomUUID(), taskId: task.id, kind: 'snooze', spaceId: taskSpaceId(task), baseSpaceId: taskSpaceId(task), baseStatus: task.status, baseSnoozeId: task.snoozeId || null, snoozedUntil: until, at: Date.now() }); }
 export function contextForTask(id: string) { const state = current(), task = state.snapshot.tasks.find(t => t.id === id); return task ? (state.snapshot.contexts.find(c => c.id === task.contextId) || { id: task.contextId || task.id, title: task.title, link: task.link, aliases: task.link ? [task.link.key, task.link.storedId] : [] }) : undefined; }
-export async function createTaskFromConversation(id: string, title: string, spaceId = current().snapshot.defaultSpaceId || originalSpaceId) {
-    const key = `link-intent:${id}`, prior = (await db.kv.get(key))?.value;
-    if (prior && prior.title !== title)
-        throw new Error('A previous task-creation request is unconfirmed. Use the original title to check it.');
-    const intent = prior || { id: crypto.randomUUID(), taskId: crypto.randomUUID(), title, spaceId, at: Date.now() };
+export async function conversationTaskIntent(conversationId: string) {
+    const pending = current().linkPending.find(p => p.op.conversationId === conversationId);
+    return pending?.op || (await db.kv.get(`link-intent:${conversationId}`))?.value;
+}
+export async function discardLinkConflict(id: string) {
+    const pending = current().linkPending.find(p => p.id === id);
+    if (!pending?.conflict) throw new Error('Check the task request before discarding it.');
+    await db.kv.delete(`link-intent:${pending.op.conversationId}`);
+    await resolvePluginOperation(id);
+}
+export async function createTaskFromConversation(id: string, title: string, spaceId = current().snapshot.defaultSpaceId || originalSpaceId, status: Status = 'inbox') {
+    const key = `link-intent:${id}`, prior = await conversationTaskIntent(id);
+    if (prior && (prior.title !== title || (prior.spaceId || originalSpaceId) !== spaceId || (prior.status || 'inbox') !== status))
+        throw new Error('A previous task-creation request is unconfirmed. Use the original title, space, and list to check it.');
+    const intent = prior || { id: crypto.randomUUID(), taskId: crypto.randomUUID(), title, spaceId, status, at: Date.now() };
     if (!prior)
         await db.kv.put({ key, value: intent });
     if (!current().snapshot.tasks.some(t => t.id === intent.taskId) && !getCore().pluginPending.some(p => p.id === intent.id))

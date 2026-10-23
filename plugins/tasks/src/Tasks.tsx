@@ -1,13 +1,13 @@
 import { TaskCapture } from './TaskCapture';
-import { ActionRow, RenameAction, FormDialog, FormField, PageHeader, Button, IconButton, SectionNav, ItemList, EmptyState, StatusMessage, DialogFrame } from '@herts/plugin-api/client';
+import { ActionRow, RenameAction, FormDialog, FormField, PageHeader, Button, IconButton, SectionNav, ItemList, EmptyState, StatusMessage } from '@herts/plugin-api/client';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Inbox, ArrowRight, Clock3, Pause, Check, Plus, ChevronLeft, ArrowUp, ArrowDown, AlarmClock, Pencil, CheckCheck } from 'lucide-react';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { ConversationPanel, ConversationHeader, Voice, useDraftPersistence, useUpdateWork, useUpdatePreparation, pluginLocal, type RouteProps, type ConversationActionProps, conversationDrafts } from '@herts/plugin-api/client';
 import { labels, statuses, originalSpaceId, taskSpaceId, spaceLists, spaceName, spacePath, type Status, type Task } from './model';
-import { useApp, db, createTask, renameTask, moveTask, contextForTask, rememberSpace, refresh, createTaskFromConversation, resolveConflict } from './data';
+import { useApp, db, createTask, renameTask, moveTask, contextForTask, rememberSpace, refresh, createTaskFromConversation, conversationTaskIntent, discardLinkConflict, resolveConflict } from './data';
 import { TaskDragging, TaskDropLink, useTaskInteractions } from './TaskDragging';
-import { SpaceTabs, SpaceSwitcher, SpaceSettings, SpaceConflict, useTaskDestination } from './Spaces';
+import { SpaceTabs, SpaceSwitcher, SpaceSettings, SpaceConflict } from './Spaces';
 import { TaskRow } from './TaskRow';
 const icons = { inbox: Inbox, next: ArrowRight, waiting: Clock3, parked: Pause, snoozed: AlarmClock, done: CheckCheck };
 function time(at: number) { return new Date(at).toLocaleString(); }
@@ -93,7 +93,8 @@ export function TasksSidebar({ parts }: RouteProps) {
     return <><SpaceSwitcher spaceId={space}/><nav aria-label="Task lists">{statuses.map(s => { const Icon = icons[s]; return <TaskDropLink key={s} surface="sidebar" spaceId={space} status={s} className={`nav-item ${(task?.status || (screen === 'spaces' ? status : id)) === s ? 'active' : ''}`}><Icon size={19}/><span>{labels[s]}</span><small>{lists?.[s].ids.length || ''}</small></TaskDropLink>; })}</nav></>;
 }
 export function TaskActions({ context, conversation, suggestedTitle }: ConversationActionProps) {
-    const state = useApp(), destination = useTaskDestination(conversation.key);
+    const state = useApp();
+    const [destination, setDestination] = useState(originalSpaceId), [list, setList] = useState<Status>('inbox');
     const defaultTitle = suggestedTitle || conversation.title;
     const linked = state.snapshot.tasks.find(t => (!!context && t.contextId === context.id) || t.link?.key === conversation.key);
     const [open, setOpen] = useState(false), [title, setTitle] = useState(defaultTitle), [busy, setBusy] = useState(false), [error, setError] = useState('');
@@ -102,8 +103,17 @@ export function TaskActions({ context, conversation, suggestedTitle }: Conversat
         return null;
     if (linked && location.hash === `#/task/${linked.id}`)
         return null;
+    async function openDialog() {
+        setOpen(true); setBusy(true); setError(''); setTitle(defaultTitle);
+        setDestination(state.snapshot.defaultSpaceId || originalSpaceId); setList('inbox');
+        try {
+            const prior = await conversationTaskIntent(conversation.key);
+            if (prior) { setTitle(prior.title); setDestination(prior.spaceId || originalSpaceId); setList(prior.status || 'inbox'); }
+        } catch { setError('The saved request could not be read. Close this dialog and try again.'); }
+        finally { setBusy(false); }
+    }
     async function save(e: FormEvent) { e.preventDefault(); setBusy(true); setError(''); try {
-        const id = await createTaskFromConversation(conversation.key, title, destination);
+        const id = await createTaskFromConversation(conversation.key, title, destination, list);
         location.hash = `/task/${id}`;
     }
     catch (e) {
@@ -112,9 +122,40 @@ export function TaskActions({ context, conversation, suggestedTitle }: Conversat
     finally {
         setBusy(false);
     } }
-    return linked ? <ActionRow icon={<ArrowRight size={20}/>} onClick={() => { location.hash = `/task/${linked.id}`; }}>Open task</ActionRow> : <><ActionRow icon={<Plus size={20}/>} disabled={!state.online} onClick={() => { setTitle(defaultTitle); setError(''); setOpen(true); }}>Make a task</ActionRow>{open && <DialogFrame close={() => setOpen(false)} busy={busy} aria-labelledby="create-task-title"><form className="create-from-chat" onSubmit={save}><h2 id="create-task-title">Make a task</h2><label>New task in {spaceName(state.snapshot, destination)} Inbox<input autoFocus aria-label="New task from conversation title" value={title} maxLength={2000} onChange={e => setTitle(e.target.value)}/></label><div className="button-row"><button disabled={busy || !title.trim()}>Create task</button><button type="button" disabled={busy} onClick={() => setOpen(false)}>Cancel</button></div>{error && <p role="alert">{error}</p>}</form></DialogFrame>}</>;
+    return linked ? <ActionRow icon={<ArrowRight size={20}/>} onClick={() => { location.hash = `/task/${linked.id}`; }}>Open task</ActionRow> : <>
+        <ActionRow icon={<Plus size={20}/>} disabled={busy} onClick={() => void openDialog()}>Make a task</ActionRow>
+        {open && <FormDialog id="create-task-title" title="Make a task" close={() => setOpen(false)} busy={busy} onSubmit={save} error={error || (!state.online ? 'Reconnect to create this task.' : '')}
+            footer={<div className="button-row"><Button disabled={busy} onClick={() => setOpen(false)}>Cancel</Button><Button type="submit" variant="primary" disabled={busy || !state.online || !title.trim()}>Create task</Button></div>}>
+            <FormField label="Title">
+                <input autoFocus aria-label="New task from conversation title" value={title} maxLength={2000} disabled={busy} onChange={e => setTitle(e.target.value)}/>
+            </FormField>
+            <FormField label="Space"><select value={destination} disabled={busy} onChange={e => setDestination(e.target.value)}>
+                {!state.snapshot.spaces?.some(space => space.id === destination) && <option value={destination}>Unavailable space</option>}
+                {state.snapshot.spaces?.map(space => <option key={space.id} value={space.id}>{space.name}</option>)}
+            </select></FormField>
+            <FormField label="List"><select value={list} disabled={busy} onChange={e => setList(e.target.value as Status)}>
+                {statuses.filter(status => status !== 'snoozed').map(status => <option key={status} value={status}>{labels[status]}</option>)}
+            </select></FormField>
+        </FormDialog>}
+    </>;
 }
-export function TaskConflicts() { const state = useApp(); return <>{state.pending.filter(p => p.conflict).map(p => <div className="conflict-banner" key={p.id}><strong>A change needs your choice</strong><p>{p.conflict}</p><p>Your change: {p.op.title || (p.op.kind === 'snooze' ? `Snooze until ${new Date(p.op.snoozedUntil!).toLocaleString()}` : p.op.status || 'Task reminder')}</p><p>Synced version: {state.remote.tasks.find(t => t.id === p.op.taskId)?.title}</p>{p.op.spaceId && !state.remote.spaces?.some(s => s.id === p.op.spaceId) && <p>The space was deleted. Keeping this change saves it in {spaceName(state.remote, state.remote.defaultSpaceId)} Inbox.</p>}<div className="button-row"><button onClick={() => void resolveConflict(p.id, true)}>Keep my change</button><button onClick={() => void resolveConflict(p.id, false)}>Use synced version</button></div></div>)}{state.spacePending.filter(p => p.conflict).map(p => <SpaceConflict key={p.id} pending={p}/>)}</>; }
+function LinkConflict({ pending }: { pending: ReturnType<typeof useApp>['linkPending'][number] }) {
+    const [busy, setBusy] = useState(false), [error, setError] = useState('');
+    async function discard() {
+        if (busy) return;
+        setBusy(true); setError('');
+        try { await discardLinkConflict(pending.id); }
+        catch (e) { setError((e as Error).message); }
+        finally { setBusy(false); }
+    }
+    return <StatusMessage tone="warning" className="conflict-banner">
+        <strong>The task could not be created</strong><p>{pending.op.title}</p><p>{pending.conflict}</p>
+        <p>Discard this request, then choose a space in Make a task.</p>
+        <Button disabled={busy} onClick={() => void discard()}>Discard task request</Button>
+        {error && <StatusMessage>{error}</StatusMessage>}
+    </StatusMessage>;
+}
+export function TaskConflicts() { const state = useApp(); return <>{state.linkPending.filter(p => p.conflict).map(p => <LinkConflict key={p.id} pending={p}/>)}{state.pending.filter(p => p.conflict).map(p => <div className="conflict-banner" key={p.id}><strong>A change needs your choice</strong><p>{p.conflict}</p><p>Your change: {p.op.title || (p.op.kind === 'snooze' ? `Snooze until ${new Date(p.op.snoozedUntil!).toLocaleString()}` : p.op.status || 'Task reminder')}</p><p>Synced version: {state.remote.tasks.find(t => t.id === p.op.taskId)?.title}</p>{p.op.spaceId && !state.remote.spaces?.some(s => s.id === p.op.spaceId) && <p>The space was deleted. Keeping this change saves it in {spaceName(state.remote, state.remote.defaultSpaceId)} Inbox.</p>}<div className="button-row"><button onClick={() => void resolveConflict(p.id, true)}>Keep my change</button><button onClick={() => void resolveConflict(p.id, false)}>Use synced version</button></div></div>)}{state.spacePending.filter(p => p.conflict).map(p => <SpaceConflict key={p.id} pending={p}/>)}</>; }
 function ReminderSummary({ id }: {
     id: string;
 }) { const state = useApp(); const tasks = (state.pluginData.tasks?.records[`catchup:${id}`] || []) as {

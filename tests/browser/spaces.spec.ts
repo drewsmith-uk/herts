@@ -42,7 +42,7 @@ test('phone spaces keep captures, ordering and drafts separate; moving Done reop
 test('conversation conversion uses the default Inbox and a fresh-device voice shortcut does too',async({page,browser,request})=>{
   await page.setViewportSize({width:390,height:844});await addSpace(page,'Default work');const work=await idFor(page,'Default work');await page.locator(`input[name=default-space][value="${work}"]`).check();await expect(page.locator('.save-state')).toContainText('Changes synced');
   await page.goto('/#/tasks/next');await closePageActions(page); await page.getByLabel(/^(Message Hermes|Add a task)$/, {exact:true}).fill('Capture stays personal');await page.getByRole('button',{name:'Save only',exact:true}).click();await page.goto('/#/tasks/inbox');await expect(page.getByRole('link',{name:'Capture stays personal',exact:true})).toBeVisible();
-  await page.goto('/#/conversations');await page.getByRole('link',{name:/Shared spaces conversation/}).click();await (await pageAction(page, 'button', 'Make a task')).click();await expect(page.locator('.create-from-chat')).toContainText('Default work Inbox');await page.getByRole('button',{name:'Create task',exact:true}).click();await expect((await detailsField(page, 'Task space'))).toHaveValue(work);await expect((await detailsField(page, 'Task list'))).toHaveValue('inbox');
+  await page.goto('/#/conversations');await page.getByRole('link',{name:/Shared spaces conversation/}).click();await (await pageAction(page, 'button', 'Make a task')).click();await expect(page.getByRole('combobox', {name:'Space',exact:true})).toHaveValue(work);await expect(page.getByRole('combobox', {name:'List',exact:true})).toHaveValue('inbox');await page.getByRole('button',{name:'Create task',exact:true}).click();await expect((await detailsField(page, 'Task space'))).toHaveValue(work);await expect((await detailsField(page, 'Task list'))).toHaveValue('inbox');
   // Other tests add enough conversations to move this fixture beyond page one.
   await page.goto('/#/conversations');await page.getByLabel('Search conversations',{exact:true}).fill('Shared spaces conversation');await expect(page.getByRole('link',{name:/Shared spaces conversation/})).toHaveCount(0);await page.getByLabel('Show all',{exact:true}).check();await expect(page.getByRole('link',{name:/Shared spaces conversation/})).toBeVisible();
   const fresh=await browser.newContext({viewport:{width:390,height:844}});
@@ -112,4 +112,89 @@ test('an unconfirmed conversion keeps and displays its saved destination after t
   expect(payloads.length).toBeGreaterThanOrEqual(2);
   for (const payload of payloads.slice(1)) expect(payload).toEqual(payloads[0]);
   expect((await state(request)).tasks.filter((task:any)=>task.id===payloads[0].input.taskId)).toHaveLength(1);
+});
+
+test('conversation conversion preserves selected space and list through a failed request', async ({ page, request }) => {
+  const headers = { 'x-herts-request': '1' }, id = 'selected-destination';
+  await request.post('/__test/conversation-message', { headers, data: { id, title: 'Selected destination conversation', text: 'Synthetic conversion fixture.' } });
+  await addSpace(page, 'Selected destination');
+  const space = await idFor(page, 'Selected destination');
+  await page.goto('/#/conversation/' + id);
+  await (await pageAction(page, 'button', 'Make a task')).click();
+  const dialog = page.getByRole('dialog', { name: 'Make a task', exact: true });
+  await dialog.getByRole('textbox').fill('Keep the chosen destination');
+  await dialog.getByRole('combobox', { name: 'Space', exact: true }).selectOption(space);
+  await dialog.getByRole('combobox', { name: 'List', exact: true }).selectOption('waiting');
+  const payloads: any[] = [];
+  await page.route('**/api/v1/plugins/tasks/commands', route => { payloads.push(route.request().postDataJSON()); return route.abort(); });
+  await dialog.getByRole('button', { name: 'Create task', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('request is saved');
+  await expect(page.getByRole('button', { name: 'Discard task request', exact: true })).toHaveCount(0);
+  await expect(dialog.getByRole('combobox', { name: 'Space', exact: true })).toHaveValue(space);
+  await expect(dialog.getByRole('combobox', { name: 'List', exact: true })).toHaveValue('waiting');
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await (await pageAction(page, 'button', 'Make a task')).click();
+  await expect(dialog.getByRole('textbox')).toHaveValue('Keep the chosen destination');
+  await expect(dialog.getByRole('combobox', { name: 'Space', exact: true })).toHaveValue(space);
+  await expect(dialog.getByRole('combobox', { name: 'List', exact: true })).toHaveValue('waiting');
+  await page.unroute('**/api/v1/plugins/tasks/commands');
+  await page.reload();
+  await (await pageAction(page, 'button', 'Open task')).click();
+  await expect(page).toHaveURL(/#\/task\//);
+  const tasks = (await state(request)).tasks.filter((task: any) => task.id === payloads[0].input.taskId);
+  expect(tasks).toHaveLength(1);
+  expect(tasks[0]).toMatchObject({ title: 'Keep the chosen destination', spaceId: space, status: 'waiting' });
+});
+
+for (const width of [320, 1280]) test(`a rejected conversion can be discarded without blocking later tasks at ${width}px`, async ({ page, request }) => {
+  await page.setViewportSize({ width, height: 844 });
+  const headers = { 'x-herts-request': '1' }, conversationId = `deleted-link-space-${width}`;
+  await request.post('/__test/conversation-message', { headers, data: { id: conversationId, title: 'Recover a task after its destination disappears', text: 'Synthetic conversion fixture.' } });
+  await addSpace(page, `Deleted destination ${width}`);
+  const spaceId = await idFor(page, `Deleted destination ${width}`);
+  await expect(page.locator('.save-state')).toContainText('Changes synced');
+  await page.goto(`/#/conversation/${conversationId}`);
+  await (await pageAction(page, 'button', 'Make a task')).click();
+  const dialog = page.getByRole('dialog', { name: 'Make a task', exact: true });
+  await dialog.getByRole('textbox').fill('Keep later work available after this rejected task creation request');
+  await dialog.getByRole('combobox', { name: 'Space', exact: true }).selectOption(spaceId);
+  await dialog.getByRole('combobox', { name: 'List', exact: true }).selectOption('waiting');
+  const snapshot = await state(request);
+  const operationId = crypto.randomUUID();
+  const removed = await request.post('/api/v1/plugins/tasks/commands', { headers, data: {
+    id: operationId, generation: 0, command: 'space', input: {
+      id: operationId, spaceId, kind: 'delete', baseName: `Deleted destination ${width}`, baseDefaultSpaceId: snapshot.defaultSpaceId, at: Date.now(),
+    },
+  } });
+  expect(removed.ok(), await removed.text()).toBe(true);
+  await dialog.getByRole('button', { name: 'Create task', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('resolve its conflict');
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.goto('/#/tasks/inbox');
+  const laterTitle = `Task after rejected conversion ${width}`;
+  await capture(page, laterTitle);
+  await page.reload();
+  const warning = page.locator('.conflict-banner').filter({ hasText: 'The task could not be created' });
+  await expect(warning).toBeVisible();
+  await expect(warning).toContainText('Keep later work available');
+  expect((await state(request)).tasks.some((task: any) => task.title === laterTitle)).toBe(false);
+  const discard = warning.getByRole('button', { name: 'Discard task request', exact: true });
+  await discard.focus();
+  await expect(discard).toBeFocused();
+  expect(await warning.evaluate(node => { const r = node.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth; })).toBe(true);
+  await page.screenshot({ path: `test-results/link-conflict-${width}.png` });
+  await discard.click();
+  await expect(warning).toHaveCount(0);
+  await expect.poll(async () => (await state(request)).tasks.some((task: any) => task.title === laterTitle)).toBe(true);
+  await page.goto(`/#/conversation/${conversationId}`);
+  await (await pageAction(page, 'button', 'Make a task')).click();
+  await dialog.getByRole('textbox').fill(`Recovered conversion ${width}`);
+  await dialog.getByRole('combobox', { name: 'Space', exact: true }).selectOption(originalSpaceId);
+  await dialog.getByRole('combobox', { name: 'List', exact: true }).selectOption('next');
+  await dialog.getByRole('button', { name: 'Create task', exact: true }).click();
+  await expect(page).toHaveURL(/#\/task\//);
+  const tasks = (await state(request)).tasks;
+  expect(tasks.filter((task: any) => task.title === `Recovered conversion ${width}`)).toHaveLength(1);
+  expect(tasks.find((task: any) => task.title === `Recovered conversion ${width}`)).toMatchObject({ spaceId: originalSpaceId, status: 'next' });
+  expect(tasks.some((task: any) => task.title === 'Keep later work available after this rejected task creation request')).toBe(false);
 });

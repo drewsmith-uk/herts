@@ -7,6 +7,9 @@ const execution = async (request: APIRequestContext) => ((await (await request.g
 async function creation(request: APIRequestContext, hold: boolean, fail = false) {
   expect((await request.post('/__test/session-creation', { headers: { 'x-herts-request': '1' }, data: { hold, fail } })).ok()).toBe(true);
 }
+async function holdActionReply(request: APIRequestContext, hold: boolean, reject = false) {
+  expect((await request.post('/__test/action-reply', { headers: { 'x-herts-request': '1' }, data: { hold, reject } })).ok()).toBe(true);
+}
 async function savedDraft(page: Page) {
   return page.evaluate(async () => {
     const id = location.hash.split('/').at(-1)!;
@@ -75,27 +78,27 @@ test('first send stays visible through delayed preparation, acknowledgement and 
 test('a rejected first send restores text and attachments for editing and retry', async ({ page, request }) => {
   const before = await execution(request);
   await page.goto('/#/new');
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  await page.reload();
   await editor(page).fill('Keep this draft after a rejected send.');
   await page.locator('input[type=file]').setInputFiles({ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('Synthetic notes') });
   await expect(page.getByRole('button', { name: 'Remove notes.txt' })).toBeVisible();
-  let release!: () => void;
-  const gate = new Promise<void>(resolve => { release = resolve; });
-  await page.route('**/api/v1/actions', async route => { await gate; await route.fulfill({ status: 409, json: { error: 'Message not sent. Review your draft and try again.' } }); });
+  await holdActionReply(request, true, true);
   try {
     await send(page).click();
     await expect(page.locator('.outgoing-message')).toContainText('Keep this draft after a rejected send.');
-    release();
+    await expect.poll(async () => (await (await request.get('/__test/action-reply')).json()).received).toBe(true);
+    await holdActionReply(request, false);
     await expect(page.getByRole('alert')).toContainText('Message not sent');
     await expect(editor(page)).toHaveValue('Keep this draft after a rejected send.');
     await expect(page.getByRole('button', { name: 'Remove notes.txt' })).toBeVisible();
     expect(await execution(request)).toEqual(before);
     await editor(page).fill('Revised message after reviewing the failure.');
-    await page.unroute('**/api/v1/actions');
     await send(page).click();
     await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase', 'complete');
     await expect(page.locator('[data-history-message].from-user')).toContainText('Revised message after reviewing the failure.');
     expect((await execution(request)).slice(before.length)).toEqual(['session.create', 'prompt.submit']);
-  } finally { release(); }
+  } finally { await holdActionReply(request, false); }
 });
 
 test('failed conversation creation keeps the first message available for recovery', async ({ page, request }) => {
@@ -153,15 +156,14 @@ test('an unconfirmed first send keeps its message offline without repeating the 
 test('a delayed first-send reply preserves navigation and another draft', async ({ page, request }) => {
   const before = await execution(request);
   await page.goto('/#/new');
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
   await editor(page).fill('Finish this send after I leave its conversation.');
-  let release!: () => void, received = false;
-  const gate = new Promise<void>(resolve => { release = resolve; });
-  await page.route('**/api/v1/actions', async route => {
-    const response = await route.fetch(); received = true; await gate; await route.fulfill({ response });
-  });
+  await holdActionReply(request, true);
   try {
     await send(page).click();
-    await expect.poll(() => received).toBe(true);
+    await expect.poll(async () => (await (await request.get('/__test/action-reply')).json()).received).toBe(true);
     const previousUrl = page.url();
     await page.getByRole('link', { name: 'Back to Conversations', exact: true }).click();
     await page.getByRole('link', { name: 'New conversation', exact: true }).click();
@@ -169,7 +171,7 @@ test('a delayed first-send reply preserves navigation and another draft', async 
     await expect(page).toHaveURL(/#\/draft\//);
     const nextUrl = page.url();
     expect(nextUrl).not.toBe(previousUrl);
-    release();
+    await holdActionReply(request, false);
     await expect.poll(async () => (await execution(request)).slice(before.length)).toEqual(['session.create', 'prompt.submit']);
     await expect.poll(async () => page.evaluate(async previousUrl => {
       const id = previousUrl.split('/').at(-1)!;
@@ -179,7 +181,7 @@ test('a delayed first-send reply preserves navigation and another draft', async 
     }, previousUrl)).toBe('');
     await expect(page).toHaveURL(nextUrl);
     await expect(editor(page)).toHaveValue('Keep this separate draft while the earlier receipt arrives.');
-  } finally { release(); }
+  } finally { await holdActionReply(request, false); }
 });
 
 test('confirmation checks preserve edits and recover automatically without another send', async ({ page, context, request }) => {
