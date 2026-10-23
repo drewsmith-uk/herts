@@ -330,7 +330,7 @@ test('an unconfirmed submission remains recoverable and is never retried by upda
     await page.route('**/api/v1/actions', route => route.abort());
     await page.getByRole('textbox', { name: /^(Message Hermes|Add a task)$/ }).fill('Keep this unconfirmed message');
     await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
-    await expect(page.getByText('Your submission is not confirmed.', { exact: false })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Check again', exact: true })).toBeVisible();
   });
   const before = await calls(page), submissions = await stored(page, 'submissions');
   expect(submissions).toHaveLength(1); expect(submissions[0].confirmed).toBe(false);

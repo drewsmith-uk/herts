@@ -50,6 +50,7 @@ const runtimes = new Map<string, any>();
 const liveTranscriptSteps = new Map<string, { next: () => void; finish: () => void }>();
 let hermesUnavailable = false;
 let modernPrompts = false;
+let sessionCreation: { gate: Promise<void>; release: () => void; fail: boolean } | undefined;
 // Playwright reuses its fixture-probe connection across long UI interactions.
 // Keep it until the client closes it, avoiding a race with Node's idle timeout.
 const server = createServer({ keepAliveTimeout: 0 }, async (req, res) => {
@@ -102,7 +103,7 @@ wss.on('connection', ws => {
     (r.openRequests ||= []).push(frame); ws.send(JSON.stringify({ jsonrpc: '2.0', ...frame }));
     return frame;
   };
-  ws.on('message', raw => {
+  ws.on('message', async raw => {
     const frame = JSON.parse(raw.toString());
     const { id, method, params: p } = frame;
     if (!method) {
@@ -136,6 +137,10 @@ wss.on('connection', ws => {
       ws.send(JSON.stringify({jsonrpc:'2.0',id,error:{code:4001,message:'session not found'}})); return;
     }
     if (method === 'session.create' || method === 'session.resume') {
+      if (method === 'session.create' && sessionCreation) {
+        const held = sessionCreation; await held.gate;
+        if (held.fail) { ws.send(JSON.stringify({ jsonrpc: '2.0', id, error: { code: 4002, message: 'Conversation creation failed. Your message was not sent.' } })); return; }
+      }
       const stored = p.session_id || `stored-${rows.size}`, runtime = `runtime-${stored}`;
       if(stored==='resume-failure') { ws.send(JSON.stringify({jsonrpc:'2.0',id,error:{code:5001,message:'Preparation could not be confirmed.'}})); return; }
       if (!rows.has(stored)) rows.set(stored, { id: stored, title: p.title, source: 'desktop', started_at: Date.now()/1000, settings: { ...profileSettings, ...Object.fromEntries(['model', 'provider', 'reasoning_effort', 'fast', 'cwd'].filter(k => p[k] !== undefined).map(k => [k, p[k]])) }, messages: [] });
@@ -265,6 +270,16 @@ app.post('/__test/hermes-connection', async req => {
   hermesUnavailable = !(req.body as { online: boolean }).online;
   if (hermesUnavailable) for (const ws of wss.clients) ws.terminate();
   else void gateway.connect().catch(() => {});
+  return { ok: true };
+});
+app.post('/__test/session-creation', async req => {
+  const { hold, fail = false } = req.body as { hold: boolean; fail?: boolean };
+  if (sessionCreation) { sessionCreation.fail = fail; sessionCreation.release(); sessionCreation = undefined; }
+  if (hold) {
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    sessionCreation = { gate, release, fail };
+  }
   return { ok: true };
 });
 app.post('/__test/conversation-message', async req => {

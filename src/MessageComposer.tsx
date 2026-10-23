@@ -5,9 +5,10 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import { ChevronDown, LoaderCircle, Mic, Paperclip, Send, X } from 'lucide-react';
 import type { Action } from '../shared/core';
 import type { ConversationContext } from '../shared/conversations';
-import { addFile, createLocalConversation, db, getState, refresh, resolveSubmission, saveConversationDraft, submit, useApp, type Draft, type LocalFile } from './data';
+import { addFile, createLocalConversation, db, getState, saveConversationDraft, submit, useApp, type Draft, type LocalFile } from './data';
 import { copySavedMessage } from './savedMessages';
 import { SavedMessages } from './SavedMessages';
+import { SubmissionRecovery } from './SubmissionRecovery';
 import { SessionSettingsControls } from './SessionSettings';
 import { Voice } from './Voice';
 import { useDraftPersistence, useUpdatePreparation } from './updateSafety';
@@ -45,16 +46,19 @@ export interface MessageComposerProps {
   allowSaveEmpty?: boolean;
   onSaved?: () => void | Promise<void>;
   onSending?: () => void;
+  onSubmissionChange?: (draft: Draft | undefined) => void;
   onSent?: () => void | Promise<void>;
   owner?: string;
   voiceOwner?: string;
   recordRequest?: string;
   savedMessagesHost?: HTMLElement | null;
+  recoveryInHistory?: boolean;
 }
-export function MessageComposer({ context, initialText = '', canSend = true, docked = false, capture = false, fields, persist, prepare, saveLabel, primaryAction = 'send', inputLabel, sendLabel = 'Send', destination, agentOptions = false, allowSaveEmpty = false, onSaved, onSending, onSent, owner, voiceOwner, recordRequest, savedMessagesHost }: MessageComposerProps) {
+export function MessageComposer({ context, initialText = '', canSend = true, docked = false, capture = false, fields, persist, prepare, saveLabel, primaryAction = 'send', inputLabel, sendLabel = 'Send', destination, agentOptions = false, allowSaveEmpty = false, onSaved, onSending, onSubmissionChange, onSent, owner, voiceOwner, recordRequest, savedMessagesHost, recoveryInHistory = false }: MessageComposerProps) {
   const state = useApp(), [draft, setDraft] = useState<Draft>({ id: context.id, text: initialText, files: [] });
   const [files, setFiles] = useState<LocalFile[]>([]), [loaded, setLoaded] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState(''), [dirty, setDirty] = useState(false);
   const [recording, setRecording] = useState(false), [expanded, setExpanded] = useState(!docked), [settingsOpen, setSettingsOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const textarea = useRef<HTMLTextAreaElement>(null), input = useRef<HTMLInputElement>(null), root = useRef<HTMLDivElement>(null);
   const focusAfterSave = useRef(false);
   const reconciled = useRef(new Set<string>());
@@ -97,6 +101,7 @@ export function MessageComposer({ context, initialText = '', canSend = true, doc
     finally { attaching.current = false; setBusy(false); if (input.current) input.current.value = ''; }
   }
   const uncertain = state.localSubmissions.some(s => s.taskId === context.id);
+  useEffect(() => { if (!recoveryInHistory && uncertain && !busy) setExpanded(true); }, [uncertain, busy, recoveryInHistory]);
   const currentRun = state.actions.find(a => !a.cancelled && a.taskId === context.id && ['send', 'continue'].includes(a.kind));
   const running = currentRun && !state.bindings[context.id]?.unavailable && !['finished', 'failed', 'ready', 'unknown'].includes(currentRun.state);
   const savingAllowed = loaded && !recording && !busy && !uncertain && !settingsOpen;
@@ -106,20 +111,27 @@ export function MessageComposer({ context, initialText = '', canSend = true, doc
     if (working.current || attaching.current || voiceBusy.current || settingsOpen || !savingAllowed || (send && (!allowed || document.hidden))) return;
     const current = draftRef.current; if (!current.text.trim() && !current.files.length && (send || !allowSaveEmpty)) return;
     working.current = true; setBusy(true); setError('');
+    const submitted = send ? { ...current, submissionId: crypto.randomUUID() } : undefined;
     try {
+      if (submitted) {
+        setSubmitting(true); onSubmissionChange?.(submitted); onSending?.();
+        if (onSubmissionChange) setExpanded(false);
+      }
       await persistDraft(current); await prepare?.(current);
-      if (send) {
-        onSending?.();
-        const id = crypto.randomUUID();
-        const submitted = { ...current, submissionId: id }; await update(submitted);
+      if (submitted) {
+        const id = submitted.submissionId; await update(submitted);
         recovery.current = { id, draft: submitted };
         await submit({ id, contextId: context.id, kind: 'send', text: current.text, uploadIds: current.files });
         recovery.current = undefined;
         await update({ id: context.id, text: '', files: [] });
         setExpanded(false); await onSent?.();
       } else { await onSaved?.(); setNotice('Saved. Your message has not been sent.'); }
-    } catch (e) { setError((e as Error).message); open(false); }
-    finally { working.current = false; setBusy(false); }
+    } catch (e) {
+      const unconfirmed = submitted && getState().localSubmissions.some(s => s.id === submitted.submissionId);
+      setError(unconfirmed ? '' : (e as Error).message);
+      if (!unconfirmed) open(false);
+    }
+    finally { working.current = false; setBusy(false); setSubmitting(false); if (submitted) onSubmissionChange?.(undefined); }
   }
   // A lost HTTP reply can be followed by a confirmed receipt over the event stream.
   // Finish this same send; never repeat it or leave its text ready to send twice.
@@ -146,22 +158,23 @@ export function MessageComposer({ context, initialText = '', canSend = true, doc
   }
   const hasDraft = !!draft.text.trim() || !!draft.files.length;
   const secondarySave = saveLabel && primarySend && <button type="button" disabled={!savingAllowed || (!hasDraft && !allowSaveEmpty)} onClick={() => void commit(false)}>{saveLabel}</button>;
-  const draftStatus = dirty ? 'Saving draft…' : !state.online ? 'Offline. Your draft stays on this device.' : !state.gateway.online ? 'Hermes is unavailable. Your draft is saved.' : hasDraft ? 'Draft saved on this device · Not sent' : '';
+  const draftStatus = submitting || uncertain ? '' : dirty ? 'Saving draft…' : !state.online ? 'Offline. Your draft stays on this device.' : !state.gateway.online ? 'Hermes is unavailable. Your draft is saved.' : hasDraft ? 'Draft saved on this device · Not sent' : '';
+  const showingSubmission = submitting && !!onSubmissionChange;
   return <div ref={root} className={`composer-wrap ${docked ? 'composer-docked' : 'composer-entry'} ${capture ? 'composer-capture' : ''} ${expanded ? 'is-expanded' : 'is-collapsed'}`}>
     <div className="composer-expanded">
       <div className="composer-settings-row">{agentOptions ? <details className="agent-options"><summary>Agent options</summary><SessionSettingsControls context={context} onOpen={() => { void ensure(); setSettingsOpen(true); }} onClose={() => setSettingsOpen(false)}/></details> : <SessionSettingsControls context={context} onOpen={() => { void ensure(); setSettingsOpen(true); }} onClose={() => setSettingsOpen(false)}/>}{docked && <button className="icon-button composer-collapse" aria-label="Collapse message box" onClick={() => { textarea.current?.blur(); setExpanded(false); }}><ChevronDown size={20}/></button>}</div>
       {destination && <p className="capture-destination">{destination}</p>}<fieldset className="composer-fields" disabled={!loaded || busy || uncertain}>{typeof fields === 'function' ? fields(draft) : fields}</fieldset>
     </div>
     <form className="composer" onSubmit={event => { event.preventDefault(); void commit(primarySend); }}>
-      <textarea ref={textarea} onFocus={() => setExpanded(true)} aria-label={inputLabel || `Message ${context.botChat ? context.title : 'Hermes'}`} placeholder={inputLabel ? `${inputLabel}…` : `Message ${context.botChat ? context.title : 'Hermes'}…`} value={draft.text} disabled={!loaded || busy} onChange={event => { void update({ ...draftRef.current, text: event.target.value, submissionId: undefined }).catch(() => {}); }} rows={3} onKeyDown={event => { if (!event.nativeEvent.isComposing && (event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); void commit(primarySend); } }}/>
-      {files.length > 0 && <div className="attachment-list">{files.map(file => <span className="attachment" key={file.id}><Paperclip size={13}/>{file.name}<small>{Math.ceil(file.blob.size / 1024)} KB</small><button type="button" className="icon-button" aria-label={`Remove ${file.name}`} disabled={busy} onClick={() => void update({ ...draftRef.current, files: draftRef.current.files.filter(id => id !== file.id), submissionId: undefined }).catch(() => {})}><X size={14}/></button></span>)}</div>}
+      <textarea ref={textarea} onFocus={() => setExpanded(true)} aria-label={inputLabel || `Message ${context.botChat ? context.title : 'Hermes'}`} placeholder={inputLabel ? `${inputLabel}…` : `Message ${context.botChat ? context.title : 'Hermes'}…`} value={showingSubmission ? '' : draft.text} disabled={!loaded || busy} onChange={event => { void update({ ...draftRef.current, text: event.target.value, submissionId: undefined }).catch(() => {}); }} rows={3} onKeyDown={event => { if (!event.nativeEvent.isComposing && (event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); void commit(primarySend); } }}/>
+      {!showingSubmission && files.length > 0 && <div className="attachment-list">{files.map(file => <span className="attachment" key={file.id}><Paperclip size={13}/>{file.name}<small>{Math.ceil(file.blob.size / 1024)} KB</small><button type="button" className="icon-button" aria-label={`Remove ${file.name}`} disabled={busy} onClick={() => void update({ ...draftRef.current, files: draftRef.current.files.filter(id => id !== file.id), submissionId: undefined }).catch(() => {})}><X size={14}/></button></span>)}</div>}
       <div className="composer-tools"><div className="button-row"><button type="button" className="icon-button" aria-label="Attach files" disabled={!loaded || busy} onClick={() => { open(false); input.current?.click(); }}><Paperclip size={20}/></button><input type="file" ref={input} hidden multiple onChange={event => void attach(event.target.files)}/><Voice owner={voiceOwner || `chat:${context.id}`} disabled={busy || !loaded} startRequest={recordRequest} onModeChange={mode => { voiceBusy.current = mode !== 'idle'; setRecording(mode !== 'idle'); if (mode !== 'idle') open(false); }} onRecording={() => persistDraft(draftRef.current)} onTranscript={text => update({ ...draftRef.current, text: [draftRef.current.text, text].filter(Boolean).join('\n'), submissionId: undefined }).then(() => { open(false); })}/></div>
         <div className="composer-submit">{secondarySave}<button type={primarySend ? 'submit' : 'button'} className={primarySend ? 'primary-button send-button' : 'send-button'} disabled={!allowed || !hasDraft} onClick={primarySend ? undefined : () => void commit(true)}>{busy ? <LoaderCircle size={16} className="spin"/> : <Send size={16}/>} {sendLabel}</button>{!primarySend && <button type="submit" className="primary-button" disabled={!savingAllowed || (!hasDraft && !allowSaveEmpty)}>{saveLabel}</button>}</div>
       </div>
     </form>
-    {(error || notice || uncertain || draftStatus) && <div className="composer-expanded">
+    {(error || notice || (uncertain && !submitting && !recoveryInHistory) || draftStatus) && <div className="composer-expanded">
       {error && <p className="inline-error" role="alert">{error}</p>}{notice && <p className="subtle-note" role="status">{notice}</p>}
-      {uncertain && <div className="error-banner">Your submission is not confirmed. Check its status before sending again. <button className="text-button" onClick={() => void refresh()}>Check status</button>{state.localSubmissions.filter(s => s.taskId === context.id).map(s => <button className="text-button" key={s.id} onClick={() => void resolveSubmission(s.id).catch(e => setError(e.message))}>Cancel if not yet received</button>)}</div>}
+      {uncertain && !submitting && !recoveryInHistory && state.localSubmissions.filter(s => s.taskId === context.id).map(s => <SubmissionRecovery key={s.id} id={s.id}/>)}
       {draftStatus && <p className="composer-note" role="status">{draftStatus}</p>}
     </div>}
     {savedMessagesHost ? createPortal(<SavedMessages contextId={context.id} disabled={!loaded || busy} onCopy={restore}/>, savedMessagesHost) : <SavedMessages contextId={context.id} disabled={!loaded || busy} onCopy={restore}/>}
