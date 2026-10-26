@@ -12,6 +12,21 @@ import { applyTaskOp, applySpaceOp, withSpaces, applyConversationVisibility, emp
 export const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export class Store extends LegacyFeatures {
   db: Database.Database;
+  private pendingEvents?: [string | symbol, any[]][];
+  override emit(event: string | symbol, ...args: any[]) {
+    if (this.pendingEvents) { this.pendingEvents.push([event, args]); return true; }
+    return super.emit(event, ...args);
+  }
+  atomic<T>(write: () => T): T {
+    if (this.pendingEvents) return this.db.transaction(write)();
+    const events: [string | symbol, any[]][] = []; this.pendingEvents = events;
+    let result: T;
+    try { result = this.db.transaction(write)(); }
+    catch (error) { this.pendingEvents = undefined; throw error; }
+    this.pendingEvents = undefined;
+    for (const [event, args] of events) this.emit(event, ...args);
+    return result;
+  }
   readonly legacyInstallation: boolean;
   constructor(path: string) {
     super();

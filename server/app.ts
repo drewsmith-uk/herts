@@ -87,6 +87,9 @@ export async function createApp(config: Config) {
   registerThemes(app);
   const connection = () => ({ gateway: { online: gateway.online, configured: gateway.configured, profile, promptProtocol: gateway.promptProtocol, promptError: gateway.promptError, promptWarning: gateway.promptWarning }, pushKey: notifications.keys.publicKey });
   app.get('/api/v1/connection', async () => connection());
+  app.get('/api/v1/diagnostics/recovery', async () => ({ ...actions.recoveryStats,
+    pending: store.bindings().filter(([, binding]) => binding.recoveryPending).length,
+    notices: (store.db.prepare('SELECT count(*) AS count FROM notices').get() as { count: number }).count }));
   app.get('/api/v1/state', async req => ({ snapshot: clientSnapshot(store,req), actions: store.actions(), bindings: Object.fromEntries(store.bindings()), ...connection(), plugins:plugins.catalogue(), pluginData:plugins.data() }));
   app.get('/api/v1/contexts/:id/activity', async (req, reply) => {
     const context = store.context(z.string().min(1).max(300).parse((req.params as any).id));

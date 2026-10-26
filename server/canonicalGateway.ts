@@ -26,10 +26,13 @@ export class CanonicalGateway {
   private states = new Map<string, State>();
   private epochs = new Map<string, string>();
   private buffered: any[] = [];
+  private snapshotReads = new Map<string, number>();
+  private readSequence = 0;
+  private resetSequence = 0;
   constructor(private ref: (id: string, profile: string) => string, private emit: (event: any) => void,
     private restore: (session: string, prompts: unknown[], version: number) => void,
     public store?: Pick<Store, 'getMeta' | 'setMeta'>) {}
-  reset() { this.states.clear(); this.epochs.clear(); this.buffered = []; this.identities.clear(); this.owners.clear(); }
+  reset() { this.resetSequence++; this.snapshotReads.clear(); this.states.clear(); this.epochs.clear(); this.buffered = []; this.identities.clear(); this.owners.clear(); }
   identify(profile: string, value: any) {
     if (typeof value?.profile_id !== 'string' || !Array.isArray(value.capabilities) ||
         !['durable-admission-v1', 'event-replay-v1'].every(c => value.capabilities.includes(c)))
@@ -38,6 +41,17 @@ export class CanonicalGateway {
     if (Number.isSafeInteger(value.authority_epoch)) this.owners.set(profile, { epoch: value.authority_epoch, instance: value.instance_id });
   }
   state(id: string) { return this.states.get(id); }
+  private async readSnapshot(profile: string, id: string, request: Request, version: number, instance: string) {
+    const key = this.ref(id, profile), read = ++this.readSequence, reset = this.resetSequence;
+    const result = await request('session.resume', { session_id: id, profile, source: 'desktop', omit_messages: true });
+    if (reset !== this.resetSequence) throw new GatewayError('The gateway connection changed.');
+    if (result.session_id !== id && result.stored_session_id !== id) throw new GatewayError('Hermes returned a different session.', true);
+    const current = this.states.get(key);
+    if (current && read < (this.snapshotReads.get(key) || 0)) return current;
+    const state = this.remember(profile, result, version, instance);
+    this.snapshotReads.set(key, read);
+    return state;
+  }
   private retained(key: string, make: () => Record<string, any>) {
     const name = `gateway-operation:${createHash('sha256').update(key).digest('hex')}`;
     const prior = this.store?.getMeta<Record<string, any>>(name);
@@ -55,7 +69,7 @@ export class CanonicalGateway {
     if (ownerIdentity && value.authority_epoch !== ownerIdentity.epoch) throw new GatewayError('The Hermes authority changed. Reconnect before continuing.', true);
     if (!profileId) throw new GatewayError('Hermes did not confirm the profile identity.', true);
     if (value.info.profile_id && value.info.profile_id !== profileId) throw new GatewayError('Hermes returned a different profile identity.', true);
-    if (prior && (prior.remote.authorityEpoch > value.authority_epoch ||
+    if (prior && (prior.remote.authorityEpoch > value.authority_epoch || prior.remote.revision > value.revision ||
         (prior.remote.replayEpoch === value.replay_epoch && prior.remote.sequence > value.last_sequence))) return prior;
     const remote: RemoteSession = { protocol: 'hermes-gateway-v1', profileId, instanceId: ownerIdentity?.instance || instance,
       authorityEpoch: value.authority_epoch, revision: value.revision, executionGeneration: value.execution_generation,
@@ -124,10 +138,7 @@ export class CanonicalGateway {
       return this.project(state);
     }
     if (['session.resume', 'session.activate'].includes(method)) {
-      const result = await request('session.resume', { session_id: params.session_id, profile, source: 'desktop', omit_messages: true });
-      if (result.session_id !== params.session_id && result.stored_session_id !== params.session_id)
-        throw new GatewayError('Hermes returned a different session.', true);
-      return this.project(this.remember(profile, result, version, instance));
+      return this.project(await this.readSnapshot(profile, params.session_id, request, version, instance));
     }
     if (method === 'session.list') return request(method, { ...params, ...(params.title === undefined ? { scope: 'stored' } : {}) });
     if (method === 'profiles.list') {
@@ -149,7 +160,7 @@ export class CanonicalGateway {
     let state = this.states.get(key);
     const scoped = ['session.title', 'session.cwd.set', 'config.set', 'prompt.submit', 'prompt.receipt', 'session.events.since', 'approval.pending', 'session.interrupt'];
     if (params.session_id && scoped.includes(method) && !state) {
-      state = this.remember(profile, await request('session.resume', { session_id: params.session_id, profile, omit_messages: true }), version, instance);
+      state = await this.readSnapshot(profile, params.session_id, request, version, instance);
     }
     if (method === 'approval.pending') return { approvals: state!.snapshot.prompts.filter(p => p.kind === 'approval').map(p => ({ ...p, request_id: p.prompt_id })) };
     if (method === 'session.interrupt') return request(method, { session_id: params.session_id, profile, execution_generation: state!.remote.executionGeneration });
@@ -168,7 +179,7 @@ export class CanonicalGateway {
       if (!Array.isArray(result.events) || typeof result.replay_epoch !== 'string' || !Number.isSafeInteger(result.last_sequence))
         throw new GatewayError('Hermes returned an invalid replay response.');
       if (result.snapshot_required || result.truncated || result.replay_epoch !== state!.remote.replayEpoch) {
-        state = this.remember(profile, await request('session.resume', { session_id: params.session_id, profile, omit_messages: true }), version, instance);
+        state = await this.readSnapshot(profile, params.session_id, request, version, instance);
         return { ...result, snapshot_required: true, remote: state.remote, snapshot: this.project(state), events: [] };
       }
       for (const event of result.events) this.event(event);

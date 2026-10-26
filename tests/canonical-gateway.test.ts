@@ -29,6 +29,28 @@ function fixture() {
 }
 
 describe('canonical gateway protocol', () => {
+  it('retains a newer snapshot when an older snapshot request finishes later', async () => {
+    const f = fixture(); await f.call('session.resume', { session_id: 'stored' });
+    let release!: (value: any) => void;
+    f.request.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+    const delayed = f.call('session.resume', { session_id: 'stored' });
+    await vi.waitFor(() => expect(release).toBeDefined());
+    f.request.mockResolvedValueOnce(snapshot('default', { revision: 4, last_sequence: 8 }));
+    await f.call('session.resume', { session_id: 'stored' });
+    release(snapshot());
+    expect((await delayed).remote).toMatchObject({ revision: 4, sequence: 8 });
+  });
+  it('retains live event progress when an earlier snapshot response arrives', async () => {
+    const f = fixture(); await f.call('session.resume', { session_id: 'stored' });
+    let release!: (value: any) => void;
+    f.request.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+    const delayed = f.call('session.resume', { session_id: 'stored' });
+    await vi.waitFor(() => expect(release).toBeDefined());
+    f.adapter.event({ session_id: 'stored', seq: 5, replay_epoch: 'replay-default', execution_generation: 2,
+      authority_epoch: 1, type: 'message.complete', payload: { status: 'complete' } });
+    release(snapshot());
+    expect((await delayed).remote.sequence).toBe(5);
+  });
   it('retains creation and submission identities across adapter restarts', async () => {
     const f = fixture();
     const params = { source: 'desktop', close_on_disconnect: false, reasoning_effort: 'high', fast: true };
@@ -213,6 +235,7 @@ describe('canonical action recovery', () => {
     await f.engine.reconcile(f.context.id);
     expect(f.store.action('earlier')).toMatchObject({ state: 'finished', receipt: 'accepted', admissionId: 'earlier-receipt' });
     expect(f.store.action('latest')).toMatchObject({ state: 'finished', receipt: 'accepted', admissionId: 'latest-receipt' });
+    expect(f.store.db.prepare('SELECT id FROM notices ORDER BY id').all()).toEqual([{ id: 'earlier:complete' }, { id: 'latest:complete' }]);
     expect(f.request.mock.calls.filter(([method]) => method === 'prompt.submit')).toHaveLength(0);
   });
   it('selects a free initial title before changing a canonical session', async () => {
