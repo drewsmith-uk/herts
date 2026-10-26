@@ -47,8 +47,9 @@ for (const newer of ['connection', 'state', 'removed binding']) test(`a delayed 
   })).toBe(true);
   const current = await (await request.get('/api/v1/state')).json();
   const binding = { storedId: id, runtimeId: 'synthetic-runtime', generation: 'old-generation', epoch: 'fixture-epoch', seq: 1, known: true, ready: true, monitored: true };
-  const destination = { ...current, bindings: { [context.id]: binding }, gateway: { ...current.gateway, online: true } };
+  const destination = { ...current, snapshot: { ...current.snapshot }, bindings: { [context.id]: binding }, gateway: { ...current.gateway, online: true } };
   current.gateway.online = false;
+  current.snapshot.revision++;
   current.bindings = newer === 'removed binding' ? {} : { [context.id]: { ...binding, generation: 'new-generation', seq: 2 } };
   await page.route('**/api/v1/connection', route => route.fulfill({ json: { gateway: current.gateway, pushKey: current.pushKey } }));
   await page.route('**/api/v1/state', route => route.fulfill({ json: current }));
@@ -62,11 +63,18 @@ for (const newer of ['connection', 'state', 'removed binding']) test(`a delayed 
   try {
     await page.evaluate(() => { location.hash = '/notice/priority-ordering'; });
     await expect.poll(() => started).toBe(true);
+    await expect.poll(() => page.evaluate(() => (window as any).__HERTS_PLUGIN_RUNTIME__.sdk.getCore().stateRefreshPending)).toBe(false);
     await page.evaluate(async newer => {
       if (newer === 'connection') window.dispatchEvent(new Event('online'));
       else await (window as any).__HERTS_PLUGIN_RUNTIME__.sdk.refresh();
     }, newer);
     await expect.poll(() => page.evaluate(() => (window as any).__HERTS_PLUGIN_RUNTIME__.sdk.getCore().gateway.online)).toBe(false);
+    if (newer !== 'connection') await expect.poll(() => page.evaluate(contextId => {
+      const state = (window as any).__HERTS_PLUGIN_RUNTIME__.sdk.getCore();
+      return { revision: state.remote.revision, pending: state.stateRefreshPending, generation: state.bindings[contextId]?.generation || null };
+    }, context.id)).toEqual({
+      revision: current.snapshot.revision, pending: false, generation: newer === 'state' ? 'new-generation' : null,
+    });
     await page.evaluate(contextId => {
       const sdk = (window as any).__HERTS_PLUGIN_RUNTIME__.sdk;
       (window as any).notificationObservations = [];

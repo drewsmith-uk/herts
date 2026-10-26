@@ -203,6 +203,8 @@ for (const width of [390, 1280]) test(`partial session settings retain the model
   await page.getByLabel('Reasoning effort', { exact: true }).selectOption('low');
   failed = true;
   await page.getByRole('button', { name: 'Refresh current settings', exact: true }).click();
+  await expect(page.getByRole('dialog').getByRole('alert')).toHaveText('Settings could not be refreshed. Try again.');
+  await expect(page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true })).toBeEnabled();
   await expect(page.getByLabel('Reasoning effort', { exact: true })).toHaveValue('low');
   await expect(page.getByLabel('Conversation model', { exact: true })).toHaveValue(model('chosen-model'));
   await page.keyboard.press('Escape');
