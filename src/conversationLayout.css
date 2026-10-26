@@ -17,6 +17,7 @@ main:has(.conversation-panel) { height: 100%; display: flex; flex-direction: col
 .conversation-scroll { flex: 1; min-height: 90px; overflow-y: auto; overflow-x: hidden; overscroll-behavior-y: contain; overflow-anchor: none; scrollbar-gutter: stable; padding: 18px 5px 12px; }
 .conversation-scroll:focus-visible { outline: 2px solid var(--color-focus); outline-offset: -2px; }
 .conversation-control-slot { flex-shrink: 0; }
+.conversation-control-slot:not(:empty) { margin-top: var(--item-gap); }
 .conversation-activity:empty, .saved-messages:empty { display: none; }
 .conversation-scroll .history { margin: 0; }
 .conversation-scroll .history-note { margin-top: 0; }
