@@ -189,7 +189,7 @@ test('confirmation checks preserve edits and recover automatically without anoth
   const text = 'Recover this accepted message after its reply is lost.';
   let reveal = false, checking = false, release!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
-  await page.route('**/api/v1/state', async route => {
+  await page.route(/\/api\/v1\/(state|contexts\/[^/]+\/activity)(\?.*)?$/, async route => {
     if (reveal) { checking = true; await gate; }
     const response = await route.fetch(), data = await response.json();
     if (!reveal) data.actions = data.actions.filter((action: { text: string }) => action.text !== text);

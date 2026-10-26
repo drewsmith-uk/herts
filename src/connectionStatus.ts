@@ -9,7 +9,7 @@ export function connectionStatus(state: State) {
   if (state.error || state.syncError) return result('warning', 'Synchronization needs attention');
   if (review) return result('warning', 'Changes need review');
   if (!state.gateway.online || state.gateway.promptError) return result('warning', 'Hermes unavailable');
-  if (state.syncActive) return result('syncing', 'Syncing changes');
+  if (state.syncActive || state.stateRefreshPending) return result('syncing', 'Syncing changes');
   if (pending) return result('waiting', 'Changes waiting to sync');
   return result('synced', 'Connected and synced');
 }

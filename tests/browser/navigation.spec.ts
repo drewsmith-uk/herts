@@ -71,7 +71,7 @@ test('device placement switches More to direct Settings and preserves offline dr
 test('status distinguishes Hermes failure and recovers without sending model prompts', async ({ page, request }) => {
   const before = await (await request.get('http://127.0.0.1:8791/calls')).json();
   let unavailable = true;
-  await page.route('**/api/v1/state', async route => {
+  await page.route(/\/api\/v1\/(state|connection)$/, async route => {
     const response = await route.fetch(), data = await response.json();
     if (unavailable) data.gateway.online = false;
     await route.fulfill({ response, json: data });
@@ -173,7 +173,7 @@ test('initial checks, server failure, and retry keep connection details accurate
   let release!: () => void;
   const held = new Promise<void>(resolve => { release = resolve; });
   let fail = true;
-  await page.route('**/api/v1/state', async route => {
+  await page.route(/\/api\/v1\/(state|connection)$/, async route => {
     await held;
     if (fail) await route.abort();
     else await route.continue();
@@ -188,6 +188,21 @@ test('initial checks, server failure, and retry keep connection details accurate
   await expect(page.getByRole('dialog', { name: 'Connection and sync', exact: true })).not.toContainText('missing record');
   fail = false;
   await page.getByRole('button', { name: 'Check again', exact: true }).click();
+  await expect(status(page)).toHaveText('Connection status: Connected and synced');
+});
+
+test('a failed background sync retains connection status and permits retry', async ({ page }) => {
+  let fail = true;
+  await page.route('**/api/v1/state', route => fail ? route.abort() : route.continue());
+  await page.goto('/#/conversations');
+  await expect(status(page)).toHaveText('Connection status: Synchronization needs attention');
+  await openConnectionDetails(page);
+  const details = page.getByRole('dialog', { name: 'Connection and sync', exact: true });
+  await expect(details).toContainText('Updates could not be loaded.');
+  await expect(details.locator('dd').nth(0)).toHaveText('Connected');
+  await expect(details.locator('dd').nth(1)).toHaveText('Connected');
+  fail = false;
+  await details.getByRole('button', { name: 'Check again', exact: true }).click();
   await expect(status(page)).toHaveText('Connection status: Connected and synced');
 });
 

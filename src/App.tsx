@@ -35,10 +35,10 @@ function Shell() {
     const sidebar = plugin?.definition.Sidebar;
     const props: RouteProps = { path, parts };
     let page;
-    if (!state.loaded || !state.defaultsReady || route.path === '/' && state.plugins.entries.some(e => e.enabled && !plugins.some(p => p.id === e.manifest.id) && !pluginError(e.manifest.id)))
-        page = <div className="empty"><LoaderCircle className="spin"/><p>Opening Herts…</p></div>;
-    else if (screen === 'notice')
+    if (screen === 'notice')
         page = <NotificationLanding key={id} id={id} online={state.online}/>;
+    else if (!state.loaded || !state.defaultsReady && screen !== 'conversation' || route.path === '/' && state.plugins.entries.some(e => e.enabled && !plugins.some(p => p.id === e.manifest.id) && !pluginError(e.manifest.id)))
+        page = <div className="empty"><LoaderCircle className="spin"/><p>Opening Herts…</p></div>;
     else if (screen === 'conversations')
         page = <Conversations />;
     else if (screen === 'conversation')
@@ -49,6 +49,8 @@ function Shell() {
         page = <Preferences plugins={id === 'plugins'}/>;
     else if (screen === 'share')
         page = <ShareChooser />;
+    else if (match && plugin && !state.pluginRemote[plugin.id])
+        page = <ListPlaceholder label="Loading screen…"/>;
     else if (match && plugin) {
         const Screen = match.component;
         page = <PluginContent plugin={plugin}><Screen {...props}/></PluginContent>;
