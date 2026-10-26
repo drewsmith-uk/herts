@@ -238,6 +238,49 @@ describe('canonical action recovery', () => {
     expect(f.store.db.prepare('SELECT id FROM notices ORDER BY id').all()).toEqual([{ id: 'earlier:complete' }, { id: 'latest:complete' }]);
     expect(f.request.mock.calls.filter(([method]) => method === 'prompt.submit')).toHaveLength(0);
   });
+  it.each(['receipt failure', 'newer event', 'storage failure', 'buffer overflow'])('retains the checkpoint after %s during recovery', async failure => {
+    const f = actionFixture(), live = await f.call('session.resume', { session_id: 'stored' });
+    const binding = { runtimeId: 'stored', storedId: 'stored', epoch: f.gateway.epoch, generation: 'binding', seq: 4,
+      ready: false, monitored: true, known: true, remote: live.remote };
+    f.store.saveBinding(f.context.id, binding);
+    f.store.saveAction({ id: 'action', taskId: f.context.id, kind: 'send', text: 'Synthetic message', uploadIds: [],
+      createdAt: 1, updatedAt: 1, state: 'running', phase: 'working', receipt: 'accepted', admissionId: 'admission',
+      submissionId: 'submission', sendStage: 'submitted', binding });
+    let fail = true;
+    f.request.mockImplementation(async method => {
+      if (method === 'session.resume') return snapshot('default', { last_sequence: fail ? 5 : 600 });
+      if (fail && failure === 'receipt failure') throw new GatewayError('Synthetic receipt timeout');
+      if (fail && ['newer event', 'buffer overflow'].includes(failure)) {
+        const count = failure === 'buffer overflow' ? 513 : 1;
+        for (let i = 0; i < count; i++) {
+          const event = { session_id: 'stored', seq: i + 6, type: 'status.update', replay_epoch: 'replay-default', payload: {} };
+          f.adapter.event(event); f.engine.event({ ...event, remote: { ...f.adapter.state('stored')!.remote } });
+        }
+      }
+      return receipt({ status: 'terminal', outcome: 'completed', execution_generation: 2 });
+    });
+    const save = f.store.saveAction.bind(f.store);
+    const saved = vi.spyOn(f.store, 'saveAction').mockImplementation(action => {
+      if (fail && failure === 'storage failure' && action.state === 'finished') throw new Error('Synthetic persistence failure');
+      save(action);
+    });
+    await f.engine.reconnect();
+    expect(f.store.binding(f.context.id)).toMatchObject({ seq: 4, recoveryPending: true });
+    expect(f.store.action('action')?.state).toBe('running');
+    expect(f.store.db.prepare('SELECT * FROM notices').all()).toHaveLength(0);
+    fail = false; saved.mockRestore();
+    f.store.on('notice', () => {
+      expect(f.store.db.inTransaction).toBe(false);
+      expect(f.store.binding(f.context.id)).toMatchObject({ seq: 600, recoveryPending: false });
+      expect(f.store.action('action')?.state).toBe('finished');
+    });
+    f.engine.close(); f.gateway.removeAllListeners();
+    const restarted = new Actions(f.store, f.gateway, '/tmp'); cleanup.push(() => restarted.close());
+    await restarted.reconnect();
+    expect(f.store.action('action')?.state).toBe('finished');
+    expect(f.store.db.prepare('SELECT * FROM notices').all()).toHaveLength(1);
+    expect(f.request.mock.calls.some(([method]) => method === 'prompt.submit')).toBe(false);
+  });
   it('selects a free initial title before changing a canonical session', async () => {
     const f = actionFixture(), live = await f.call('session.resume', { session_id: 'stored' });
     const binding = { runtimeId: 'stored', storedId: 'stored', epoch: f.gateway.epoch, generation: 'binding', seq: 4, ready: false, monitored: true, known: true, remote: live.remote };

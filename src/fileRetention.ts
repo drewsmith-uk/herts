@@ -15,10 +15,11 @@ function strings(value: unknown, result: Set<string>, seen = new WeakSet<object>
 
 /** Check every durable owner, including plugins and another window's journal. */
 export async function cleanLocalFiles(discard: string[] = [], now = Date.now()) {
-  await db.transaction('rw', [db.files, db.drafts, db.submissions, db.recordings, db.pluginPending, db.pluginLocal, db.kv], async () => {
+  await db.transaction('rw', [db.files, db.drafts, db.submissions, db.recordings, db.pluginPending, db.pluginLocal, db.kv, db.activityCache], async () => {
     const referenced = new Set<string>();
     const explicit = new Set(discard);
     for (const table of [db.drafts, db.submissions, db.recordings, db.pluginPending, db.pluginLocal]) strings(await table.toArray(), referenced);
+    strings(await db.activityCache.where('kind').equals('action').toArray(), referenced);
     for (const row of await db.kv.toArray()) {
       if (row.key.startsWith(discardPrefix)) explicit.add(row.value.uploadId);
       else strings(row.value, referenced);

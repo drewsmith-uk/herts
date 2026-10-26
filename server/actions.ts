@@ -50,7 +50,7 @@ export class Actions {
       if (b.recoveryPending) void this.scheduleRecovery(taskId, b); else void this.reconcile(taskId);
     } }, 4000);
   }
-  main(taskId: string): Action | undefined { return this.store.actions(taskId).find(a => !a.cancelled && (a.kind === 'send' || a.kind === 'continue')); }
+  main(taskId: string): Action | undefined { return this.store.activity.main(this.store.context(taskId)?.id || taskId); }
   cancelUndispatched(input: ActionInput): { cancelled: boolean; action: Action } {
     return this.store.db.transaction(() => {
       const prior = this.store.receipt(input.id, input);
@@ -309,7 +309,7 @@ export class Actions {
       const current = eligible();
       const next = this.store.saveContext({ ...current, link: null, aliases: [] });
       this.store.db.prepare('DELETE FROM context_aliases WHERE context_id=?').run(contextId);
-      this.store.db.prepare('DELETE FROM bindings WHERE task_id=?').run(contextId);
+      this.store.deleteBinding(contextId);
       this.store.updateLegacyLinks(contextId, null);
       for (const action of this.store.actions(contextId)) {
         action.state = 'failed'; action.receipt = 'rejected'; action.phase = 'message not sent';
@@ -364,7 +364,7 @@ export class Actions {
       if (!current || current.created.storedId !== candidate.created.storedId) return false;
       this.store.saveContext({ ...current.context, link: null, aliases: [] });
       this.store.db.prepare('DELETE FROM context_aliases WHERE context_id=?').run(a.taskId);
-      this.store.db.prepare('DELETE FROM bindings WHERE task_id=?').run(a.taskId);
+      this.store.deleteBinding(a.taskId);
       this.store.updateLegacyLinks(a.taskId, null);
       Object.assign(a, this.store.action(a.id));
       a.settings = this.settings.freeze(a.taskId, input);
@@ -401,8 +401,8 @@ export class Actions {
     }
     throw new GatewayError('Choose a different conversation title before sending.');
   }
-  async verifyBinding(b: Binding): Promise<any> {
-    if (b.profile && this.gateway.withProfile && b.profile !== this.gateway.profile) return this.gateway.withProfile(b.profile, () => this.verifyBinding(b));
+  async verifyBinding(b: Binding, persistRemote = true): Promise<any> {
+    if (b.profile && this.gateway.withProfile && b.profile !== this.gateway.profile) return this.gateway.withProfile(b.profile, () => this.verifyBinding(b, persistRemote));
     if (b.epoch !== this.gateway.epoch) throw new GatewayError('Hermes restarted. Sending your next message will prepare this conversation again.');
     const live = await this.gateway.rpc('session.activate', { session_id: b.runtimeId, omit_messages: true });
     if (live.session_id !== b.runtimeId || (live.info?.profile_name !== undefined && live.info.profile_name !== this.gateway.profile) || !live.session_key) throw new GatewayError('Execution identity could not be verified.');
@@ -412,7 +412,7 @@ export class Actions {
       b.storedId = live.session_key;
     }
     const owner = this.store.bindings().find(([, saved]) => saved.generation === b.generation)?.[0];
-    if (live.remote) { b.remote = live.remote; b.seq = live.remote.sequence; if (owner) this.store.saveBinding(owner, b); }
+    if (live.remote) { b.remote = live.remote; b.seq = live.remote.sequence; if (owner && persistRemote) this.store.saveBinding(owner, b); }
     if (owner) this.settings.observe(owner, live.info, b);
     return live;
   }
@@ -467,8 +467,8 @@ export class Actions {
       if (this.dispatching.has(a.id) || (a.state === 'preparing' && a.kind === 'send')) return false;
       observed = b;
       const seq = b.seq;
-      const live = await this.verifyBinding(b);
-      if (this.gateway.protocol === 'hermes-gateway-v1') { await this.reconcileCanonical(taskId, b, a, live); return true; }
+      const live = await this.verifyBinding(b, false);
+      if (this.gateway.protocol === 'hermes-gateway-v1') return await this.reconcileCanonical(taskId, b, a, live);
       const pending = await this.gateway.rpc('approval.pending', { session_id: b.runtimeId });
       const ctl = await this.gateway.rpc('session.control.read', { session_id: b.runtimeId });
       const latestBinding = this.store.binding(taskId)!;
@@ -503,18 +503,36 @@ export class Actions {
     }
     finally { this.polling.delete(taskId); }
   }
-  private async reconcileCanonical(taskId: string, b: Binding, action: Action, live: any) {
-    if (!b.remote) return;
+  private async reconcileCanonical(taskId: string, b: Binding, action: Action, live: any, observed = b) {
+    if (!b.remote) return false;
+    const connection = this.connectionVersion;
     const pending = Array.isArray(live.pending) ? live.pending : [];
     const older = this.store.actions(taskId).filter(prior => prior.id !== action.id && prior.kind === 'send' && prior.submissionId &&
       prior.binding?.storedId === b.storedId && !['finished', 'failed'].includes(prior.state));
-    await Promise.allSettled(older.map(async prior => {
+    const recovered = await Promise.all(older.map(async prior => {
       const row = prior.admissionId ? await this.gateway.rpc('prompt.receipt', { session_id: b.runtimeId, admission_id: prior.admissionId })
         : pending.find((item: any) => item.input_id === prior.submissionId);
-      if (!row || this.store.binding(taskId)?.generation !== b.generation || b.epoch !== this.gateway.epoch) return;
-      const receipt = this.gateway.canonical.receipt(row, this.gateway.canonical.state(b.runtimeId)!, prior.admissionId);
-      const saved = this.store.action(prior.id); if (!saved || saved.submissionId !== prior.submissionId) return;
-      this.store.atomic(() => {
+      return { prior, receipt: row && this.gateway.canonical.receipt(row, this.gateway.canonical.state(b.runtimeId)!, prior.admissionId) };
+    }));
+    let receipt = action.admissionId ? await this.gateway.rpc('prompt.receipt', { session_id: b.runtimeId, admission_id: action.admissionId })
+      : action.submissionId ? pending.find((row: any) => row.input_id === action.submissionId) : undefined;
+    if (receipt) receipt = this.gateway.canonical.receipt(receipt, this.gateway.canonical.state(b.runtimeId)!, action.admissionId);
+    const current = this.store.action(action.id), binding = this.store.binding(taskId);
+    const remote = this.gateway.canonical.state(b.runtimeId)?.remote;
+    const buffered = this.recovering.get(taskId);
+    if (buffered?.overflow) {
+      buffered.events.clear(); buffered.overflow = false;
+      throw new GatewayError('Execution recovery needs another snapshot.');
+    }
+    if (connection !== this.connectionVersion || !this.sameBinding(taskId, observed) || b.epoch !== this.gateway.epoch ||
+        !current || this.main(taskId)?.id !== action.id || this.dispatching.has(action.id) ||
+        (binding?.observedSeq || binding?.seq || 0) > b.seq || remote?.sequence !== b.seq ||
+        remote?.replayEpoch !== b.remote.replayEpoch || remote?.revision !== b.remote.revision) return false;
+    this.store.atomic(() => {
+    for (const { prior, receipt } of recovered) {
+      if (!receipt) continue;
+      const saved = this.store.action(prior.id);
+      if (!saved || saved.submissionId !== prior.submissionId) continue;
       saved.admissionId = receipt.admission_id; saved.receipt = 'accepted'; saved.sendStage = 'submitted'; saved.remoteOutcome = receipt.outcome;
       if (receipt.status === 'terminal' && ['completed', 'failed', 'cancelled', 'interrupted'].includes(receipt.outcome || '')) {
         saved.terminal = receipt.outcome === 'completed' ? 'complete' : receipt.outcome === 'failed' ? 'error' : 'interrupted';
@@ -523,15 +541,10 @@ export class Actions {
         this.store.notify(`${saved.id}:${saved.terminal}`, taskId, saved.state === 'failed' ? 'failure' : 'completion');
       }
       if (JSON.stringify({ ...saved, updatedAt: 0 }) !== JSON.stringify({ ...prior, updatedAt: 0 })) this.store.saveAction(saved);
-      });
-    }));
-    let receipt = action.admissionId ? await this.gateway.rpc('prompt.receipt', { session_id: b.runtimeId, admission_id: action.admissionId })
-      : action.submissionId ? pending.find((row: any) => row.input_id === action.submissionId) : undefined;
-    if (receipt) receipt = this.gateway.canonical.receipt(receipt, this.gateway.canonical.state(b.runtimeId)!, action.admissionId);
-    const current = this.store.action(action.id), binding = this.store.binding(taskId);
-    if (!current || this.main(taskId)?.id !== action.id || binding?.generation !== b.generation || this.dispatching.has(action.id)) return;
-    this.store.atomic(() => {
+    }
     this.projectPrompts(current, b);
+    for (const prompt of [...(current.approvals || []), ...(current.clarification ? [current.clarification] : [])])
+      this.store.notify(`${b.generation}:${prompt.request_id}`, taskId, 'approval');
     if (receipt) {
       current.admissionId = receipt.admission_id; current.remoteOutcome = receipt.outcome;
       current.receipt = 'accepted'; current.sendStage = 'submitted';
@@ -560,10 +573,13 @@ export class Actions {
     } else if (current.kind === 'continue') {
       current.state = live.running ? 'running' : 'ready'; current.phase = live.running ? 'working' : 'ready to send';
     }
+    b.recoveryPending = false;
     b.ready = !live.running && !pending.length && !current.approvals?.length && !current.clarification;
     this.store.saveBinding(taskId, b);
     if (JSON.stringify({ ...current, updatedAt: 0 }) !== JSON.stringify({ ...action, updatedAt: 0 })) this.store.saveAction(current);
     });
+    this.recovering.delete(taskId);
+    return true;
   }
   private projectPrompts(action: Action, binding: Binding) {
     const requests = this.gateway.prompts.list(binding.runtimeId);
@@ -644,6 +660,10 @@ export class Actions {
     b.recoveryPending = true; this.store.saveBinding(taskId, b);
     const result = await this.gateway.rpc('session.events.since', { session_id: b.runtimeId, last_seen: b.seq, ...(b.remote ? { replay_epoch: b.remote.replayEpoch } : {}) });
     if (connection !== this.connectionVersion || !this.sameBinding(taskId, b)) return;
+    if (buffered.overflow) {
+      buffered.events.clear(); buffered.overflow = false;
+      throw new GatewayError('Execution replay needs another read.');
+    }
     if (this.gateway.protocol === 'hermes-gateway-v1') {
       this.store.atomic(() => {
         for (const event of [...buffered.events.values()].sort((a, b) => a.seq - b.seq)) this.event(event, taskId);
@@ -664,10 +684,6 @@ export class Actions {
       b.ready = false; b.known = false; this.store.saveBinding(taskId, b);
       const a = this.main(taskId); if (a) { a.state = 'unknown'; a.error = 'Some execution events are unavailable. Refresh history and review before continuing.'; this.store.saveAction(a); }
       throw new GatewayError('Execution replay is incomplete.');
-    }
-    if (buffered.overflow) {
-      buffered.events.clear(); buffered.overflow = false;
-      throw new GatewayError('Execution replay needs another read.');
     }
     this.store.atomic(() => {
       const events = new Map<number, any>();
@@ -704,9 +720,12 @@ export class Actions {
             const live = await this.gateway.rpc('session.resume', { session_id: b.storedId, profile: b.profile || this.gateway.profile, omit_messages: true });
             if (connection !== this.connectionVersion || !this.sameBinding(taskId, b)) return false;
             if (live.stored_session_id !== b.storedId || !live.remote) throw new GatewayError('Conversation identity could not be verified.');
-            Object.assign(b, { runtimeId: live.session_id, epoch: this.gateway.epoch, remote: live.remote,
-              seq: live.remote.sequence, ready: false, known: true, recoveryPending: false });
-            this.store.saveBinding(taskId, b); this.recovering.delete(taskId);
+            const recovered = { ...b, runtimeId: live.session_id, epoch: this.gateway.epoch, remote: live.remote,
+              seq: live.remote.sequence, ready: false, known: true };
+            const main = this.main(taskId);
+            if (!main || !await this.reconcileCanonical(taskId, recovered, main, live, b))
+              throw new GatewayError('Recovered execution state is not confirmed.');
+            this.recoveryStats.completed++; return true;
           } else {
             if (b.epoch !== this.gateway.epoch) return true;
             await this.replay(taskId, b);

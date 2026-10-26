@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { ActionActivity } from './activity.js';
 import { randomUUID } from 'node:crypto';
 import { applyReadingOp, emptyReading, normalizeUrl, retainsArticle, type ConversationContext, type ReadingOp, type ReadingState, type Article } from '../shared/reading.js';
 import { mkdirSync, chmodSync } from 'node:fs';
@@ -12,6 +13,7 @@ import { applyTaskOp, applySpaceOp, withSpaces, applyConversationVisibility, emp
 export const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export class Store extends LegacyFeatures {
   db: Database.Database;
+  readonly activity: ActionActivity;
   private pendingEvents?: [string | symbol, any[]][];
   override emit(event: string | symbol, ...args: any[]) {
     if (this.pendingEvents) { this.pendingEvents.push([event, args]); return true; }
@@ -32,7 +34,7 @@ export class Store extends LegacyFeatures {
     super();
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     this.db = new Database(path);
-    if(Number(this.db.pragma('user_version',{simple:true}))>8){this.db.close();throw new Error('This database needs a newer Herts version.');}
+    if(Number(this.db.pragma('user_version',{simple:true}))>9){this.db.close();throw new Error('This database needs a newer Herts version.');}
     this.legacyInstallation = Number(this.db.pragma('user_version', { simple: true })) > 0;
     this.db.pragma('journal_mode = WAL'); this.db.pragma('synchronous = FULL'); this.db.pragma('foreign_keys = ON');
     this.db.exec(`
@@ -84,6 +86,7 @@ export class Store extends LegacyFeatures {
       `);
       this.db.pragma('user_version = 5');
     })();
+    this.activity = new ActionActivity(this);
   }
   bindProfiles(profile: string) {
     this.db.transaction(() => {
@@ -91,7 +94,7 @@ export class Store extends LegacyFeatures {
       for (const [id, binding] of this.bindings()) if (!binding.profile) this.saveBinding(id, { ...binding, profile: this.context(id)?.profile || profile });
       this.setMeta('profiles-bound', true);
       // Version 8 retains gateway identities and receipts in existing JSON records.
-      this.db.pragma('user_version = 8');
+      if (Number(this.db.pragma('user_version', { simple: true })) < 8) this.db.pragma('user_version = 8');
     })();
   }
   getMeta<T = any>(key: string): T | undefined { const r = this.db.prepare('SELECT value FROM meta WHERE key=?').get(key) as any; return r ? JSON.parse(r.value) : undefined; }
@@ -130,8 +133,13 @@ export class Store extends LegacyFeatures {
   }
   saveContext(context: ConversationContext) {
     context = { ...context, ...(this.getMeta('profiles-bound') ? { profile: context.profile || context.link?.profile || this.getMeta<any>('hermesTarget')?.profile || 'default' } : {}), ...(context.link?.profile ? { profile: context.link.profile } : {}), ...(context.link?.botChat ? { botChat: true } : {}) };
-    this.db.prepare('INSERT OR REPLACE INTO contexts VALUES (?,?)').run(context.id, JSON.stringify(context));
-    for (const alias of context.aliases) this.db.prepare('INSERT INTO context_aliases VALUES (?,?) ON CONFLICT(alias) DO UPDATE SET context_id=excluded.context_id').run(alias, context.id);
+    this.db.transaction(() => {
+      const prior = this.db.prepare('SELECT data FROM contexts WHERE id=?').get(context.id) as { data: string } | undefined;
+      const data = JSON.stringify(context);
+      this.db.prepare('INSERT OR REPLACE INTO contexts VALUES (?,?)').run(context.id, data);
+      for (const alias of context.aliases) this.db.prepare('INSERT INTO context_aliases VALUES (?,?) ON CONFLICT(alias) DO UPDATE SET context_id=excluded.context_id').run(alias, context.id);
+      if (prior?.data !== data) this.activity?.changed(context.id);
+    })();
     return context;
   }
   ensureContext(link: Link, aliases: string[] = [], preferred: string = randomUUID()): ConversationContext {
@@ -179,12 +187,25 @@ export class Store extends LegacyFeatures {
         Object.assign(action, redactSavedMessage(action)); delete action.answers;
       }
       this.db.prepare('INSERT INTO actions VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').run(action.id, action.taskId, JSON.stringify(action));
+      this.activity.recordAction(action);
     })();
     this.emit('change', { type: 'action', action });
   }
   binding(taskId: string): Binding | undefined { const r = this.db.prepare('SELECT data FROM bindings WHERE task_id=?').get(this.context(taskId)?.id || taskId) as any; return r && JSON.parse(r.data); }
   bindings(): [string, Binding][] { return (this.db.prepare('SELECT * FROM bindings').all() as any[]).map(r => [r.task_id, JSON.parse(r.data)]); }
-  saveBinding(taskId: string, binding: Binding) { this.db.prepare('INSERT OR REPLACE INTO bindings VALUES (?,?)').run(taskId, JSON.stringify(binding)); }
+  saveBinding(taskId: string, binding: Binding) {
+    this.db.transaction(() => {
+      const data = JSON.stringify(binding), prior = this.db.prepare('SELECT data FROM bindings WHERE task_id=?').get(taskId) as { data: string } | undefined;
+      if (data === prior?.data) return;
+      this.db.prepare('INSERT OR REPLACE INTO bindings VALUES (?,?)').run(taskId, data);
+      this.activity.changed(taskId);
+    })();
+  }
+  deleteBinding(contextId: string) {
+    this.db.transaction(() => {
+      if (this.db.prepare('DELETE FROM bindings WHERE task_id=?').run(contextId).changes) this.activity.changed(contextId);
+    })();
+  }
   upload(id: string): Upload | undefined { const r = this.db.prepare('SELECT data FROM uploads WHERE id=?').get(id) as any; return r && JSON.parse(r.data); }
   saveUpload(u: Upload) { this.db.prepare('INSERT OR REPLACE INTO uploads VALUES (?,?)').run(u.id, JSON.stringify(u)); }
   notify(id: string, taskId: string, kind: string) { this.db.prepare('INSERT OR IGNORE INTO notices VALUES (?,?,?,?)').run(id, taskId, kind, Date.now()); this.emit('notice'); }

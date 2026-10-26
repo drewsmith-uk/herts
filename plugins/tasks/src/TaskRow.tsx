@@ -17,7 +17,7 @@ export function TaskRow({ task, index, tasks }: {
     const { activeTask, snooze } = useTaskInteractions();
     const [offset, setOffset] = useState(0);
     const state = useApp();
-    const action = state.actions.find(a => !a.cancelled && a.taskId === (task.contextId || task.id) && ['send', 'continue'].includes(a.kind));
+    const action = state.activitySummaries[task.contextId || task.id]?.main || state.actions.find(a => !a.cancelled && a.taskId === (task.contextId || task.id) && ['send', 'continue'].includes(a.kind));
     const gesture = useRef<{
         id: number;
         x: number;

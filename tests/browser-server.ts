@@ -246,6 +246,29 @@ app.post('/__test/saved-message', async req => {
   const action = { id: crypto.randomUUID(), taskId: contextId, kind: 'send' as const, text, uploadIds, createdAt: Date.now(), updatedAt: Date.now(), state: 'unknown' as const, phase: 'unknown', receipt: 'unknown' as const, sendStage: submitted ? 'submitted' as const : 'preparing' as const };
   store.saveAction(action); return { action };
 });
+app.post('/__test/activity-fixture', async req => {
+  const { contextId, count = 1, recovery = false, contexts = 0 } = req.body as { contextId: string; count?: number; recovery?: boolean; contexts?: number };
+  const ids: string[] = [], contextIds: string[] = [];
+  store.atomic(() => {
+    for (let i = 0; i < Math.min(contexts, 500); i++) {
+      const id = crypto.randomUUID(); contextIds.push(id);
+      store.saveContext({ id, title: `Paged fixture ${i}`, link: null, aliases: [] });
+    }
+    for (let i = 0; i < Math.min(count, 2000); i++) {
+      const id = crypto.randomUUID(); ids.push(id);
+      store.saveAction({ id, taskId: contextId, kind: 'send', text: `Synthetic saved message ${i}: https://example.com/${'long-path/'.repeat(8)}`,
+        uploadIds: [], createdAt: Date.now() + i, updatedAt: Date.now(), phase: recovery ? 'not sent' : 'complete',
+        state: recovery ? 'failed' : 'finished', receipt: recovery ? 'rejected' : 'accepted' });
+    }
+    store.notify(`activity-${contextId}`, contextId, 'completion');
+  });
+  return { ids, contextIds, notice: `activity-${contextId}` };
+});
+app.post('/__test/expire-activity', async () => {
+  store.activity.changed('expired-fixture');
+  store.db.prepare('DELETE FROM activity_changes').run();
+  return { ok: true };
+});
 app.post('/__test/missing-setup', async req => {
   const { id, submitted = false } = req.body as { id: string; submitted?: boolean };
   const context = store.openConversation({ key: id, storedId: id, title: 'Saved reading conversation', source: 'desktop' }, [id]);

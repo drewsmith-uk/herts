@@ -87,12 +87,12 @@ export function Conversations() {
         return () => subscription.unsubscribe();
     }, []);
     const messages = new Map(savedDrafts.messages.map(draft => [draft.id, draft]));
-    const drafts = state.snapshot.contexts.filter(c => !c.link && !savedDrafts.deleted.includes(c.id) && (savedDrafts.ids.includes(c.id) || state.actions.some(a => !a.cancelled && a.taskId === c.id))).map(context => {
+    const drafts = state.snapshot.contexts.filter(c => !c.link && !savedDrafts.deleted.includes(c.id) && (savedDrafts.ids.includes(c.id) || state.activitySummaries[c.id]?.hasSubmission || state.actions.some(a => !a.cancelled && a.taskId === c.id))).map(context => {
         const message = messages.get(context.id);
         const attempt = state.actions.filter(a => !a.cancelled && a.kind === 'send' && a.taskId === context.id).sort((a, b) => b.createdAt - a.createdAt)[0];
         const hasDraft = !!message?.text.trim() || !!message?.files.length;
         return { ...context, preview: hasDraft ? message!.text : attempt?.text || '', files: hasDraft ? message!.files.length : attempt?.uploadIds.length || 0 };
-    }).filter(c => c.preview.trim() || c.files || savedDrafts.recordings.includes(`chat:${c.id}`) || savedDrafts.routes[c.id] || c.title !== 'New conversation' || state.actions.some(a => a.taskId === c.id && !a.cancelled));
+    }).filter(c => c.preview.trim() || c.files || savedDrafts.recordings.includes(`chat:${c.id}`) || savedDrafts.routes[c.id] || c.title !== 'New conversation' || state.activitySummaries[c.id]?.hasSubmission || state.actions.some(a => a.taskId === c.id && !a.cancelled));
     const draftQuery = query.trim().toLowerCase();
     const matchingDrafts = drafts.filter(c => `${c.title} ${c.preview}`.toLowerCase().includes(draftQuery));
     const displayedDrafts = showAllDrafts || draftQuery ? matchingDrafts : matchingDrafts.slice(0, 3);

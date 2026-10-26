@@ -9,8 +9,36 @@ import { originalSpaceId, type Conversation } from '../shared/model';
 import { GatewayError } from '../server/gateway';
 const closes: (()=>Promise<void>)[] = [];
 afterEach(async () => { for (const close of closes.splice(0)) await close(); });
-async function fixture(dev = true) { const dir = await mkdtemp(join(tmpdir(), 'tasks-test-')); const result = await createApp({ dataDir: dir, origin: 'https://tasks.example:8443', identity: 'owner@example.com', dev, hermesBase: '', hermesToken: '' }); await result.plugins.activate('tasks');await result.plugins.activate('reading');closes.push(async () => { await result.app.close(); await rm(dir, { recursive: true, force: true }); }); return result; }
+async function fixture(dev = true, incrementalSync?: boolean) { const dir = await mkdtemp(join(tmpdir(), 'tasks-test-')); const result = await createApp({ dataDir: dir, origin: 'https://tasks.example:8443', identity: 'owner@example.com', dev, incrementalSync, hermesBase: '', hermesToken: '' }); await result.plugins.activate('tasks');await result.plugins.activate('reading');closes.push(async () => { await result.app.close(); await rm(dir, { recursive: true, force: true }); }); return result; }
 describe('private API and upload recovery', () => {
+  it('can disable incremental sync without changing the database schema', async () => {
+    const { app, store } = await fixture(true, false), version = store.db.pragma('user_version', { simple: true });
+    const response = await app.inject({ url: '/api/v1/state', headers: { 'x-herts-activity-sync': '1' } });
+    expect(response.json()).toMatchObject({ activitySync: false, actions: [] });
+    expect((await app.inject({ url: '/api/v1/activity-sync' })).statusCode).toBe(503);
+    expect(store.db.pragma('user_version', { simple: true })).toBe(version);
+  });
+  it('offers paged summaries and compact details while preserving older response formats', async () => {
+    const { app, store } = await fixture(false), id = randomUUID();
+    store.saveContext({ id, title: 'Compact fixture', link: null, aliases: [] });
+    for (let i = 0; i < 205; i++) store.saveAction({ id: randomUUID(), taskId: id, kind: 'send', text: `Private history ${i}`, uploadIds: [],
+      createdAt: i, updatedAt: i, state: 'finished', receipt: 'accepted', phase: 'complete' });
+    const headers = { host: 'tasks.example:8443', 'tailscale-user-login': 'owner@example.com' };
+    const compact = { ...headers, 'x-herts-activity-sync': '1' };
+    expect((await app.inject({ url: '/api/v1/activity-sync' })).statusCode).toBe(403);
+    const summary = await app.inject({ url: '/api/v1/activity-sync', headers });
+    expect(summary.statusCode).toBe(200); expect(summary.body).not.toContain('Private history');
+    expect(summary.json().changes).toHaveLength(1);
+    expect((await app.inject({ url: '/api/v1/activity-sync?limit=201', headers })).statusCode).toBe(400);
+    expect((await app.inject({ url: '/api/v1/activity-sync?cursor=expired', headers })).json()).toMatchObject({ rebase: true });
+    expect((await app.inject({ url: '/api/v1/state', headers })).json().actions).toHaveLength(205);
+    expect((await app.inject({ url: '/api/v1/state', headers: compact })).json()).not.toHaveProperty('actions');
+    expect((await app.inject({ url: '/api/v1/state?actions=none', headers })).json()).not.toHaveProperty('actions');
+    expect((await app.inject({ url: `/api/v1/contexts/${id}/activity`, headers: compact })).json().activity.actions).toHaveLength(1);
+    store.notify('compact-fixture', id, 'completion');
+    expect((await app.inject({ url: '/api/v1/notifications/compact-fixture?compact=1', headers })).json().destination.activity.actions).toHaveLength(1);
+    expect((await app.inject({ url: '/api/v1/notifications/compact-fixture', headers })).json().destination.actions).toHaveLength(205);
+  });
   it('reads connection and selected conversation activity without unrelated history or Hermes operations', async () => {
     const { app, store, gateway } = await fixture(false), ids = [randomUUID(), randomUUID()];
     for (const id of ids) {

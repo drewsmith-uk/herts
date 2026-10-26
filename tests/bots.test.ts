@@ -43,7 +43,7 @@ describe('Bots integration', () => {
       store.bindProfiles('personal'); store.bindProfiles('personal');
       expect(store.context(id)).toMatchObject({ id, profile: 'personal', aliases: ['same-id'], link: { profile: 'personal', storedId: 'same-id' } });
       expect(store.binding(id)).toMatchObject({ profile: 'personal', runtimeId: 'runtime', generation: 'generation' });
-      expect(store.db.pragma('user_version', { simple: true })).toBe(8);
+      expect(store.db.pragma('user_version', { simple: true })).toBe(9);
     } finally { store.close(); }
   });
   it('refreshes from backend changes and releases its subscriptions', () => {

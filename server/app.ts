@@ -10,6 +10,7 @@ import { resolve, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Conflict, messageText, conversationHidden, hasSavedMessage } from '../shared/core.js';
 import { Store } from './store.js';
+import { ActivityCursorExpired } from './activity.js';
 import { Gateway, GatewayError } from './gateway.js';
 import { PluginRegistry } from './plugins/registry.js';
 import { migrateLegacyPlugins } from './plugins/migration.js';
@@ -31,8 +32,9 @@ const actionSchema = z.object({ id: uuid, taskId: uuid.optional(), contextId: uu
   if (v.kind === 'send' && !v.text?.trim() && !v.uploadIds?.length) ctx.addIssue({ code: 'custom', message: 'Write a message or attach a file.' });
   if (v.kind === 'clarify' && !v.text?.trim() && !Object.keys(v.answers || {}).length) ctx.addIssue({ code: 'custom', message: 'An answer is required.' });
 });
-export interface Config { staticDir?: string; pluginsDir?: string; dataDir: string; origin: string; identity: string; dev?: boolean; hermesBase: string; hermesToken: string; excluded?: string[]; hermesProfile?: string; hermesNative?: import('./nativeGateway.js').NativeGatewayOptions }
+export interface Config { incrementalSync?: boolean; staticDir?: string; pluginsDir?: string; dataDir: string; origin: string; identity: string; dev?: boolean; hermesBase: string; hermesToken: string; excluded?: string[]; hermesProfile?: string; hermesNative?: import('./nativeGateway.js').NativeGatewayOptions }
 export async function createApp(config: Config) {
+  const incrementalSync = config.incrementalSync ?? process.env.HERTS_INCREMENTAL_SYNC !== '0';
   if (config.hermesNative) config = { ...config, hermesNative: { ...config.hermesNative, home: await realpath(config.hermesNative.home) } };
   await mkdir(config.dataDir, { recursive: true, mode: 0o700 });
   const uploadDir = join(config.dataDir, 'uploads'); await mkdir(uploadDir, { recursive: true, mode: 0o700 });
@@ -76,6 +78,7 @@ export async function createApp(config: Config) {
     }
   });
   app.setErrorHandler((error, req, reply) => {
+    if (error instanceof ActivityCursorExpired) return reply.code(409).send({ error: error.message, rebase: true });
     if (error instanceof z.ZodError) return reply.code(400).send({ error: error.issues.map(i => i.message).join(' ') });
     if (error instanceof Conflict) return reply.code(409).send({ error: error.message, snapshot: clientSnapshot(store,req) });
     if (error instanceof GatewayError) return reply.code(error.code === 404 ? 404 : 503).send({ error: error.message, uncertain: error.uncertain, reason: error.reason, ...(error.operationRejected ? { operationRejected: true } : {}) });
@@ -85,20 +88,31 @@ export async function createApp(config: Config) {
     reply.code(e.statusCode && e.statusCode < 500 ? e.statusCode : 500).send({ error: e.statusCode && e.statusCode < 500 ? e.message : 'The request could not be completed. Your saved work is retained.' });
   });
   registerThemes(app);
-  const connection = () => ({ gateway: { online: gateway.online, configured: gateway.configured, profile, promptProtocol: gateway.promptProtocol, promptError: gateway.promptError, promptWarning: gateway.promptWarning }, pushKey: notifications.keys.publicKey });
+  const connection = () => ({ gateway: { online: gateway.online, configured: gateway.configured, profile, promptProtocol: gateway.promptProtocol, promptError: gateway.promptError, promptWarning: gateway.promptWarning }, pushKey: notifications.keys.publicKey,
+    activitySync: incrementalSync, activityGeneration: store.activity.generation });
+  const compactActivity = (req: { headers: Record<string, unknown> }) => incrementalSync && req.headers['x-herts-activity-sync'] === '1';
   app.get('/api/v1/connection', async () => connection());
   app.get('/api/v1/diagnostics/recovery', async () => ({ ...actions.recoveryStats,
     pending: store.bindings().filter(([, binding]) => binding.recoveryPending).length,
     notices: (store.db.prepare('SELECT count(*) AS count FROM notices').get() as { count: number }).count }));
-  app.get('/api/v1/state', async req => ({ snapshot: clientSnapshot(store,req), actions: store.actions(), bindings: Object.fromEntries(store.bindings()), ...connection(), plugins:plugins.catalogue(), pluginData:plugins.data() }));
+  app.get('/api/v1/state', async req => ({ snapshot: clientSnapshot(store,req),
+    ...(compactActivity(req) || incrementalSync && (req.query as any).actions === 'none' ? {} : { actions: store.actions() }),
+    bindings: Object.fromEntries(store.bindings()), ...connection(), plugins:plugins.catalogue(), pluginData:plugins.data() }));
+  app.get('/api/v1/activity-sync', async (req, reply) => {
+    if (!incrementalSync) return reply.code(503).send({ error: 'Incremental sync is disabled.' });
+    const { cursor, limit } = z.object({ cursor: z.string().max(2048).optional(), limit: z.coerce.number().int().positive().max(200).default(100) }).parse(req.query);
+    return store.activity.sync(cursor, limit);
+  });
   app.get('/api/v1/contexts/:id/activity', async (req, reply) => {
     const context = store.context(z.string().min(1).max(300).parse((req.params as any).id));
     if (!context) return reply.code(404).send({ error: 'Conversation reference not found.' });
-    const { pluginId } = z.object({ pluginId: z.string().max(64).optional() }).parse(req.query);
+    const { pluginId, compact, cursor, limit } = z.object({ pluginId: z.string().max(64).optional(), compact: z.enum(['1']).optional(),
+      cursor: z.string().max(2048).optional(), limit: z.coerce.number().int().positive().max(200).default(100) }).parse(req.query);
     const settings = store.sessionSettings();
     return { contextId: context.id, context, revision: store.getMeta<any>('snapshot')?.revision || 0,
       settings: { defaults: settings.defaults, conversation: settings.conversations[context.id] || null },
-      actions: store.actions(context.id), binding: store.binding(context.id), ...connection(),
+      ...((compact && incrementalSync) || compactActivity(req) ? { activity: store.activity.details(context.id, cursor, limit) } : { actions: store.actions(context.id) }),
+      binding: store.binding(context.id), ...connection(),
       ...(pluginId && plugins.enabled(pluginId) ? { plugins: plugins.catalogue(), pluginData: { [pluginId]: plugins.storage.data(pluginId) } } : {}) };
   });
 
@@ -201,22 +215,25 @@ export async function createApp(config: Config) {
     if (typeof result.dataUrl !== 'string' || !/^data:[^,]+;base64,/.test(result.dataUrl)) throw new GatewayError('The file response is unavailable.');
     return { dataUrl: result.dataUrl };
   });
-  app.post('/api/v1/actions', async (req, reply) => { const input = actionSchema.parse(req.body); const a = actions.start(input); return reply.code(202).send({ action: a }); });
-  app.post('/api/v1/actions/cancel', async req => actions.cancelUndispatched(actionSchema.parse(req.body)));
-  app.get('/api/v1/actions/:id', async (req, reply) => { const a = store.action((req.params as any).id); return a ? { action: a } : reply.code(404).send({ error: 'Operation not found.' }); });
+  const actionResponse = (action: import('../shared/core.js').Action, compact: boolean) => ({ action, ...(compact ? {
+    activity: { generation: store.activity.generation, summary: store.activity.summary(action.taskId), actions: [action], cursor: null, scope: [] }
+  } : {}) });
+  app.post('/api/v1/actions', async (req, reply) => { const input = actionSchema.parse(req.body); const a = actions.start(input); return reply.code(202).send(actionResponse(a, compactActivity(req))); });
+  app.post('/api/v1/actions/cancel', async req => { const result = actions.cancelUndispatched(actionSchema.parse(req.body)); return { ...result, ...actionResponse(result.action, compactActivity(req)) }; });
+  app.get('/api/v1/actions/:id', async (req, reply) => { const a = store.action((req.params as any).id); return a ? actionResponse(a, compactActivity(req)) : reply.code(404).send({ error: 'Operation not found.' }); });
   app.post('/api/v1/actions/:id/discard-saved-message', async (req, reply) => {
     const id = uuid.parse((req.params as any).id);
     z.object({}).strict().parse(req.body);
     const action = store.action(id);
     if (!action) return reply.code(404).send({ error: 'Saved message not found.' });
-    if (action.savedMessageDeletedAt) { await cleanDiscardedUploads(); return { action }; }
+    if (action.savedMessageDeletedAt) { await cleanDiscardedUploads(); return actionResponse(action, compactActivity(req)); }
     if (!hasSavedMessage(action)) throw new Conflict('This operation does not have a saved message to delete.');
     if (actions.dispatching.has(action.id)) throw new Conflict('Wait for this message to finish sending before deleting its saved copy.');
     // Retain the operation and receipt for deduplication and status recovery.
     // Discarding a saved copy never cancels, retries or deletes Hermes work.
     action.savedMessageDeletedAt = Date.now(); store.saveAction(action);
     await cleanDiscardedUploads();
-    return { action };
+    return actionResponse(action, compactActivity(req));
   });
   function guardUpload(upload:{owner?:string}){
     if(!upload.owner)return;
@@ -307,7 +324,8 @@ export async function createApp(config: Config) {
     const catalogue = plugins.catalogue();
     const owner = catalogue.entries.find(entry => entry.enabled && entry.manifest.routes?.some(prefix => route === prefix || route.startsWith(prefix + '/')));
     return { taskId: notice.task_id, route, destination: {
-      snapshot: store.coreSnapshot(), actions: context ? store.actions(context.id) : [],
+      snapshot: store.coreSnapshot(),
+      ...(compactActivity(req) || (req.query as any).compact === '1' && incrementalSync ? { activity: context ? store.activity.details(context.id) : null } : { actions: context ? store.actions(context.id) : [] }),
       bindings: context ? { [context.id]: store.binding(context.id) } : {},
       plugins: catalogue, pluginData: owner ? { [owner.manifest.id]: plugins.storage.data(owner.manifest.id) } : {},
       ...connection()

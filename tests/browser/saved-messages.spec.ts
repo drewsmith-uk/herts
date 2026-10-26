@@ -85,8 +85,8 @@ test('reconnecting removes deleted saved content and local submission copies wit
     const database = await new Promise<IDBDatabase>((resolve, reject) => { const r = indexedDB.open('hermes-tasks'); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); });
     try {
       const read = (store: string, key: string) => new Promise<any>((resolve, reject) => { const r = database.transaction(store).objectStore(store).get(key); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); });
-      const saved = await read('kv', 'state');
-      return { action: saved?.value?.actions?.find((a: any) => a.id === id), submission: !!await read('submissions', id), file: !!await read('files', uploadId) };
+      const saved = await read('activityCache', `action:${id}`);
+      return { action: saved?.value?.action, submission: !!await read('submissions', id), file: !!await read('files', uploadId) };
     } finally { database.close(); }
   }, { id: fixture.action.id, uploadId: fixture.action.uploadIds[0] });
   try {

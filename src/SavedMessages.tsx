@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Copy, Trash2 } from 'lucide-react';
 import { hasSavedMessage, savedMessageNotSent, type Action } from '../shared/core';
-import { useApp } from './data';
+import { useApp, loadMoreActivity } from './data';
 import { deleteSavedMessage } from './savedMessages';
 import { DialogFrame } from './ui';
 import { useUpdateWork } from './updateSafety';
@@ -9,6 +9,7 @@ import { useUpdateWork } from './updateSafety';
 export function SavedMessages({ contextId, disabled, onCopy }: { contextId: string; disabled: boolean; onCopy: (action: Action) => Promise<void> }) {
   const state = useApp(), work = useUpdateWork();
   const [deleting, setDeleting] = useState<Action>(), [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState('');
+  const [loading, setLoading] = useState(false);
   const messages = state.actions.filter(a => a.taskId === contextId && hasSavedMessage(a));
   async function remove() {
     if (!deleting || busy) return;
@@ -16,6 +17,12 @@ export function SavedMessages({ contextId, disabled, onCopy }: { contextId: stri
     try { await deleteSavedMessage(deleting.id); setDeleting(undefined); setNotice('Saved message deleted.'); }
     catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
+  }
+  async function more() {
+    setLoading(true); setError('');
+    try { await loadMoreActivity(contextId); }
+    catch { setError('Saved messages could not be loaded. Try again.'); }
+    finally { setLoading(false); }
   }
   return <div className="saved-messages">
     {notice && <p className="subtle-note" role="status">{notice}</p>}
@@ -30,6 +37,8 @@ export function SavedMessages({ contextId, disabled, onCopy }: { contextId: stri
       </div>
     </details>)}
     {!!messages.length && !state.online && <p className="subtle-note">Connect to delete saved messages.</p>}
+    {!deleting && error && <p className="inline-error" role="alert">{error}</p>}
+    {state.activityCursors?.[contextId] && <button type="button" disabled={loading || !state.online} onClick={() => void more()}>{loading ? 'Loading…' : 'More saved messages'}</button>}
     {deleting && <DialogFrame aria-labelledby="delete-saved-message-title" busy={busy} close={() => setDeleting(undefined)}>
       <h2 id="delete-saved-message-title">Delete saved message?</h2>
       <p>This removes the saved copy from Herts on all your devices. Your current draft and conversation history are kept.</p>
