@@ -2,6 +2,7 @@ import { createPortal } from 'react-dom';
 import { requestConversationPosition } from './conversationViewport';
 import { useRef, type ReactNode } from 'react';
 import { ArrowDown, CircleAlert, LoaderCircle, Square } from 'lucide-react';
+import { Button } from './ui';
 
 /** One control row beside the composer; details stay in the history viewport. */
 export function ConversationActivity({ label, active, attention, stopping, disabled, onStop, onLatest, children, statusHost }: {
@@ -20,7 +21,7 @@ export function ConversationActivity({ label, active, attention, stopping, disab
         {attention ? <CircleAlert size={17}/> : active ? <LoaderCircle size={17} className="spin"/> : <Square size={15}/>}
         <span role="status">{label}</span><ArrowDown size={15}/>
       </button>
-      {active && <button className="conversation-stop" disabled={disabled || stopping} onClick={onStop}><Square size={13}/>{stopping ? 'Stopping…' : 'Stop'}</button>}
+      {active && <Button className="conversation-stop" disabled={disabled || stopping} onClick={onStop}><Square size={16} aria-hidden="true"/>{stopping ? 'Stopping…' : 'Stop'}</Button>}
     </div>;
   return <section className="conversation-activity" aria-label="Conversation activity">{children && <div ref={details} className="conversation-attention" tabIndex={-1}>{children}</div>}{statusHost ? createPortal(row, statusHost) : row}</section>;
 }
