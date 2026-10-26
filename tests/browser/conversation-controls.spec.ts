@@ -25,6 +25,11 @@ async function older(page: Page) {
     return message ? message.getBoundingClientRect().top - el.getBoundingClientRect().top - saved.top : null;
   }, anchor)).toBeGreaterThanOrEqual(anchor.distance - 1);
   await expect(page.locator('.conversation-status')).toBeInViewport();
+  await expect.poll(async () => {
+    const scroll = await history.boundingBox();
+    const status = await page.locator('.conversation-status').boundingBox();
+    return scroll && status ? status.y - (scroll.y + scroll.height) : 0;
+  }).toBeGreaterThanOrEqual(8);
 }
 async function conversationReady(page: Page) {
   await expect(page.getByLabel(/^(Message Hermes|Add a task)$/)).toBeEditable();
@@ -102,8 +107,9 @@ for (const theme of ['press']) test(`${theme} keeps the compact toolbar and pend
   await page.goto(`/#/conversation/controls-${theme}`);
   await page.getByLabel(/^(Message Hermes|Add a task)$/).fill('Please ask approval'); await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
   await expect(page.locator('.conversation-status')).toContainText('Needs your input');
-  for (const width of [320, 390, 1280]) {
-    await page.setViewportSize({ width, height: 844 }); await older(page);
+  await page.addStyleTag({ content: '.conversation-scroll::-webkit-scrollbar { width: 6px; } .conversation-scroll::-webkit-scrollbar-thumb { background: #8a867c; }' });
+  for (const [width, height] of [[320, 844], [390, 844], [1280, 844], [390, 480]]) {
+    await page.setViewportSize({ width, height }); await older(page);
 
     await expect(page.locator('.conversation-page-header')).toHaveClass(/is-compact/);
     await usable(await pageAction(page, 'button', 'Make a task')); await closePageActions(page);
@@ -111,7 +117,7 @@ for (const theme of ['press']) test(`${theme} keeps the compact toolbar and pend
     await usable(page.getByRole('button', { name: 'Needs your input: view details', exact: true }));
     expect((await page.locator('.conversation-page-header').boundingBox())!.height).toBeLessThan(80);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await page.screenshot({ path: `output/conversation-controls/${theme}-compact-${width}.png` });
+    await page.screenshot({ path: `output/conversation-controls/${theme}-compact-${width}-${height}.png` });
   }
   await page.getByRole('button', { name: 'Needs your input: view details', exact: true }).click();
   await page.getByRole('button', { name: 'Deny', exact: true }).click();
