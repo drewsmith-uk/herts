@@ -3,6 +3,7 @@ import type { History } from '../shared/core';
 import { api, cacheRead, db, useApp } from './data';
 import { isHistory, readHistory } from './historyCache';
 import { conversationViewport } from './conversationViewport';
+import { foregroundRead } from './foregroundReads';
 
 type Anchor = { key?: string; top: number };
 type Memory = { pages: History[]; following: boolean; anchor?: Anchor; top: number };
@@ -15,7 +16,7 @@ export function useConversationHistory(conversationId: string, version: string |
   const [pages, setPages] = useState<History[]>(restored.current?.pages || []), [cached, setCached] = useState(!!restored.current?.pages.length), [busy, setBusy] = useState(false), [error, setError] = useState(''), [newMessages, setNewMessages] = useState(false);
   const root = useRef<HTMLDivElement>(null), end = useRef<HTMLDivElement>(null);
   const currentPages = useRef(pages); currentPages.current = pages;
-  const controller = useRef<AbortController | undefined>(undefined), request = useRef(0), loading = useRef(false), started = useRef(0);
+  const controller = useRef<AbortController | undefined>(undefined), request = useRef(0), loading = useRef(false);
   const following = useRef(restored.current?.following ?? true), readAnchor = useRef<Anchor | undefined>(restored.current?.anchor), pending = useRef<Anchor | 'latest' | undefined>(restored.current?.anchor);
   const buffered = useRef<History[] | undefined>(undefined), seenVersion = useRef(version), initialized = useRef(false), adjusting = useRef<number | undefined>(undefined);
   const held = useRef<{ element: Element; top: number } | undefined>(undefined);
@@ -98,17 +99,17 @@ export function useConversationHistory(conversationId: string, version: string |
     if (restored.current && !initialized.current) { move(restored.current.top); restore(restored.current.anchor); }
     return () => { save(); cancelAnimationFrame(frame); observer.disconnect(); view.removeEventListener('scroll', scroll); view.removeEventListener('wheel', wheel); view.removeEventListener('conversation-position', position); request.current++; controller.current?.abort(); };
   }, [conversationId]);
-  async function fetchPage(offset: number, signal: AbortSignal) {
-    return cacheRead(`history:${conversationId}:latest:${offset}`, () => api(`/conversations/${encodeURIComponent(conversationId)}/history?order=latest&offset=${offset}`, undefined, 'GET', 45000, signal), readHistory);
+  async function fetchPage(offset: number, signal: AbortSignal, priority = false) {
+    return foregroundRead(() => cacheRead(`history:${conversationId}:latest:${offset}`, () => api(`/conversations/${encodeURIComponent(conversationId)}/history?order=latest&offset=${offset}`, undefined, 'GET', 45000, signal), readHistory), priority);
   }
   async function refreshTail(explicit = false, recover = false) {
     if (!conversationId || document.hidden || (!explicit && !navigator.onLine)) return;
-    if (loading.current && !explicit && !(recover && Date.now() - started.current > 5000)) return;
+    if (loading.current && !explicit && !recover) return;
     controller.current?.abort(); const control = new AbortController(); controller.current = control;
-    const generation = ++request.current; loading.current = true; started.current = Date.now();
+    const generation = ++request.current; loading.current = true;
     if (explicit) { setBusy(true); setError(''); }
     try {
-      const result = await fetchPage(0, control.signal); if (generation !== request.current) return;
+      const result = await fetchPage(0, control.signal, explicit || recover); if (generation !== request.current) return;
       setError(''); setCached(result.cached);
       if (sameTail(currentPages.current.at(-1), result.value)) return;
       const next = [result.value], old = currentPages.current;
@@ -158,6 +159,15 @@ export function useConversationHistory(conversationId: string, version: string |
   }, [conversationId]);
   useEffect(() => { if (seenConnection.current !== connectionVersion) { seenConnection.current = connectionVersion; void refreshTail(false, true); } }, [conversationId, connectionVersion]);
   useEffect(() => {
+    const recover = () => { if (!document.hidden && navigator.onLine) void refreshTail(false, true); };
+    window.addEventListener('online', recover); window.addEventListener('pageshow', recover); window.addEventListener('focus', recover);
+    document.addEventListener('visibilitychange', recover);
+    return () => {
+      window.removeEventListener('online', recover); window.removeEventListener('pageshow', recover); window.removeEventListener('focus', recover);
+      document.removeEventListener('visibilitychange', recover);
+    };
+  }, [conversationId]);
+  useEffect(() => {
     if (seenVersion.current === version) return; seenVersion.current = version;
     const timers = [150, 1500, 4000].map(delay => setTimeout(() => void refreshTail(), delay));
     return () => timers.forEach(clearTimeout);
@@ -171,7 +181,7 @@ export function useConversationHistory(conversationId: string, version: string |
     const control = new AbortController(); controller.current = control;
     const generation = ++request.current; loading.current = true; setBusy(true); setError(''); following.current = false;
     try {
-      const result = await fetchPage(first.offset + 200, control.signal); if (generation !== request.current) return;
+      const result = await fetchPage(first.offset + 200, control.signal, true); if (generation !== request.current) return;
       if (result.value.sessionId !== first.sessionId) { loading.current = false; await refreshTail(true); return; }
       pending.current = anchor(); setPages(old => [result.value, ...old]); setCached(result.cached);
     } catch (e) { if (generation === request.current) setError((e as Error).message); }

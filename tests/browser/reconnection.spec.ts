@@ -42,18 +42,24 @@ for (const outage of ['Hermes', 'network']) test(`idle conversation history and 
   expect(await work(request)).toEqual(before);
 });
 
-test('returning to the app replaces a stalled status read and ignores its late response', async ({ page, request }) => {
+test('returning to the app replaces a stalled connection read and ignores its late response', async ({ page, request }) => {
   const id = 'reconnect-stalled', before = await work(request);
   await message(request, id, 'Before the app was backgrounded.');
   await page.goto(`/#/conversation/${id}`);
   await expect(page.locator('.history')).toContainText('Before the app was backgrounded.');
   await page.getByLabel(/^(Message Hermes|Add a task)$/).fill('Still unsent after returning.');
   await expect(page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true })).toBeEnabled();
-  const stale = await state(request); stale.gateway.online = false;
+  const stale = await (await request.get('/api/v1/connection')).json(); stale.gateway.online = false;
   let requests = 0, recovering = false, release!: () => void, held!: () => void;
   const delayed = new Promise<void>(resolve => { release = resolve; });
   const started = new Promise<void>(resolve => { held = resolve; });
-  await page.route('**/api/v1/state', async route => {
+  let historyHeld = false;
+  await page.route('**/api/v1/conversations/reconnect-stalled/history?*', async route => {
+    const response = await route.fetch();
+    if (!recovering) { historyHeld = true; await delayed; }
+    await route.fulfill({ response }).catch(() => {});
+  });
+  await page.route('**/api/v1/connection', async route => {
     requests++;
     if (!recovering) { held(); await delayed; await route.fulfill({ json: stale }).catch(() => {}); }
     else await route.continue();
@@ -61,6 +67,7 @@ test('returning to the app replaces a stalled status read and ignores its late r
   try {
     await page.evaluate(() => window.dispatchEvent(new Event('online')));
     await started;
+    await expect.poll(() => historyHeld).toBe(true);
     await message(request, id, 'Latest message after returning to the app.');
     const beforeRecovery = requests; recovering = true;
     await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));

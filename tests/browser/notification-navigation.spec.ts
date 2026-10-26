@@ -98,15 +98,16 @@ test('a slow notification lookup cannot override a newer tap or manual navigatio
   for (const destination of ['newer', 'manual']) {
     const reply = await holdReply(request, first.id);
     try {
+      const pending = page.waitForRequest(request => request.url().endsWith(`/api/v1/notifications/${encodeURIComponent(first.id)}`));
       await deliver(page, { id: first.id }); await expect.poll(reply.started).toBeGreaterThan(0);
+      const received = (await pending).response();
       await expect(page.getByText('Opening notification…', { exact: true })).toBeVisible();
       if (destination === 'newer') {
         await deliver(page, { id: second.id }); await expect(page).toHaveURL(new RegExp(`#/task/${second.taskId}$`));
       } else {
         await page.getByRole('link', { name: 'Settings', exact: true }).click(); await expect(page).toHaveURL(/#\/settings$/);
       }
-      const received = page.waitForResponse(response => response.url().endsWith(`/api/v1/notifications/${encodeURIComponent(first.id)}`));
-      await reply.release(); await (await received).finished(); await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      await reply.release(); await (await received)?.finished(); await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       await expect(page).toHaveURL(destination === 'newer' ? new RegExp(`#/task/${second.taskId}$`) : /#\/settings$/);
     } finally { await reply.release(); }
   }

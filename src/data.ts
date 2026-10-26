@@ -9,6 +9,8 @@ import { migrateDevice, migrateDeviceSpaces } from './legacyDeviceMigration';
 import { discardResetDrafts, stageDraft, pendingDraft, pendingDraftKeys, draftIsCurrent, acknowledgeDraft, type DraftWrite } from './draftJournal';
 import type { ClientPlugin } from './pluginContract';
 import { cleanLocalFiles, flushTranscriptionDiscards, queueTranscriptionDiscard } from './fileRetention';
+import { foregroundRead, interruptBackgroundRead, waitForForeground } from './foregroundReads';
+import { applyContextObservations, type ContextObservation } from './contextSnapshots';
 export interface LocalFile {
     unreferencedAt?: number;
     discardRequested?: boolean;
@@ -99,6 +101,7 @@ export interface State {
     checkingStatus?: boolean;
     syncActive?: boolean;
     syncError?: string;
+    stateRefreshPending?: boolean;
     connectionVersion: number;
     loaded: boolean;
     defaultsReady: boolean;
@@ -122,8 +125,113 @@ export interface State {
 const empty = (): CoreSnapshot => ({ revision: 0, contexts: [], hiddenConversations: [] });
 let state: State = { snapshot: empty(), remote: empty(), actions: [], bindings: {}, plugins: emptyCatalogue(), pluginData: {}, pluginRemote: {}, pluginPending: [], visibilityPending: [], online: false, connectionChecked: false, connectionVersion: 0, loaded: false, defaultsReady: false, gateway: { online: false, configured: false }, error: '', pushKey: '', localSubmissions: [], outgoing: [] };
 const listeners = new Set<() => void>();
-let refreshing = false, lastOrder = Date.now();
+let refreshing = false, lastOrder = Date.now(), focusedStatusReads = 0;
 let refreshAgain = false, recoverAfterRefresh = false, refreshRequest: AbortController | undefined;
+let connectionObservation = 0, activityRevision = 0, lastBindingsRefresh = 0, lastBackgroundRefresh = 0;
+const activityRevisions = new Map<string, number>();
+const contextObservations = new Map<string, ContextObservation>();
+const visibleConversations = new Set<string>();
+let backgroundTimer: ReturnType<typeof setTimeout> | undefined;
+export function beginActivityRead() {
+    return { observation: ++connectionObservation, revision: ++activityRevision };
+}
+export function observeConversation(id: string) {
+    visibleConversations.add(id);
+    return () => {
+        visibleConversations.delete(id);
+        if (!visibleConversations.size) {
+            clearTimeout(backgroundTimer); backgroundTimer = undefined;
+            scheduleBackgroundRefresh();
+        }
+    };
+}
+function scheduleBackgroundRefresh() {
+    if (backgroundTimer) return;
+    const delay = Math.max(200, lastBackgroundRefresh + (visibleConversations.size ? 30000 : 1000) - Date.now());
+    backgroundTimer = setTimeout(() => {
+        backgroundTimer = undefined;
+        if (navigator.onLine && !document.hidden) void refresh(false, true);
+    }, delay);
+}
+function acceptConnection(data: Pick<State, 'gateway' | 'pushKey'>, observation: number, recover = false) {
+    if (observation !== connectionObservation || !navigator.onLine) return;
+    const recovered = recover || !state.online || !state.gateway.online && data.gateway.online;
+    publish({ gateway: data.gateway, pushKey: data.pushKey, online: true, connectionChecked: true,
+        connectionVersion: state.connectionVersion + (recovered ? 1 : 0) });
+    if (recovered) void sync();
+}
+let connectionRequest: AbortController | undefined;
+export async function refreshConnection(recover = false) {
+    if (connectionRequest && !recover) return;
+    connectionRequest?.abort();
+    const controller = new AbortController(), observation = ++connectionObservation;
+    connectionRequest = controller;
+    try { acceptConnection(await api('/connection', undefined, 'GET', 5000, controller.signal), observation, recover); }
+    catch (error) {
+        if (!controller.signal.aborted && observation === connectionObservation)
+            publish({ online: false, connectionChecked: true, ...(error instanceof ApiError && error.status === 403 ? { error: error.message } : {}) });
+    } finally { if (connectionRequest === controller) connectionRequest = undefined; }
+}
+function mergedActions(updates: Action[], existing = state.actions) {
+    const actions = new Map(existing.map(action => [action.id, action]));
+    for (const update of updates) {
+        const prior = actions.get(update.id);
+        if (!prior || prior.updatedAt < update.updatedAt)
+            actions.set(update.id, redactSavedMessage(prior?.savedMessageDeletedAt ? { ...update, savedMessageDeletedAt: prior.savedMessageDeletedAt } : update));
+    }
+    return [...actions.values()].sort((a, b) => b.createdAt - a.createdAt);
+}
+export async function readConversationActivity(contextId: string, signal: AbortSignal, priority = false) {
+    return foregroundRead(async () => {
+        focusedStatusReads++;
+        if (state.localSubmissions.some(submission => submission.taskId === contextId)) publish({ checkingStatus: true });
+        try {
+            const { observation, revision } = beginActivityRead();
+            const path = location.hash.slice(1).split('?')[0];
+            const pluginId = state.plugins.entries.find(entry => entry.enabled && entry.manifest.routes?.some(prefix => path === prefix || path.startsWith(prefix + '/')))?.manifest.id;
+            const data = await api(`/contexts/${encodeURIComponent(contextId)}/activity${pluginId ? `?pluginId=${encodeURIComponent(pluginId)}` : ''}`, undefined, 'GET', 10000, signal);
+            if (data.contextId !== contextId) throw new Error('The conversation identity changed.');
+            if (signal.aborted || revision < lastBindingsRefresh || revision < (activityRevisions.get(contextId) || 0)) return;
+            acceptConnection(data, observation);
+            if (data.context && data.revision > state.remote.revision && data.revision >= (contextObservations.get(contextId)?.revision || 0))
+                contextObservations.set(contextId, { context: data.context, revision: data.revision, settings: data.settings });
+            const projected = applyContextObservations(state.remote, contextObservations.values());
+            const contextChanged = JSON.stringify(projected.contexts.find(context => context.id === contextId)) !== JSON.stringify(state.remote.contexts.find(context => context.id === contextId))
+                || JSON.stringify(projected.sessionSettings) !== JSON.stringify(state.remote.sessionSettings);
+            const actions = mergedActions(data.actions), changed = actions.some((action, index) => action !== state.actions[index]);
+            activityRevisions.set(contextId, revision);
+            const bindings = { ...state.bindings }; if (data.binding) bindings[contextId] = data.binding; else delete bindings[contextId];
+            publish({ actions, bindings });
+            if (changed || contextChanged) {
+                await acceptSnapshot(state.remote, await purgeDeletedSavedMessages(actions));
+                for (const action of data.actions as Action[]) await db.submissions.update(action.id, { confirmed: true });
+                await rebuild();
+            }
+            if (data.plugins && (data.plugins.revision > state.plugins.revision || Object.entries(data.pluginData as Record<string, PluginData>).some(([id, next]) =>
+                !state.pluginRemote[id] || next.generation > state.pluginRemote[id].generation || next.revision > state.pluginRemote[id].revision)))
+                await acceptPlugins(data.plugins, data.pluginData);
+        } finally {
+            focusedStatusReads--;
+            publish({ checkingStatus: !!state.localSubmissions.length && (refreshing || focusedStatusReads > 0) });
+        }
+    }, priority);
+}
+export async function acceptNotificationDestination(data: {
+    snapshot: CoreSnapshot; actions: Action[]; bindings: Record<string, Binding | undefined>;
+    plugins: PluginCatalogue; pluginData: Record<string, PluginData>; gateway: State['gateway']; pushKey: string;
+}, { observation, revision }: ReturnType<typeof beginActivityRead>) {
+    acceptConnection(data, observation);
+    const bindings = { ...state.bindings };
+    for (const [id, binding] of Object.entries(data.bindings)) {
+        if (revision < lastBindingsRefresh || revision < (activityRevisions.get(id) || 0)) continue;
+        activityRevisions.set(id, revision);
+        if (binding) bindings[id] = binding; else delete bindings[id];
+    }
+    publish({ actions: mergedActions(data.actions), bindings });
+    await acceptSnapshot(data.snapshot, await purgeDeletedSavedMessages(mergedActions(data.actions)));
+    await acceptPlugins(data.plugins, data.pluginData);
+    publish({ defaultsReady: true });
+}
 const definitions = new Map<string, ClientPlugin>();
 export function getState() { return state; }
 export function publish(patch: Partial<State> = {}) {
@@ -195,14 +303,15 @@ export async function rebuild() {
     // A slower read must not replace a newer snapshot and briefly remove a
     // draft created while its device-storage reads were in flight.
     if (version !== rebuildVersion) return;
-    publish({ snapshot, pluginData, pluginPending, visibilityPending, settingsPending, outgoing, localSubmissions, checkingStatus: !!localSubmissions.length && refreshing });
+    publish({ snapshot, pluginData, pluginPending, visibilityPending, settingsPending, outgoing, localSubmissions, checkingStatus: !!localSubmissions.length && (refreshing || focusedStatusReads > 0) });
 }
 export async function acceptPlugins(catalogue: PluginCatalogue, data: Record<string, PluginData> = state.pluginRemote) {
     if (catalogue.revision < state.plugins.revision)
         return;
     const changed = JSON.stringify(state.plugins.entries.filter(e => e.enabled).map(e => [e.manifest.id, e.hash, e.generation])) !== JSON.stringify(catalogue.entries.filter(e => e.enabled).map(e => [e.manifest.id, e.hash, e.generation]));
     const reset = state.plugins.entries.some(old => (catalogue.entries.find(e => e.manifest.id === old.manifest.id)?.generation ?? 0) > old.generation);
-    if (changed && !reset) {
+    // The first catalogue loads plugins without replacing mounted plugin screens.
+    if (changed && !reset && state.plugins.entries.length > 0) {
         try {
             await (await import('./updateSafety')).prepareForUpdate();
         }
@@ -264,8 +373,8 @@ export async function initialise() {
     try {
         for (const key of pendingDraftKeys('core:draft:')) { const write = pendingDraft(key); if (write) await commitConversationDraft(key, write); }
         const saved = (await db.kv.get('state'))?.value, plugins = (await db.kv.get('plugins'))?.value;
-        if (saved)
-            publish({ remote: { ...empty(), ...saved.snapshot }, actions: await purgeDeletedSavedMessages(saved.actions || []), bindings: {} });
+        if (saved && saved.snapshot.revision >= state.remote.revision)
+            publish({ remote: { ...empty(), ...saved.snapshot }, actions: mergedActions(await purgeDeletedSavedMessages(saved.actions || [])) });
         if (plugins)
             await acceptPlugins(plugins.catalogue, plugins.data);
         else if (saved) { // Offline first launch after upgrading a legacy browser.
@@ -284,16 +393,16 @@ export async function initialise() {
             await acceptPlugins({ revision: bootstrap?.revision || 0, order: bootstrap?.order || ['tasks', 'conversations', 'reading'], entries }, pluginRemote);
         }
         await rebuild();
-        publish({ loaded: true, defaultsReady: !!saved });
+        publish({ loaded: true, defaultsReady: state.defaultsReady || !!saved });
         window.dispatchEvent(new Event('herts-plugin-catalogue'));
         void cleanLocalFiles().catch(() => {});
         setInterval(() => { if (!document.hidden) void cleanLocalFiles().catch(() => {}); }, 60000);
         if (navigator.storage?.persist)
             void navigator.storage.persist();
-        void refresh().finally(() => publish({ defaultsReady: true }));
-        const recover = () => { if (navigator.onLine && !document.hidden) void refresh(true); };
+        void refreshConnection().finally(() => { void refresh(false, true); });
+        const recover = () => { if (navigator.onLine && !document.hidden) { void refreshConnection(true); scheduleBackgroundRefresh(); } };
         window.addEventListener('online', recover);
-        window.addEventListener('offline', () => { publish({ online: false, connectionChecked: true }); refreshRequest?.abort(); });
+        window.addEventListener('offline', () => { connectionObservation++; connectionRequest?.abort(); publish({ online: false, connectionChecked: true }); refreshRequest?.abort(); });
         window.addEventListener('pageshow', recover);
         window.addEventListener('focus', recover);
         document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible')
@@ -302,15 +411,16 @@ export async function initialise() {
         events.addEventListener('open', recover);
         let timer: ReturnType<typeof setTimeout> | undefined;
         events.addEventListener('refresh', () => { if (timer)
-            return; timer = setTimeout(() => { timer = undefined; void refresh(); }, 150); });
+            return; timer = setTimeout(() => { timer = undefined; window.dispatchEvent(new Event('herts-activity')); void refreshConnection(); scheduleBackgroundRefresh(); }, 150); });
         setInterval(() => { if (navigator.onLine && document.visibilityState === 'visible')
-            void refresh(); }, 8000);
+            { void refreshConnection(); scheduleBackgroundRefresh(); } }, 8000);
     }
     catch {
         publish({ loaded: true, defaultsReady: true, error: 'Device storage is unavailable. Changes cannot be safely saved. Check browser storage settings.' });
     }
 }
-export async function refresh(recover = false) {
+export async function refresh(recover = false, background = false) {
+    if (background) await waitForForeground();
     if (refreshing) {
         refreshAgain = true; recoverAfterRefresh ||= recover;
         // Only abandon the read-only status request, never a submitted action.
@@ -318,19 +428,25 @@ export async function refresh(recover = false) {
         return;
     }
     refreshing = true;
+    publish({ stateRefreshPending: true });
     if (state.localSubmissions.length) publish({ checkingStatus: true });
     const controller = new AbortController(); refreshRequest = controller;
+    const { observation, revision: activityAtStart } = beginActivityRead();
+    const stopInterrupting = background ? interruptBackgroundRead(() => controller.abort()) : () => {};
     try {
-        const data = await api('/state', undefined, 'GET', 10000, controller.signal), actions = new Map(state.actions.map(a => [a.id, a]));
+        const data = await api('/state', undefined, 'GET', 10000, controller.signal);
+        stopInterrupting();
         refreshRequest = undefined;
-        for (const action of data.actions as Action[])
-            if (!actions.has(action.id) || actions.get(action.id)!.updatedAt < action.updatedAt)
-                actions.set(action.id, action);
-        data.actions = await purgeDeletedSavedMessages([...actions.values()].sort((a, b) => b.createdAt - a.createdAt));
+        acceptConnection(data, observation, recover);
+        data.actions = await purgeDeletedSavedMessages(mergedActions(data.actions));
         await acceptSnapshot(data.snapshot, data.actions);
         await acceptPlugins(data.plugins, data.pluginData);
-        const recovered = recover || !state.online || (!state.gateway.online && data.gateway.online);
-        publish({ actions: data.actions, bindings: data.bindings, gateway: data.gateway, online: navigator.onLine, connectionChecked: true, connectionVersion: state.connectionVersion + (recovered ? 1 : 0), pushKey: data.pushKey, error: '' });
+        for (const [id, revision] of activityRevisions) if (revision > activityAtStart) {
+            if (state.bindings[id]) data.bindings[id] = state.bindings[id]; else delete data.bindings[id];
+        }
+        lastBindingsRefresh = activityAtStart;
+        publish({ actions: mergedActions(data.actions), bindings: data.bindings, defaultsReady: true, error: '' });
+        lastBackgroundRefresh = Date.now();
         void flushTranscriptionDiscards();
         for (const s of await db.submissions.toArray())
             if (data.actions.some((a: Action) => a.id === s.id))
@@ -339,13 +455,17 @@ export async function refresh(recover = false) {
         void sync();
     }
     catch (e) {
-        if (!controller.signal.aborted) publish({ online: false, connectionChecked: true, error: e instanceof ApiError && e.status === 403 ? e.message : '' });
+        if (!controller.signal.aborted) {
+            publish({ defaultsReady: true, syncError: 'Updates could not be loaded. Select Sync now in Settings.' });
+            void refreshConnection();
+        } else if (background) scheduleBackgroundRefresh();
     }
     finally {
         refreshing = false;
+        stopInterrupting();
+        publish({ stateRefreshPending: false, checkingStatus: !!state.localSubmissions.length && focusedStatusReads > 0 });
         refreshRequest = undefined;
-        if (refreshAgain) { const recovery = recoverAfterRefresh; refreshAgain = false; recoverAfterRefresh = false; void refresh(recovery); }
-        else if (state.checkingStatus) publish({ checkingStatus: false });
+        if (refreshAgain) { const recovery = recoverAfterRefresh; refreshAgain = false; recoverAfterRefresh = false; void refresh(recovery, true); }
     }
 }
 /** Erase saved copies on reconnect too, while keeping independent drafts and history. */
@@ -355,7 +475,7 @@ export async function purgeDeletedSavedMessages(actions: Action[]): Promise<Acti
         const prior: Action[] = [...(saved?.actions || []), ...state.actions];
         const deleted = new Map([...prior, ...actions].filter(a => a.savedMessageDeletedAt).map(a => [a.id, a.savedMessageDeletedAt!]));
         if (!deleted.size) return actions;
-        const clean = actions.map(a => redactSavedMessage(deleted.has(a.id) ? { ...a, savedMessageDeletedAt: deleted.get(a.id) } : a));
+        const clean = mergedActions(actions, mergedActions(state.actions, saved?.actions || [])).map(a => redactSavedMessage(deleted.has(a.id) ? { ...a, savedMessageDeletedAt: deleted.get(a.id) } : a));
         const files = new Set([...prior, ...actions].filter(a => deleted.has(a.id)).flatMap(a => a.uploadIds));
         for (const submission of await db.submissions.toArray()) if (deleted.has(submission.id)) {
             for (const id of submission.input.uploadIds || []) files.add(id);
@@ -375,12 +495,13 @@ export async function acceptSnapshot(snapshot: CoreSnapshot, actions = state.act
     const chosen = await db.transaction('rw', db.kv, async () => {
         const saved = (await db.kv.get('state'))?.value, chosen = saved?.snapshot.revision > core.revision ? saved.snapshot : core;
         const deleted = new Map<string, number>([...(saved?.actions || []), ...state.actions].filter((a: Action) => a.savedMessageDeletedAt).map((a: Action) => [a.id, a.savedMessageDeletedAt!]));
-        const clean = actions.map(a => redactSavedMessage(deleted.has(a.id) ? { ...a, savedMessageDeletedAt: deleted.get(a.id) } : a));
-        await db.kv.put({ key: 'state', value: { snapshot: chosen, actions: clean } });
-        return chosen;
+        const clean = mergedActions(actions, mergedActions(state.actions, saved?.actions || [])).map(a => redactSavedMessage(deleted.has(a.id) ? { ...a, savedMessageDeletedAt: deleted.get(a.id) } : a));
+        const projected = applyContextObservations(chosen, contextObservations.values());
+        await db.kv.put({ key: 'state', value: { snapshot: projected, actions: clean } });
+        return projected;
     });
     if (chosen.revision >= state.remote.revision)
-        publish({ remote: chosen });
+        publish({ remote: applyContextObservations(chosen, contextObservations.values()) });
 }
 export async function mutatePlugin(pluginId: string, command: string, input: any, contextId?: string) {
     const entry = state.plugins.entries.find(e => e.manifest.id === pluginId);
@@ -743,7 +864,9 @@ export function contextForConversation(id: string, aliases: string[] = []): Conv
     return state.snapshot.contexts?.find(c => c.id === id || c.link && (ids.includes(c.link.key) || ids.includes(c.link.storedId) || c.aliases.some(alias => ids.includes(alias))));
 }
 export async function openConversation(id: string) {
-    const result = await api(`/conversations/${encodeURIComponent(id)}/context`, {}, 'POST', 30000);
-    await acceptSnapshot(result.snapshot);
-    await rebuild();
+    await foregroundRead(async () => {
+        const result = await api(`/conversations/${encodeURIComponent(id)}/context`, {}, 'POST', 30000);
+        await acceptSnapshot(result.snapshot);
+        await rebuild();
+    });
 }

@@ -11,6 +11,32 @@ const closes: (()=>Promise<void>)[] = [];
 afterEach(async () => { for (const close of closes.splice(0)) await close(); });
 async function fixture(dev = true) { const dir = await mkdtemp(join(tmpdir(), 'tasks-test-')); const result = await createApp({ dataDir: dir, origin: 'https://tasks.example:8443', identity: 'owner@example.com', dev, hermesBase: '', hermesToken: '' }); await result.plugins.activate('tasks');await result.plugins.activate('reading');closes.push(async () => { await result.app.close(); await rm(dir, { recursive: true, force: true }); }); return result; }
 describe('private API and upload recovery', () => {
+  it('reads connection and selected conversation activity without unrelated history or Hermes operations', async () => {
+    const { app, store, gateway } = await fixture(false), ids = [randomUUID(), randomUUID()];
+    for (const id of ids) {
+      store.saveContext({ id, title: 'Synthetic conversation', link: null, aliases: [] });
+      store.saveAction({ id: randomUUID(), taskId: id, kind: 'send', text: `Private history for ${id}`, uploadIds: [],
+        createdAt: 1, updatedAt: 1, state: 'finished', receipt: 'accepted', phase: 'complete' });
+    }
+    const headers = { host: 'tasks.example:8443', 'tailscale-user-login': 'owner@example.com' };
+    const rpc = vi.spyOn(gateway, 'rpc'), http = vi.spyOn(gateway, 'http');
+    for (const url of ['/api/v1/connection', `/api/v1/contexts/${ids[0]}/activity`])
+      expect((await app.inject({ url })).statusCode).toBe(403);
+    const connection = await app.inject({ url: '/api/v1/connection', headers });
+    expect(connection.json()).toMatchObject({ gateway: { online: false, configured: false }, pushKey: expect.any(String) });
+    expect(connection.body).not.toContain('Private history');
+    const response = await app.inject({ url: `/api/v1/contexts/${ids[0]}/activity`, headers });
+    expect(response.json()).toMatchObject({ contextId: ids[0], actions: [{ taskId: ids[0] }] });
+    expect(response.body).not.toContain(ids[1]);
+    expect(response.json()).not.toHaveProperty('pluginData');
+    store.notify('priority-notice', ids[0], 'completion');
+    const destination = (await app.inject({ url: '/api/v1/notifications/priority-notice', headers })).json().destination;
+    expect(destination.actions).toHaveLength(1);
+    expect(destination.actions[0].taskId).toBe(ids[0]);
+    expect(destination.pluginData).toEqual({});
+    expect((await app.inject({ url: `/api/v1/contexts/${randomUUID()}/activity`, headers })).statusCode).toBe(404);
+    expect(rpc).not.toHaveBeenCalled(); expect(http).not.toHaveBeenCalled();
+  });
   it('reconnects an unsent legacy context only through an authenticated, current, same-origin request', async () => {
     const { app, store, gateway } = await fixture(false), contextId = randomUUID();
     store.saveContext({ id: contextId, title: 'Saved reading', link: { key: 'missing', storedId: 'missing', title: 'Saved reading', source: 'desktop' }, aliases: ['missing'] });

@@ -85,7 +85,19 @@ export async function createApp(config: Config) {
     reply.code(e.statusCode && e.statusCode < 500 ? e.statusCode : 500).send({ error: e.statusCode && e.statusCode < 500 ? e.message : 'The request could not be completed. Your saved work is retained.' });
   });
   registerThemes(app);
-  app.get('/api/v1/state', async req => ({ snapshot: clientSnapshot(store,req), actions: store.actions(), bindings: Object.fromEntries(store.bindings()), gateway: { online: gateway.online, configured: gateway.configured, profile, promptProtocol: gateway.promptProtocol, promptError: gateway.promptError, promptWarning: gateway.promptWarning }, plugins:plugins.catalogue(), pluginData:plugins.data(), pushKey: notifications.keys.publicKey }));
+  const connection = () => ({ gateway: { online: gateway.online, configured: gateway.configured, profile, promptProtocol: gateway.promptProtocol, promptError: gateway.promptError, promptWarning: gateway.promptWarning }, pushKey: notifications.keys.publicKey });
+  app.get('/api/v1/connection', async () => connection());
+  app.get('/api/v1/state', async req => ({ snapshot: clientSnapshot(store,req), actions: store.actions(), bindings: Object.fromEntries(store.bindings()), ...connection(), plugins:plugins.catalogue(), pluginData:plugins.data() }));
+  app.get('/api/v1/contexts/:id/activity', async (req, reply) => {
+    const context = store.context(z.string().min(1).max(300).parse((req.params as any).id));
+    if (!context) return reply.code(404).send({ error: 'Conversation reference not found.' });
+    const { pluginId } = z.object({ pluginId: z.string().max(64).optional() }).parse(req.query);
+    const settings = store.sessionSettings();
+    return { contextId: context.id, context, revision: store.getMeta<any>('snapshot')?.revision || 0,
+      settings: { defaults: settings.defaults, conversation: settings.conversations[context.id] || null },
+      actions: store.actions(context.id), binding: store.binding(context.id), ...connection(),
+      ...(pluginId && plugins.enabled(pluginId) ? { plugins: plugins.catalogue(), pluginData: { [pluginId]: plugins.storage.data(pluginId) } } : {}) };
+  });
 
   app.get('/manifest.webmanifest',async(_req,reply)=>{const manifest=JSON.parse(await readFile(resolve('public/manifest.webmanifest'),'utf8'));manifest.description='Private Hermes conversations with optional plugins';manifest.shortcuts=plugins.catalogue().entries.filter(e=>plugins.enabled(e.manifest.id)).flatMap(e=>(e.manifest.shortcuts||[]));return reply.type('application/manifest+json').header('Cache-Control','no-cache').send(manifest);});
   app.get('/api/v1/contexts/:id',async(req,reply)=>{const context=store.context((req.params as any).id);return context?{context}:reply.code(404).send({error:'Conversation reference not found.'});});
@@ -280,7 +292,24 @@ export async function createApp(config: Config) {
   app.post('/api/v1/notifications/test', async req => { const { endpoint, id } = z.object({ endpoint: z.string().max(4096), id: uuid }).parse(req.body); return notifications.test(endpoint, id); });
   app.get('/api/v1/notifications/tests/:id', async (req, reply) => notifications.testStatus(z.object({ id: uuid }).parse(req.params).id) || reply.code(404).send({ error: 'This notification test is no longer available.' }));
   app.post('/api/v1/notifications/tests/:id/shown', async req => { notifications.confirmTest(z.object({ id: uuid }).parse(req.params).id); return { ok: true }; });
-  app.get('/api/v1/notifications/:id', async (req, reply) => { const n = store.db.prepare('SELECT task_id FROM notices WHERE id=?').get((req.params as any).id) as any; return n ? { taskId: n.task_id, route: (()=>{const pn=store.db.prepare('SELECT * FROM plugin_notices WHERE id=?').get((req.params as any).id)as any;if(pn){const notice=JSON.parse(pn.data);return plugins.enabled(pn.plugin_id)?notice.route:notice.contextId&&store.context(notice.contextId)?.link?`/conversation/${encodeURIComponent(store.context(notice.contextId)!.link!.key)}`:`/plugins-unavailable/${pn.plugin_id}`;}return plugins.conversation(n.task_id)?.route||(store.context(n.task_id)?.link?`/conversation/${encodeURIComponent(store.context(n.task_id)!.link!.key)}`:'/conversations');})() } : reply.code(404).send({ error: 'This notification is no longer available.' }); });
+  app.get('/api/v1/notifications/:id', async (req, reply) => {
+    const notice = store.db.prepare('SELECT task_id FROM notices WHERE id=?').get((req.params as any).id) as { task_id: string } | undefined;
+    if (!notice) return reply.code(404).send({ error: 'This notification is no longer available.' });
+    const row = store.db.prepare('SELECT * FROM plugin_notices WHERE id=?').get((req.params as any).id) as any;
+    const pluginNotice = row ? JSON.parse(row.data) : undefined;
+    const context = store.context(pluginNotice?.contextId || notice.task_id);
+    const conversationRoute = context?.link ? `/conversation/${encodeURIComponent(context.link.key)}` : '/conversations';
+    const route = row ? plugins.enabled(row.plugin_id) ? pluginNotice.route : context?.link ? conversationRoute : `/plugins-unavailable/${row.plugin_id}`
+      : plugins.conversation(notice.task_id)?.route || conversationRoute;
+    const catalogue = plugins.catalogue();
+    const owner = catalogue.entries.find(entry => entry.enabled && entry.manifest.routes?.some(prefix => route === prefix || route.startsWith(prefix + '/')));
+    return { taskId: notice.task_id, route, destination: {
+      snapshot: store.coreSnapshot(), actions: context ? store.actions(context.id) : [],
+      bindings: context ? { [context.id]: store.binding(context.id) } : {},
+      plugins: catalogue, pluginData: owner ? { [owner.manifest.id]: plugins.storage.data(owner.manifest.id) } : {},
+      ...connection()
+    } };
+  });
   const streams = new Set<any>();
   app.get('/api/v1/events', async (req, reply) => {
     reply.raw.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-store', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' }); reply.hijack();
