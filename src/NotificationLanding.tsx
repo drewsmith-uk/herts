@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { LoaderCircle } from 'lucide-react';
-import { api, acceptNotificationDestination } from './data';
+import { api, beginActivityRead, acceptNotificationDestination } from './data';
 import { replaceRoute } from './notificationNavigation';
 import { currentPath } from './useRoute';
 import { foregroundRead } from './foregroundReads';
@@ -20,8 +20,9 @@ export function NotificationLanding({ id, online }: { id: string; online: boolea
     const controller = new AbortController();
     setError('');
     void foregroundRead(async () => {
+      const read = beginActivityRead();
       const result = await api(`/notifications/${id}`, undefined, 'GET', 15_000, controller.signal);
-      if (active && currentPath() === `/notice/${id}` && result.destination) await acceptNotificationDestination(result.destination);
+      if (active && currentPath() === `/notice/${id}` && result.destination) await acceptNotificationDestination(result.destination, read);
       return result;
     }).then(result => {
       // Another tap or manual navigation takes precedence over a slow response.

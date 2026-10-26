@@ -36,6 +36,58 @@ async function holdState(page: Page, staleConnection = false) {
   return { release, reads: () => reads };
 }
 
+for (const newer of ['connection', 'state', 'removed binding']) test(`a delayed notification preserves newer ${newer} results`, async ({ page, request }) => {
+  const id = `priority-notice-${newer.replaceAll(' ', '-')}`;
+  await message(request, id, 'Keep newer connection and conversation status.');
+  const context = (await (await request.post(`/api/v1/conversations/${id}/context`, { headers, data: {} })).json()).context;
+  await page.goto('/#/settings');
+  await expect.poll(() => page.evaluate(() => {
+    const state = (window as any).__HERTS_PLUGIN_RUNTIME__?.sdk.getCore();
+    return !!state?.defaultsReady && state.online && !state.stateRefreshPending;
+  })).toBe(true);
+  const current = await (await request.get('/api/v1/state')).json();
+  const binding = { storedId: id, runtimeId: 'synthetic-runtime', generation: 'old-generation', epoch: 'fixture-epoch', seq: 1, known: true, ready: true, monitored: true };
+  const destination = { ...current, bindings: { [context.id]: binding }, gateway: { ...current.gateway, online: true } };
+  current.gateway.online = false;
+  current.bindings = newer === 'removed binding' ? {} : { [context.id]: { ...binding, generation: 'new-generation', seq: 2 } };
+  await page.route('**/api/v1/connection', route => route.fulfill({ json: { gateway: current.gateway, pushKey: current.pushKey } }));
+  await page.route('**/api/v1/state', route => route.fulfill({ json: current }));
+  let started = false, release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/v1/notifications/priority-ordering', async route => {
+    started = true;
+    await gate;
+    await route.fulfill({ json: { route: '/settings', destination } }).catch(() => {});
+  });
+  try {
+    await page.evaluate(() => { location.hash = '/notice/priority-ordering'; });
+    await expect.poll(() => started).toBe(true);
+    await page.evaluate(async newer => {
+      if (newer === 'connection') window.dispatchEvent(new Event('online'));
+      else await (window as any).__HERTS_PLUGIN_RUNTIME__.sdk.refresh();
+    }, newer);
+    await expect.poll(() => page.evaluate(() => (window as any).__HERTS_PLUGIN_RUNTIME__.sdk.getCore().gateway.online)).toBe(false);
+    await page.evaluate(contextId => {
+      const sdk = (window as any).__HERTS_PLUGIN_RUNTIME__.sdk;
+      (window as any).notificationObservations = [];
+      (window as any).stopNotificationObservations = sdk.subscribeCore(() => {
+        const state = sdk.getCore();
+        (window as any).notificationObservations.push({ online: state.gateway.online, generation: state.bindings[contextId]?.generation || null });
+      });
+    }, context.id);
+    release();
+    await expect(page).toHaveURL(/#\/settings$/);
+    const observations = await page.evaluate(() => {
+      (window as any).stopNotificationObservations();
+      return (window as any).notificationObservations as { online: boolean; generation: string | null }[];
+    });
+    expect(observations.length).toBeGreaterThan(0);
+    expect(observations.every(value => !value.online)).toBe(true);
+    if (newer !== 'connection')
+      expect(observations.every(value => value.generation === (newer === 'state' ? 'new-generation' : null))).toBe(true);
+  } finally { release(); }
+});
+
 for (const width of [390, 1280]) test(`a cold notification opens current history and message controls before full sync at ${width}px`, async ({ page, request }) => {
   await page.setViewportSize({ width, height: 700 });
   const id = `priority-cold-${width}`;

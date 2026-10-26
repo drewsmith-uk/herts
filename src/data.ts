@@ -132,6 +132,9 @@ const activityRevisions = new Map<string, number>();
 const contextObservations = new Map<string, ContextObservation>();
 const visibleConversations = new Set<string>();
 let backgroundTimer: ReturnType<typeof setTimeout> | undefined;
+export function beginActivityRead() {
+    return { observation: ++connectionObservation, revision: ++activityRevision };
+}
 export function observeConversation(id: string) {
     visibleConversations.add(id);
     return () => {
@@ -183,7 +186,7 @@ export async function readConversationActivity(contextId: string, signal: AbortS
         focusedStatusReads++;
         if (state.localSubmissions.some(submission => submission.taskId === contextId)) publish({ checkingStatus: true });
         try {
-            const observation = ++connectionObservation, revision = ++activityRevision;
+            const { observation, revision } = beginActivityRead();
             const path = location.hash.slice(1).split('?')[0];
             const pluginId = state.plugins.entries.find(entry => entry.enabled && entry.manifest.routes?.some(prefix => path === prefix || path.startsWith(prefix + '/')))?.manifest.id;
             const data = await api(`/contexts/${encodeURIComponent(contextId)}/activity${pluginId ? `?pluginId=${encodeURIComponent(pluginId)}` : ''}`, undefined, 'GET', 10000, signal);
@@ -216,11 +219,11 @@ export async function readConversationActivity(contextId: string, signal: AbortS
 export async function acceptNotificationDestination(data: {
     snapshot: CoreSnapshot; actions: Action[]; bindings: Record<string, Binding | undefined>;
     plugins: PluginCatalogue; pluginData: Record<string, PluginData>; gateway: State['gateway']; pushKey: string;
-}) {
-    const revision = ++activityRevision;
-    acceptConnection(data, connectionObservation);
+}, { observation, revision }: ReturnType<typeof beginActivityRead>) {
+    acceptConnection(data, observation);
     const bindings = { ...state.bindings };
     for (const [id, binding] of Object.entries(data.bindings)) {
+        if (revision < lastBindingsRefresh || revision < (activityRevisions.get(id) || 0)) continue;
         activityRevisions.set(id, revision);
         if (binding) bindings[id] = binding; else delete bindings[id];
     }
@@ -428,7 +431,7 @@ export async function refresh(recover = false, background = false) {
     publish({ stateRefreshPending: true });
     if (state.localSubmissions.length) publish({ checkingStatus: true });
     const controller = new AbortController(); refreshRequest = controller;
-    const observation = connectionObservation, activityAtStart = ++activityRevision;
+    const { observation, revision: activityAtStart } = beginActivityRead();
     const stopInterrupting = background ? interruptBackgroundRead(() => controller.abort()) : () => {};
     try {
         const data = await api('/state', undefined, 'GET', 10000, controller.signal);
