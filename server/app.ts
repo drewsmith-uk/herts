@@ -32,7 +32,7 @@ const actionSchema = z.object({ id: uuid, taskId: uuid.optional(), contextId: uu
   if (v.kind === 'send' && !v.text?.trim() && !v.uploadIds?.length) ctx.addIssue({ code: 'custom', message: 'Write a message or attach a file.' });
   if (v.kind === 'clarify' && !v.text?.trim() && !Object.keys(v.answers || {}).length) ctx.addIssue({ code: 'custom', message: 'An answer is required.' });
 });
-export interface Config { incrementalSync?: boolean; staticDir?: string; pluginsDir?: string; dataDir: string; origin: string; identity: string; dev?: boolean; hermesBase: string; hermesToken: string; excluded?: string[]; hermesProfile?: string; hermesNative?: import('./nativeGateway.js').NativeGatewayOptions }
+export interface Config { archiveActions?: boolean; incrementalSync?: boolean; staticDir?: string; pluginsDir?: string; dataDir: string; origin: string; identity: string; dev?: boolean; hermesBase: string; hermesToken: string; excluded?: string[]; hermesProfile?: string; hermesNative?: import('./nativeGateway.js').NativeGatewayOptions }
 export async function createApp(config: Config) {
   const incrementalSync = config.incrementalSync ?? process.env.HERTS_INCREMENTAL_SYNC !== '0';
   if (config.hermesNative) config = { ...config, hermesNative: { ...config.hermesNative, home: await realpath(config.hermesNative.home) } };
@@ -55,6 +55,9 @@ export async function createApp(config: Config) {
   migrateLegacyPlugins(store,plugins.storage);
   store.bindProfiles(profile);
   const actions = new Actions(store,gateway,uploadDir);
+  const archiveActions = config.archiveActions ?? process.env.HERTS_ARCHIVE_ACTIONS === '1';
+  if (archiveActions) store.archive.start(contextId => actions.polling.has(contextId) ||
+    [...actions.dispatching].some(id => store.action(id)?.taskId === contextId));
   const titleEdits = new TitleEdits(store, gateway);
   plugins.hermes = new Bots(store, gateway, actions);
   await plugins.initialise(store.legacyInstallation);
@@ -92,6 +95,7 @@ export async function createApp(config: Config) {
     activitySync: incrementalSync, activityGeneration: store.activity.generation });
   const compactActivity = (req: { headers: Record<string, unknown> }) => incrementalSync && req.headers['x-herts-activity-sync'] === '1';
   app.get('/api/v1/connection', async () => connection());
+  app.get('/api/v1/diagnostics/archive', async () => ({ enabled: archiveActions, ...store.archive.stats }));
   app.get('/api/v1/diagnostics/recovery', async () => ({ ...actions.recoveryStats,
     pending: store.bindings().filter(([, binding]) => binding.recoveryPending).length,
     notices: (store.db.prepare('SELECT count(*) AS count FROM notices').get() as { count: number }).count }));

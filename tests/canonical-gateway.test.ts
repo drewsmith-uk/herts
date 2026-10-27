@@ -238,6 +238,19 @@ describe('canonical action recovery', () => {
     expect(f.store.db.prepare('SELECT id FROM notices ORDER BY id').all()).toEqual([{ id: 'earlier:complete' }, { id: 'latest:complete' }]);
     expect(f.request.mock.calls.filter(([method]) => method === 'prompt.submit')).toHaveLength(0);
   });
+  it('recovers a changed replay epoch without comparing its sequence to the previous epoch', async () => {
+    const f = actionFixture(), live = await f.call('session.resume', { session_id: 'stored' });
+    f.store.saveBinding(f.context.id, { runtimeId: 'stored', storedId: 'stored', epoch: f.gateway.epoch, generation: 'binding',
+      seq: 600, observedSeq: 600, ready: false, monitored: true, known: true, remote: { ...live.remote, sequence: 600 } });
+    f.store.saveAction({ id: 'action', taskId: f.context.id, kind: 'send', text: 'Synthetic message', uploadIds: [],
+      createdAt: 1, updatedAt: 1, state: 'running', phase: 'working', receipt: 'accepted', admissionId: 'admission', submissionId: 'submission' });
+    f.request.mockImplementation(async method => method === 'session.resume' ? snapshot('default', { replay_epoch: 'replacement' })
+      : receipt({ status: 'terminal', outcome: 'completed', execution_generation: 2 }));
+    await f.engine.reconnect();
+    expect(f.store.binding(f.context.id)).toMatchObject({ seq: 4, observedSeq: 4, recoveryPending: false });
+    expect(f.store.action('action')?.state).toBe('finished');
+    expect(await f.engine.reconcile(f.context.id)).toBe(true);
+  });
   it.each(['receipt failure', 'newer event', 'storage failure', 'buffer overflow'])('retains the checkpoint after %s during recovery', async failure => {
     const f = actionFixture(), live = await f.call('session.resume', { session_id: 'stored' });
     const binding = { runtimeId: 'stored', storedId: 'stored', epoch: f.gateway.epoch, generation: 'binding', seq: 4,

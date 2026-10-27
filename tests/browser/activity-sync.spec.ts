@@ -205,3 +205,32 @@ test('the browser can use legacy responses when incremental sync is disabled', a
   await expect(page.getByLabel('Message Hermes', { exact: true })).toHaveValue('Keep the fallback draft.');
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
 });
+
+
+test('saved message paging retains drafts through delayed reads, failure, offline use, and retry', async ({ page, request, context }) => {
+  const id = `paging-${crypto.randomUUID()}`;
+  await request.post('/__test/conversation-message', { headers, data: { id, title: 'Synthetic paging recovery', text: 'Existing history' } });
+  const destination = (await (await request.post(`/api/v1/conversations/${id}/context`, { headers, data: {} })).json()).context;
+  await request.post('/__test/activity-fixture', { headers, data: { contextId: destination.id, count: 105, recovery: true } });
+  let release!: () => void, fail = true;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/v1/contexts/*/activity?cursor=*', async route => {
+    if (fail) { await gate; return route.fulfill({ status: 503, json: { error: 'Synthetic read failure' } }); }
+    await route.continue();
+  });
+  await page.goto(`/#/conversation/${id}`);
+  const editor = page.getByLabel('Message Hermes', { exact: true });
+  await editor.fill('Keep the draft through paging recovery.');
+  await page.getByRole('button', { name: 'More saved messages', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Loading…', exact: true })).toBeDisabled();
+  await expect(editor).toHaveValue('Keep the draft through paging recovery.');
+  release();
+  await expect(page.locator('.saved-messages').getByRole('alert')).toContainText('Saved messages could not be loaded');
+  await context.setOffline(true);
+  await expect(page.getByRole('button', { name: 'More saved messages', exact: true })).toBeDisabled();
+  await editor.fill('Keep edits made offline.');
+  fail = false; await context.setOffline(false);
+  await page.getByRole('button', { name: 'More saved messages', exact: true }).click();
+  await expect(page.locator('.saved-message')).toHaveCount(105);
+  await expect(editor).toHaveValue('Keep edits made offline.');
+});

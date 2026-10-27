@@ -9,8 +9,15 @@ import { originalSpaceId, type Conversation } from '../shared/model';
 import { GatewayError } from '../server/gateway';
 const closes: (()=>Promise<void>)[] = [];
 afterEach(async () => { for (const close of closes.splice(0)) await close(); });
-async function fixture(dev = true, incrementalSync?: boolean) { const dir = await mkdtemp(join(tmpdir(), 'tasks-test-')); const result = await createApp({ dataDir: dir, origin: 'https://tasks.example:8443', identity: 'owner@example.com', dev, incrementalSync, hermesBase: '', hermesToken: '' }); await result.plugins.activate('tasks');await result.plugins.activate('reading');closes.push(async () => { await result.app.close(); await rm(dir, { recursive: true, force: true }); }); return result; }
+async function fixture(dev = true, incrementalSync?: boolean, archiveActions?: boolean) { const dir = await mkdtemp(join(tmpdir(), 'tasks-test-')); const result = await createApp({ dataDir: dir, origin: 'https://tasks.example:8443', identity: 'owner@example.com', dev, incrementalSync, archiveActions, hermesBase: '', hermesToken: '' }); await result.plugins.activate('tasks');await result.plugins.activate('reading');closes.push(async () => { await result.app.close(); await rm(dir, { recursive: true, force: true }); }); return result; }
 describe('private API and upload recovery', () => {
+  it.each([true, false])('controls archival independently when incremental sync is %s', async incrementalSync => {
+    const { app, store } = await fixture(true, incrementalSync, !incrementalSync);
+    const version = store.db.pragma('user_version', { simple: true });
+    expect((await app.inject({ url: '/api/v1/diagnostics/archive' })).json()).toMatchObject({ enabled: !incrementalSync, batches: 0 });
+    expect((await app.inject({ url: '/api/v1/connection' })).json().activitySync).toBe(incrementalSync);
+    expect(store.db.pragma('user_version', { simple: true })).toBe(version);
+  });
   it('can disable incremental sync without changing the database schema', async () => {
     const { app, store } = await fixture(true, false), version = store.db.pragma('user_version', { simple: true });
     const response = await app.inject({ url: '/api/v1/state', headers: { 'x-herts-activity-sync': '1' } });

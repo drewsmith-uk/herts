@@ -189,10 +189,14 @@ test('confirmation checks preserve edits and recover automatically without anoth
   const text = 'Recover this accepted message after its reply is lost.';
   let reveal = false, checking = false, release!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
-  await page.route(/\/api\/v1\/(state|contexts\/[^/]+\/activity)(\?.*)?$/, async route => {
+  await page.route(/\/api\/v1\/(state|contexts\/[^/]+\/activity|actions\/[^/]+)(\?.*)?$/, async route => {
     if (reveal) { checking = true; await gate; }
     const response = await route.fetch(), data = await response.json();
-    if (!reveal) data.actions = data.actions.filter((action: { text: string }) => action.text !== text);
+    if (!reveal) {
+      if (data.action?.text === text) return route.fulfill({ status: 404, json: { error: 'Synthetic delayed receipt' } });
+      if (data.actions) data.actions = data.actions.filter((action: { text: string }) => action.text !== text);
+      if (data.activity) data.activity.actions = data.activity.actions.filter((action: { text: string }) => action.text !== text);
+    }
     await route.fulfill({ response, json: data });
   });
   let sends = 0;

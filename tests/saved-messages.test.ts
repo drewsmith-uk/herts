@@ -99,7 +99,10 @@ it('cleans older deletion markers on startup while keeping attachments reference
   for (const id of [orphan, shared]) { store.saveUpload({ id, name: 'fixture.txt', type: 'text/plain', size: 7, hash: 'fixture', complete: true }); await writeFile(uploads + '/' + id, 'fixture'); }
   // Simulate the old version's on-disk record, rather than the new save guard.
   store.db.prepare('INSERT INTO actions VALUES (?,?,?)').run(deleted.id, taskId, JSON.stringify(deleted));
-  const retained = saved(taskId, { uploadIds: [shared] }); store.saveAction(retained); store.close();
+  const retained = saved(taskId, { uploadIds: [shared] }); store.saveAction(retained);
+  store.db.prepare("DELETE FROM meta WHERE key='activity-index-ready'").run();
+  store.db.exec('DELETE FROM action_index; DELETE FROM action_uploads; PRAGMA user_version=8');
+  store.close();
   const f = await createApp({ dataDir, origin: 'https://tasks.example', identity: 'owner@example.com', dev: false, hermesBase: '', hermesToken: '' });
   try {
     expect(f.store.action(deleted.id)).toMatchObject({ text: '', uploadIds: [] });

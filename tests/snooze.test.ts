@@ -61,7 +61,7 @@ describe('snoozed task reminders',()=>{
     try {
       capture(s);capture(s);const before=s.snapshot(),tasks=s.db.prepare('SELECT * FROM tasks').all(),receipts=s.db.prepare('SELECT * FROM receipts').all();
       const meta=s.getMeta('snapshot');delete meta.lists.snoozed;for(const lists of Object.values(meta.spaceLists) as any[])delete lists.snoozed;s.setMeta('snapshot',meta);s.db.exec('DROP TABLE notification_tests; DROP TABLE subscriptions; CREATE TABLE subscriptions (id TEXT PRIMARY KEY, data TEXT NOT NULL);');s.db.pragma('user_version = 3');s.close();s=new Store(`${dir}/tasks.sqlite`);
-      expect(s.snapshot()).toEqual(before);expect(s.db.prepare('SELECT * FROM tasks').all()).toEqual(tasks);expect(s.db.prepare('SELECT * FROM receipts').all()).toEqual(receipts);expect(s.db.pragma('user_version',{simple:true})).toBe(9);expect(s.db.pragma('foreign_key_check')).toEqual([]);
+      expect(s.snapshot()).toEqual(before);expect(s.db.prepare('SELECT * FROM tasks').all()).toEqual(tasks);expect(s.db.prepare('SELECT * FROM receipts').all()).toEqual(receipts);expect(s.db.pragma('user_version',{simple:true})).toBe(10);expect(s.db.pragma('foreign_key_check')).toEqual([]);
     }finally{s.close();await rm(dir,{recursive:true,force:true});}
   });
 });

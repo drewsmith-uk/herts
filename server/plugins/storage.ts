@@ -109,7 +109,7 @@ export class PluginStorage {
     hash(value: unknown) { return createHash('sha256').update(JSON.stringify(value)).digest('hex'); }
     reset(id: string) {
         this.ensure(id);
-        const coreFiles = new Set(this.store.actions().flatMap(a => a.uploadIds));
+        const coreFiles = new Set(this.store.actionUploadIds());
         const uploads = (this.store.db.prepare('SELECT data FROM uploads').all() as any[]).map(r => JSON.parse(r.data)).filter(u => u.owner?.startsWith(id + ':'));
         const removed = uploads.filter(u => !coreFiles.has(u.id)).map(u => u.id) as string[];
         this.store.db.transaction(() => {

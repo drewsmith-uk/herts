@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Copy, Trash2 } from 'lucide-react';
 import { hasSavedMessage, savedMessageNotSent, type Action } from '../shared/core';
 import { useApp, loadMoreActivity } from './data';
@@ -9,7 +9,8 @@ import { useUpdateWork } from './updateSafety';
 export function SavedMessages({ contextId, disabled, onCopy }: { contextId: string; disabled: boolean; onCopy: (action: Action) => Promise<void> }) {
   const state = useApp(), work = useUpdateWork();
   const [deleting, setDeleting] = useState<Action>(), [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(false), pageRead = useRef<AbortController | null>(null);
+  useEffect(() => { setLoading(false); setError(''); return () => { pageRead.current?.abort(); pageRead.current = null; }; }, [contextId]);
   const messages = state.actions.filter(a => a.taskId === contextId && hasSavedMessage(a));
   async function remove() {
     if (!deleting || busy) return;
@@ -20,9 +21,10 @@ export function SavedMessages({ contextId, disabled, onCopy }: { contextId: stri
   }
   async function more() {
     setLoading(true); setError('');
-    try { await loadMoreActivity(contextId); }
-    catch { setError('Saved messages could not be loaded. Try again.'); }
-    finally { setLoading(false); }
+    const controller = new AbortController(); pageRead.current = controller;
+    try { await loadMoreActivity(contextId, controller.signal); }
+    catch { if (!controller.signal.aborted) setError('Saved messages could not be loaded. Try again.'); }
+    finally { if (pageRead.current === controller) { pageRead.current = null; setLoading(false); } }
   }
   return <div className="saved-messages">
     {notice && <p className="subtle-note" role="status">{notice}</p>}

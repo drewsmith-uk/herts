@@ -218,17 +218,17 @@ export async function acceptActivityDetails(details: ActivityDetails, generation
     await rebuild();
     return true;
 }
-export async function loadMoreActivity(contextId: string) {
+export async function loadMoreActivity(contextId: string, signal?: AbortSignal) {
     const cursor = state.activityCursors?.[contextId]; if (!cursor) return;
     return foregroundRead(async () => {
         const generation = state.activityGeneration;
         try {
-            const data = await activityApi(`/contexts/${encodeURIComponent(contextId)}/activity?cursor=${encodeURIComponent(cursor)}`, undefined, 'GET', 10000);
+            const data = await activityApi(`/contexts/${encodeURIComponent(contextId)}/activity?cursor=${encodeURIComponent(cursor)}`, undefined, 'GET', 10000, signal);
             if (data.activity) await acceptActivityDetails(data.activity, generation, 'page');
         } catch (error) {
             if (error instanceof ApiError && error.status === 409) {
                 detailVersions.delete(contextId);
-                await readConversationActivity(contextId, new AbortController().signal);
+                await readConversationActivity(contextId, signal || new AbortController().signal);
             } else throw error;
         }
     });
@@ -501,7 +501,7 @@ export async function initialise() {
             }
             catch { }
             const entries = ['tasks', 'reading'].map(id => ({ manifest: { id, name: id === 'tasks' ? 'Tasks' : 'Reading', description: '', version: '1.0.0', apiVersion: 1, schemaVersion: 1 }, enabled: true, available: true, generation: 0, status: 'enabled' as const, ...bootstrap?.entries.find(e => e.manifest.id === id) }));
-            const pluginRemote = Object.fromEntries(entries.map(e => [e.manifest.id, { generation: e.generation, revision: 0, schemaVersion: 1, records: e.generation > 0 ? {} : { state: e.manifest.id === 'tasks' ? snapshot : snapshot.reading } }]));
+            const pluginRemote = Object.fromEntries(entries.map(e => [e.manifest.id, { generation: e.generation, revision: 0, schemaVersion: 1, records: e.generation > 0 ? {} : e.manifest.id === 'tasks' && Array.isArray(snapshot.tasks) ? { state: snapshot } : e.manifest.id === 'reading' && snapshot.reading ? { state: snapshot.reading } : {} }]));
             await acceptPlugins({ revision: bootstrap?.revision || 0, order: bootstrap?.order || ['tasks', 'conversations', 'reading'], entries }, pluginRemote);
         }
         await rebuild();
@@ -914,7 +914,7 @@ export async function submit(input: any): Promise<Action> {
     if (state.localSubmissions.some(s => s.taskId === contextId))
         throw new Error('A submitted request is still unconfirmed. Check its status before sending another.');
     await syncConversationDependencies(contextId);
-    if (state.pluginPending.some(p => p.contextId === contextId && state.plugins.entries.some(e => e.manifest.id === p.pluginId && e.enabled)))
+    if ((await db.pluginPending.toArray()).some(p => p.contextId === contextId && state.plugins.entries.some(e => e.manifest.id === p.pluginId && e.enabled)))
         throw new Error('Sync or resolve saved changes for this conversation before sending.');
     const localContext = state.snapshot.contexts.find(c => c.id === contextId);
     if (!state.remote.contexts.some(c => c.id === contextId) && localContext && (await db.kv.get(`context-draft:${contextId}`))) {
@@ -925,7 +925,8 @@ export async function submit(input: any): Promise<Action> {
     if (input.kind === 'send') {
         await syncSessionSettings({ contextId, includeDefaults: !localContext?.link });
         const now = state.remote.sessionSettings || emptySettings(), isNew = !state.snapshot.contexts.find(c => c.id === contextId)?.link;
-        if (state.settingsPending?.some(p => p.contextId === contextId || (isNew && !p.contextId))) throw new Error('Sync or review the saved conversation settings before sending.');
+        const settingsPending = (await db.kv.where('key').startsWith('settings-op:').toArray()).map(row => row.value as PendingSettings);
+        if (settingsPending.some(p => p.contextId === contextId || (isNew && !p.contextId))) throw new Error('Sync or review the saved conversation settings before sending.');
         if (!sameSetting(preview.conversations[contextId]?.values || {}, now.conversations[contextId]?.values || {}) || (isNew && !sameSetting(preview.defaults.values, now.defaults.values))) throw new Error('Conversation settings changed. Review them before sending.');
         input = { ...input, settingsRevision: now.conversations[contextId]?.revision || 0, defaultsRevision: now.defaults.revision };
     }

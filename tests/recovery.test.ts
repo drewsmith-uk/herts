@@ -93,6 +93,16 @@ describe('execution recovery', () => {
     expect(f.notices()).toBe(0);
     failure.mockRestore();
   });
+  it('rolls back recovered completion and checkpoint when notice creation fails', async () => {
+    const f = fixture();
+    const notice = vi.spyOn(f.store, 'notify').mockImplementationOnce(() => { throw new Error('Synthetic notice failure'); });
+    await f.engine.reconnect();
+    expect(f.store.binding('context')).toMatchObject({ seq: 1, recoveryPending: true });
+    expect(f.store.action('action')).toMatchObject({ state: 'running' });
+    expect(f.store.action('action')?.terminal).toBeUndefined();
+    expect(f.notices()).toBe(0);
+    notice.mockRestore();
+  });
   it('retries after buffer overflow without advancing the recovery checkpoint', async () => {
     vi.useFakeTimers();
     const f = fixture(), rpc = f.gateway.rpc.getMockImplementation()!;

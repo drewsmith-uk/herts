@@ -64,8 +64,8 @@ it('retains profile migration records and refuses a database from a newer versio
   const old = new Store(path); old.bindProfiles('default');
   old.db.pragma('user_version = 7'); old.setMeta('gateway-operation:fixture', { submission_id: 'saved' }); old.close();
   const current = new Store(path); current.bindProfiles('default');
-  expect(current.db.pragma('user_version', { simple: true })).toBe(9);
+  expect(current.db.pragma('user_version', { simple: true })).toBe(10);
   expect(current.getMeta('gateway-operation:fixture')).toEqual({ submission_id: 'saved' });
-  current.db.pragma('user_version = 10'); current.close();
+  current.db.pragma('user_version = 11'); current.close();
   expect(() => new Store(path)).toThrow('newer Herts');
 });

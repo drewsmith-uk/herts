@@ -118,7 +118,7 @@ export class Actions {
       // Older Herts versions may have created the session before its duplicate
       // placeholder title was rejected. Reuse that session on a deliberate Send.
       const repairTitle = this.store.actions(task.id).some(prior => prior.id !== a.id && prior.kind === 'send' && prior.sendStage === 'preparing' && prior.receipt === 'rejected' && /Title .*already in use/.test(prior.error || ''))
-        && !this.store.actions(task.id).some(prior => prior.kind === 'send' && prior.receipt === 'accepted');
+        && !this.store.archive.hasContext(task.id) && !this.store.actions(task.id).some(prior => prior.kind === 'send' && prior.receipt === 'accepted');
       let b = this.store.binding(a.taskId);
       if (a.kind === 'send' && task.link && b?.ready && b.epoch === this.gateway.epoch) {
         try { await this.verifyBinding(b); }
@@ -294,7 +294,7 @@ export class Actions {
       const context = this.store.context(contextId), binding = this.store.binding(contextId);
       if (this.gateway.epoch !== epoch || !observed || binding?.generation !== observed.generation || binding.storedId !== storedId ||
           context?.id !== contextId || context.link?.storedId !== storedId || context.link.key !== storedId || context.aliases.some(id => id !== storedId) ||
-          !canReconnectUnsentConversation(this.store.actions(contextId)))
+          this.store.archive.hasContext(contextId) || !canReconnectUnsentConversation(this.store.actions(contextId)))
         throw new Conflict('This conversation has changed or a message may have been submitted. Refresh and review it before reconnecting.');
       return context;
     };
@@ -345,7 +345,7 @@ export class Actions {
       // Older versions did not record creation provenance. Their binding plus
       // a complete ledger of attempts stopped before submission is sufficient
       // on an explicit Send, provided both backend identities are now missing.
-      if (this.gateway.epoch !== epoch || !priorAttempts.length || !created || !observed || observed.runtimeId !== created.runtimeId || observed.storedId !== created.storedId || observed.epoch !== created.epoch ||
+      if (this.store.archive.hasContext(a.taskId) || this.gateway.epoch !== epoch || !priorAttempts.length || !created || !observed || observed.runtimeId !== created.runtimeId || observed.storedId !== created.storedId || observed.epoch !== created.epoch ||
           context?.link?.storedId !== created.storedId ||
           context?.link?.key !== created.storedId || context.aliases.some(id => id !== created.storedId) ||
           this.store.binding(a.taskId)?.generation !== observed.generation ||
@@ -473,7 +473,16 @@ export class Actions {
       const ctl = await this.gateway.rpc('session.control.read', { session_id: b.runtimeId });
       const latestBinding = this.store.binding(taskId)!;
       if (!latestBinding || latestBinding.generation !== b.generation || latestBinding.seq !== seq) return false;
-      this.store.atomic(() => {
+      this.store.atomic(() => this.applyStandalone(taskId, b, a, live, pending, ctl));
+      return true;
+    } catch (error) {
+      if (observed && missingRuntime(error) && this.retireMissingRuntime(taskId, observed)) return;
+      const b = this.store.binding(taskId); if (b && observed && b.generation === observed.generation) { b.ready = false; this.store.saveBinding(taskId, b); }
+      return false;
+    }
+    finally { this.polling.delete(taskId); }
+  }
+  private applyStandalone(taskId: string, b: Binding, a: Action, live: any, pending: any, ctl: any) {
       const current = this.store.action(a.id)!;
       if (this.main(taskId)?.id !== a.id || this.dispatching.has(a.id)) return;
       if (this.gateway.promptProtocol === 'requests') this.projectPrompts(current, b);
@@ -494,14 +503,6 @@ export class Actions {
       if (!b.known && live.running === false && !current.approvals.length) { current.state = 'unknown'; current.error = 'Current execution state is unconfirmed. Check the saved submission and history; no request will be repeated.'; }
       this.store.saveBinding(taskId, b);
       if (JSON.stringify({ ...current, updatedAt: 0 }) !== JSON.stringify({ ...a, updatedAt: 0 })) this.store.saveAction(current);
-      });
-      return true;
-    } catch (error) {
-      if (observed && missingRuntime(error) && this.retireMissingRuntime(taskId, observed)) return;
-      const b = this.store.binding(taskId); if (b && observed && b.generation === observed.generation) { b.ready = false; this.store.saveBinding(taskId, b); }
-      return false;
-    }
-    finally { this.polling.delete(taskId); }
   }
   private async reconcileCanonical(taskId: string, b: Binding, action: Action, live: any, observed = b) {
     if (!b.remote) return false;
@@ -526,7 +527,8 @@ export class Actions {
     }
     if (connection !== this.connectionVersion || !this.sameBinding(taskId, observed) || b.epoch !== this.gateway.epoch ||
         !current || this.main(taskId)?.id !== action.id || this.dispatching.has(action.id) ||
-        (binding?.observedSeq || binding?.seq || 0) > b.seq || remote?.sequence !== b.seq ||
+        (binding?.remote?.replayEpoch === b.remote.replayEpoch && (binding?.observedSeq || binding?.seq || 0) > b.seq) ||
+        [...(buffered?.events.keys() || [])].some(sequence => sequence > b.seq) || remote?.sequence !== b.seq ||
         remote?.replayEpoch !== b.remote.replayEpoch || remote?.revision !== b.remote.revision) return false;
     this.store.atomic(() => {
     for (const { prior, receipt } of recovered) {
@@ -685,12 +687,27 @@ export class Actions {
       const a = this.main(taskId); if (a) { a.state = 'unknown'; a.error = 'Some execution events are unavailable. Refresh history and review before continuing.'; this.store.saveAction(a); }
       throw new GatewayError('Execution replay is incomplete.');
     }
+    let confirmation: { action: Action; live: any; pending: any; control: any } | undefined;
+    const action = !freshSend ? this.main(taskId) : undefined;
+    if (action && !this.dispatching.has(action.id)) {
+      const lastBuffered = Math.max(b.seq, ...buffered.events.keys());
+      const live = await this.verifyBinding(b, false);
+      const pending = await this.gateway.rpc('approval.pending', { session_id: b.runtimeId });
+      const control = await this.gateway.rpc('session.control.read', { session_id: b.runtimeId });
+      if (connection !== this.connectionVersion || !this.sameBinding(taskId, b) || this.main(taskId)?.id !== action.id) return;
+      if (buffered.overflow || lastBuffered !== Math.max(b.seq, ...buffered.events.keys())) {
+        if (buffered.overflow) { buffered.events.clear(); buffered.overflow = false; }
+        throw new GatewayError('Execution recovery needs another state read.');
+      }
+      confirmation = { action, live, pending, control };
+    }
     this.store.atomic(() => {
       const events = new Map<number, any>();
       for (const event of [...(result.events || []), ...buffered.events.values()]) events.set(event.seq, event);
       for (const event of [...events.values()].sort((a, b) => a.seq - b.seq)) this.event(event, taskId);
       const current = this.store.binding(taskId)!;
       current.recoveryPending = false; this.store.saveBinding(taskId, current);
+      if (confirmation) this.applyStandalone(taskId, current, confirmation.action, confirmation.live, confirmation.pending, confirmation.control);
     });
     this.recovering.delete(taskId);
   }
@@ -721,7 +738,7 @@ export class Actions {
             if (connection !== this.connectionVersion || !this.sameBinding(taskId, b)) return false;
             if (live.stored_session_id !== b.storedId || !live.remote) throw new GatewayError('Conversation identity could not be verified.');
             const recovered = { ...b, runtimeId: live.session_id, epoch: this.gateway.epoch, remote: live.remote,
-              seq: live.remote.sequence, ready: false, known: true };
+              seq: live.remote.sequence, observedSeq: live.remote.sequence, ready: false, known: true };
             const main = this.main(taskId);
             if (!main || !await this.reconcileCanonical(taskId, recovered, main, live, b))
               throw new GatewayError('Recovered execution state is not confirmed.');

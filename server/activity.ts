@@ -44,7 +44,7 @@ export class ActionActivity {
         for (const { id } of ids) this.changed(id);
         store.setMeta('activity-index-ready', true);
       }
-      db.pragma('user_version = 9');
+      if (Number(db.pragma('user_version', { simple: true })) < 9) db.pragma('user_version = 9');
     })();
   }
   private index(action: Action) {
