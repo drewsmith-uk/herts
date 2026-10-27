@@ -585,7 +585,7 @@ export async function refresh(recover = false, background = false) {
 }
 /** Erase saved copies on reconnect too, while keeping independent drafts and history. */
 export async function purgeDeletedSavedMessages(actions: Action[]): Promise<Action[]> {
-    return db.transaction('rw', db.kv, db.submissions, db.files, db.drafts, db.pluginLocal, async () => {
+    return db.transaction('rw', [db.kv, db.submissions, db.files, db.drafts, db.pluginLocal, db.activityCache], async () => {
         const saved = (await db.kv.get('state'))?.value;
         const prior: Action[] = [...(activityCacheReady ? [] : saved?.actions || []), ...state.actions];
         const deleted = new Map([...prior, ...actions].filter(a => a.savedMessageDeletedAt).map(a => [a.id, a.savedMessageDeletedAt!]));
@@ -601,6 +601,7 @@ export async function purgeDeletedSavedMessages(actions: Action[]): Promise<Acti
         // Legacy/plugin capture drafts may also own an attachment.
         const pluginDrafts = JSON.stringify(await db.pluginLocal.toArray());
         for (const id of files) if (!referenced.has(id) && !pluginDrafts.includes(JSON.stringify(id))) await db.files.delete(id);
+        if (activityCacheReady) await activityCache.remember(clean.filter(action => deleted.has(action.id)));
         if (saved) await db.kv.put({ key: 'state', value: { ...saved, actions: activityCacheReady ? [] : clean } });
         return clean;
     });
