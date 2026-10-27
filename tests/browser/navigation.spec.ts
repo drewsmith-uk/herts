@@ -210,13 +210,15 @@ test('a failed background sync retains connection status and permits retry', asy
 
 
 test('unconfirmed conversation actions do not change connection and sync status', async ({ page }) => {
-  await page.route('**/api/v1/state', async route => {
+  await page.route('**/api/v1/activity-sync*', async route => {
     const response = await route.fetch();
     const body = await response.json();
-    body.actions.push({ id: 'historical-unknown', taskId: 'existing', kind: 'send', receipt: 'unknown', state: 'unknown' });
+    const action = { id: 'historical-unknown', kind: 'send', receipt: 'unknown', state: 'unknown', phase: 'unconfirmed', createdAt: 1, updatedAt: 1 };
+    body.changes.push({ summary: { contextId: 'existing', version: 1, main: action, latestSend: action, hasSubmission: true, recoveryCount: 1, pendingRecovery: false }, retired: [] });
     await route.fulfill({ response, json: body });
   });
   await page.goto('/#/conversations');
+  await expect.poll(() => page.evaluate(() => (window as any).__HERTS_PLUGIN_RUNTIME__.sdk.getCore().activitySummaries.existing?.main?.receipt)).toBe('unknown');
   await expect(status(page)).toHaveText('Connection status: Connected and synced');
   await openConnectionDetails(page);
   const dialog = page.getByRole('dialog', { name: 'Connection and sync', exact: true });
