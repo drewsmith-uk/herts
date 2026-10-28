@@ -15,7 +15,7 @@ export function discardedUploads(store: Store, directory: string, locks: Set<str
           if (locks.has(id)) continue;
           // Only UUID upload filenames are ever eligible; do not follow stored paths.
           if (!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(id)) continue;
-          const referenced = store.db.prepare("SELECT 1 FROM actions a, json_each(a.data, '$.uploadIds') u WHERE u.value=? LIMIT 1").get(id);
+          const referenced = store.hasActionUpload(id);
           if (referenced) { store.db.prepare('DELETE FROM discarded_uploads WHERE id=?').run(id); continue; }
           locks.add(id);
           try {

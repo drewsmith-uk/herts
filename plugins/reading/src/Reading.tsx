@@ -105,7 +105,7 @@ export function ReadingDetail({ id, initialMode = 'discussion' }: { id: string; 
     if (!item) return <EmptyState icon={<BookOpen/>} title={state.online ? 'Reading item unavailable' : 'Reading item not saved on this device'} description={state.online ? 'Refresh to check this item.' : 'Reconnect to check this item.'}><ButtonLink href="#/reading">Reading list</ButtonLink><Button disabled={!state.online} onClick={() => void sync()}>Refresh</Button></EmptyState>;
     const alongside = wide && split;
     const showArticle = alongside || mode === 'article', showDiscussion = alongside || mode === 'discussion';
-    const hasSubmission = state.actions.some(a => a.taskId === item.contextId && !a.cancelled) || state.localSubmissions.some(s => s.taskId === item.contextId);
+    const hasSubmission = state.activitySummaries[item.contextId]?.hasSubmission || state.actions.some(a => a.taskId === item.contextId && !a.cancelled) || state.localSubmissions.some(s => s.taskId === item.contextId);
     function chooseMode(next: ReadingMode) { setMode(next); try { sessionStorage.setItem(`herts:reading-mode:${id}`, next); } catch {} }
     function toggleSplit() { const next = !split; setSplit(next); try { sessionStorage.setItem(`herts:reading-split:${id}`, String(next)); } catch {} }
     return <div className={`reading-detail reading-workspace ${alongside ? 'reading-split' : ''}`}>

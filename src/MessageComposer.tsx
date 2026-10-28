@@ -102,7 +102,7 @@ export function MessageComposer({ context, initialText = '', canSend = true, doc
   }
   const uncertain = state.localSubmissions.some(s => s.taskId === context.id);
   useEffect(() => { if (!recoveryInHistory && uncertain && !busy) setExpanded(true); }, [uncertain, busy, recoveryInHistory]);
-  const currentRun = state.actions.find(a => !a.cancelled && a.taskId === context.id && ['send', 'continue'].includes(a.kind));
+  const currentRun = state.activitySummaries[context.id]?.main || state.actions.find(a => !a.cancelled && a.taskId === context.id && ['send', 'continue'].includes(a.kind));
   const running = currentRun && !state.bindings[context.id]?.unavailable && !['finished', 'failed', 'ready', 'unknown'].includes(currentRun.state);
   const savingAllowed = loaded && !recording && !busy && !uncertain && !settingsOpen;
   const primarySend = primaryAction !== 'save' || !saveLabel;

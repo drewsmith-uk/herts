@@ -30,7 +30,8 @@ export function ConversationPanel({ context: task, initialText = '', showActions
   const activity = useConversationActivity(task.id, !readOnly && state.remote.contexts.some(context => context.id === task.id));
   const [submitting, setSubmitting] = useState<OutgoingMessage>();
   const [statusHost, setStatusHost] = useState<HTMLDivElement | null>(null), [savedHost, setSavedHost] = useState<HTMLDivElement | null>(null);
-  const main = state.actions.find(a => !a.cancelled && a.taskId === task.id && ['send','continue'].includes(a.kind)); const binding = state.bindings[task.id];
+  const summary = state.activitySummaries[task.id];
+  const main = state.actions.find(a => summary?.main ? a.id === summary.main.id : !a.cancelled && a.taskId === task.id && ['send','continue'].includes(a.kind)); const binding = state.bindings[task.id];
   const active = !!main && !finished(main) && !binding?.unavailable; const [historyVersion, setHistoryVersion] = useState(0), [sendVersion, setSendVersion] = useState(0);
   const send = state.actions.find(a => !a.cancelled && a.taskId === task.id && a.kind === 'send');
   const local = state.outgoing.filter(s => s.taskId === task.id && !state.actions.some(a => a.id === s.id && a.cancelled)).sort((a,b) => b.at - a.at)[0];

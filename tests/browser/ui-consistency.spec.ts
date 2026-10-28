@@ -7,6 +7,42 @@ import { builtinThemes, themeStorageKey } from '../../shared/themeValues';
 import { detailsField, saveTitle } from './composer-helpers';
 
 for (const [width, height] of [[320, 844], [390, 844], [768, 844], [1280, 844], [390, 480]]) {
+  test(`Press saved message pages retain drafts and controls at ${width}x${height}`, async ({ page, request }) => {
+    await page.setViewportSize({ width, height });
+    const headers = { 'x-herts-request': '1' }, id = `saved-pages-${crypto.randomUUID()}`;
+    await request.post('/__test/conversation-message', { headers, data: { id, title: 'Saved messages with long descriptions and attachment references', text: 'Existing history remains available.' } });
+    const { context } = await (await request.post(`/api/v1/conversations/${id}/context`, { headers, data: {} })).json();
+    await request.post('/__test/activity-fixture', { headers, data: { contextId: context.id, count: 105, recovery: true } });
+    await page.goto(`/#/conversation/${id}`);
+    const editor = page.getByLabel('Message Hermes', { exact: true });
+    await editor.fill('Keep the current draft while loading saved messages.');
+    if (height < 600) await page.getByRole('button', { name: 'Collapse message box', exact: true }).click();
+    const more = page.getByRole('button', { name: 'More saved messages', exact: true });
+    await expect(more).toBeVisible();
+    await more.scrollIntoViewIfNeeded();
+    expect(await more.evaluate(element => {
+      const control = element.getBoundingClientRect(), viewport = element.closest('.conversation-scroll')!.getBoundingClientRect();
+      return control.top >= viewport.top && control.bottom <= viewport.bottom;
+    })).toBe(true);
+    await page.screenshot({ path: test.info().outputPath(`saved-pages-before-${width}x${height}.png`) });
+    await more.click();
+    await expect(more).toHaveCount(0);
+    await expect(page.locator('.saved-message')).toHaveCount(105);
+    const card = page.locator('.saved-message').last();
+    await card.locator('summary').click();
+    await card.getByRole('button', { name: 'Delete', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Delete saved message?' });
+    await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(card.getByRole('button', { name: 'Delete', exact: true })).toBeFocused();
+    await expect(editor).toHaveValue('Keep the current draft while loading saved messages.');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: test.info().outputPath(`saved-pages-after-${width}x${height}.png`) });
+  });
+}
+
+for (const [width, height] of [[320, 844], [390, 844], [768, 844], [1280, 844], [390, 480]]) {
   test(`first send uses the conversation layout in Press at ${width}x${height}`, async ({ page, request }) => {
     await page.setViewportSize({ width, height });
     await page.goto('/#/conversation/existing');

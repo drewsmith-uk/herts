@@ -186,6 +186,13 @@ test('a late full sync cannot replace newer conversation activity or its saved r
       data.actions = [{ id: actionId, taskId: context.id, contextId: context.id, kind: 'send', text: 'Synthetic submitted message', uploadIds: [],
         createdAt: 100, updatedAt: completed ? 300 : 200, state: completed ? 'finished' : 'running', receipt: 'accepted',
         phase: completed ? 'complete' : 'working', sendStage: 'submitted', ...(completed ? { terminal: 'complete' } : {}) }];
+      if (data.activity) {
+        const { id, kind, state, receipt, phase, createdAt, updatedAt } = data.actions[0];
+        const main = { id, kind, state, receipt, phase, createdAt, updatedAt };
+        data.activity = { ...data.activity, actions: data.actions, summary: { ...data.activity.summary,
+          version: data.activity.summary.version + (completed ? 2 : 1), main, latestSend: main, hasSubmission: true } };
+        delete data.actions;
+      }
       data.binding = { storedId: id, runtimeId: 'synthetic-runtime', generation: 'current-generation', epoch: 'fixture-epoch', seq: completed ? 3 : 2, known: true, ready: completed, monitored: true };
       await route.fulfill({ json: data });
     });
@@ -205,10 +212,10 @@ test('a late full sync cannot replace newer conversation activity or its saved r
         const open = indexedDB.open('hermes-tasks'); open.onsuccess = () => resolve(open.result); open.onerror = () => reject(open.error);
       });
       try {
-        const state = await new Promise<any>((resolve, reject) => {
-          const read = database.transaction('kv').objectStore('kv').get('state'); read.onsuccess = () => resolve(read.result); read.onerror = () => reject(read.error);
+        const row = await new Promise<any>((resolve, reject) => {
+          const read = database.transaction('activityCache').objectStore('activityCache').get(`action:${id}`); read.onsuccess = () => resolve(read.result); read.onerror = () => reject(read.error);
         });
-        return state?.value.actions.find((action: any) => action.id === id)?.state;
+        return row?.value.action.state;
       } finally { database.close(); }
     }, actionId)).toBe('finished');
     await expect(page.getByLabel('Message Hermes', { exact: true })).toHaveValue('Keep the newer draft.');

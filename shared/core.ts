@@ -18,7 +18,7 @@ export interface RemoteSession {
   protocol: 'hermes-gateway-v1'; profileId: string; instanceId: string; authorityEpoch: number;
   revision: number; executionGeneration: number; replayEpoch: string; sequence: number; subscriptionId: string;
 }
-export interface Binding { profile?: string; runtimeId: string; storedId: string; epoch: string; generation: string; seq: number; ready: boolean; monitored: boolean; known: boolean; unavailable?: boolean; remote?: RemoteSession }
+export interface Binding { profile?: string; runtimeId: string; storedId: string; epoch: string; generation: string; seq: number; ready: boolean; monitored: boolean; known: boolean; unavailable?: boolean; remote?: RemoteSession; observedSeq?: number; recoveryPending?: boolean }
 // taskId is the legacy wire/storage field for the canonical context ID. New
 // requests use contextId; the server resolves legacy task IDs before dispatch.
 export interface Action {

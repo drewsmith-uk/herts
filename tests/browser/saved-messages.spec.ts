@@ -23,6 +23,44 @@ async function expand(page: Page, id: string) {
   await card.locator('summary').click(); return card;
 }
 
+for (const incremental of [false, true]) test(`deleted saved messages stay deleted after an offline reload with incremental sync ${incremental}`, async ({ page, request }) => {
+  const fixture = await seed(request, 'Delete this saved copy permanently', { attachment: true });
+  const before = await calls(request);
+  let deleted = false;
+  await page.route('**/api/v1/**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith('/events') || deleted && route.request().method() === 'GET') return route.abort();
+    const outgoing = { ...route.request().headers() };
+    if (!incremental) delete outgoing['x-herts-activity-sync'];
+    if (path.endsWith('/discard-saved-message')) deleted = true;
+    const response = await route.fetch({ headers: outgoing });
+    if (!(response.headers()['content-type'] || '').includes('application/json')) return route.fulfill({ response });
+    const data = await response.json();
+    if (!incremental && 'activitySync' in data) data.activitySync = false;
+    if (path.endsWith('/discard-saved-message')) expect(!!data.activity).toBe(incremental);
+    await route.fulfill({ response, json: data });
+  });
+  await page.goto(fixture.url);
+  const card = await expand(page, fixture.action.id);
+  await card.getByRole('button', { name: 'Use this message' }).click();
+  await expect(page.getByLabel('Message Hermes', { exact: true })).toHaveValue(fixture.action.text);
+  await card.getByRole('button', { name: 'Delete', exact: true }).click();
+  await page.getByRole('button', { name: 'Delete saved message', exact: true }).click();
+  await expect(card).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByLabel('Message Hermes', { exact: true })).toHaveValue(fixture.action.text);
+  await expect(page.getByRole('button', { name: 'Remove original.txt', exact: true })).toBeVisible();
+  await expect(page.locator(`[data-saved-message="${fixture.action.id}"]`)).toHaveCount(0);
+  const cached = await page.evaluate(async id => {
+    const db = (window as any).__HERTS_PLUGIN_RUNTIME__.sdk.conversationDrafts.db;
+    return { action: (await db.table('activityCache').get(`action:${id}`))?.value.action,
+      deletedAt: (await db.table('activityCache').get(`retired:${id}`))?.value.deletedAt };
+  }, fixture.action.id);
+  expect(cached.deletedAt).toEqual(expect.any(Number));
+  expect(cached.action).toMatchObject({ text: '', uploadIds: [], savedMessageDeletedAt: cached.deletedAt });
+  expect(await calls(request)).toEqual(before);
+});
+
 for (const width of [390, 1280]) test(`saved messages copy into existing input with attachments and delete across devices at ${width}px`, async ({ page, request, browser }) => {
   await page.setViewportSize({ width, height: 844 });
   if (width === 390) await page.addInitScript(({ key, theme }) => localStorage.setItem(key, JSON.stringify({ id: theme.id, theme })), { key: themeStorageKey, theme: builtinThemes.find(t => t.id === 'press')! });
@@ -85,8 +123,8 @@ test('reconnecting removes deleted saved content and local submission copies wit
     const database = await new Promise<IDBDatabase>((resolve, reject) => { const r = indexedDB.open('hermes-tasks'); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); });
     try {
       const read = (store: string, key: string) => new Promise<any>((resolve, reject) => { const r = database.transaction(store).objectStore(store).get(key); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); });
-      const saved = await read('kv', 'state');
-      return { action: saved?.value?.actions?.find((a: any) => a.id === id), submission: !!await read('submissions', id), file: !!await read('files', uploadId) };
+      const saved = await read('activityCache', `action:${id}`);
+      return { action: saved?.value?.action, submission: !!await read('submissions', id), file: !!await read('files', uploadId) };
     } finally { database.close(); }
   }, { id: fixture.action.id, uploadId: fixture.action.uploadIds[0] });
   try {

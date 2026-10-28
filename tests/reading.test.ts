@@ -89,7 +89,7 @@ describe('reading items and shared conversation identity', () => {
       store.db.exec('DELETE FROM context_aliases; DELETE FROM contexts; DROP TABLE notification_tests; DROP TABLE subscriptions; CREATE TABLE subscriptions (id TEXT PRIMARY KEY, data TEXT NOT NULL); PRAGMA user_version = 1;'); store.close(); store = new Store(`${dir}/tasks.sqlite`);
       expect(store.task(task.id)?.contextId).toBe(task.id); expect(store.binding(task.id)).toEqual(binding);
       expect(store.mutate(op)).toEqual({ accepted: true, id: op.id }); expect(store.snapshot().tasks).toHaveLength(1);
-      expect(store.db.pragma('user_version',{simple:true})).toBe(5);
+      expect(store.db.pragma('user_version',{simple:true})).toBe(10);
     } finally { store.close(); await rm(dir,{recursive:true,force:true}); }
   });
 });

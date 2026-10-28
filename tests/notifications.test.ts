@@ -68,7 +68,7 @@ describe('notification registration recovery', () => {
       store.db.exec('CREATE TABLE legacy_subscriptions (id TEXT PRIMARY KEY,data TEXT NOT NULL); INSERT INTO legacy_subscriptions SELECT id,data FROM subscriptions; DROP TABLE subscriptions; ALTER TABLE legacy_subscriptions RENAME TO subscriptions; DROP TABLE notification_tests; PRAGMA user_version = 4;');
       store.close();store=new Store(`${dir}/tasks.sqlite`);
       expect(store.getMeta('vapid')).toEqual(keys);expect(store.db.prepare('SELECT * FROM subscriptions').get()).toMatchObject({id,data:JSON.stringify(sub),created_at:0,invalid:0});
-      expect(store.db.prepare('SELECT * FROM deliveries').get()).toEqual({notice_id:'notice',subscription_id:id,delivered:1,attempts:2});expect(store.db.pragma('user_version',{simple:true})).toBe(5);
+      expect(store.db.prepare('SELECT * FROM deliveries').get()).toEqual({notice_id:'notice',subscription_id:id,delivered:1,attempts:2});expect(store.db.pragma('user_version',{simple:true})).toBe(10);
     }finally{store.close();await rm(dir,{recursive:true,force:true});}
   });
   it.each([404,410])('retains an expired %i registration for repair, stops sends and never silently revives it', async statusCode => {

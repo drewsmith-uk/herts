@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { LoaderCircle } from 'lucide-react';
-import { api, beginActivityRead, acceptNotificationDestination } from './data';
+import { activityApi as api, beginActivityRead, acceptNotificationDestination } from './data';
 import { replaceRoute } from './notificationNavigation';
 import { currentPath } from './useRoute';
 import { foregroundRead } from './foregroundReads';

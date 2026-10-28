@@ -73,7 +73,7 @@ describe('independent task spaces', () => {
       const before=s.snapshot(),receipts=s.db.prepare('SELECT * FROM receipts ORDER BY rowid').all();
       for(const task of before.tasks){delete task.spaceId;s.saveTask(task);}s.setMeta('snapshot',{lists:before.lists,revision:before.revision});s.db.exec('DROP TABLE notification_tests; DROP TABLE subscriptions; CREATE TABLE subscriptions (id TEXT PRIMARY KEY, data TEXT NOT NULL);');s.db.pragma('user_version = 2');s.close();s=new Store(`${dir}/tasks.sqlite`);
       expect(s.snapshot().lists).toEqual(before.lists);expect(s.snapshot().tasks[0]).toEqual({...before.tasks[0],spaceId:originalSpaceId});expect(s.db.prepare('SELECT * FROM receipts ORDER BY rowid').all()).toEqual(receipts);
-      expect(s.mutate(task)).toEqual({accepted:true,id:task.id});expect(s.db.pragma('user_version',{simple:true})).toBe(5);expect(s.db.pragma('foreign_key_check')).toEqual([]);
+      expect(s.mutate(task)).toEqual({accepted:true,id:task.id});expect(s.db.pragma('user_version',{simple:true})).toBe(10);expect(s.db.pragma('foreign_key_check')).toEqual([]);
     }finally{s.close();await rm(dir,{recursive:true,force:true});}
   });
 });

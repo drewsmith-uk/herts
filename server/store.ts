@@ -1,4 +1,6 @@
 import Database from 'better-sqlite3';
+import { ActionArchive } from './archive.js';
+import { ActionActivity } from './activity.js';
 import { randomUUID } from 'node:crypto';
 import { applyReadingOp, emptyReading, normalizeUrl, retainsArticle, type ConversationContext, type ReadingOp, type ReadingState, type Article } from '../shared/reading.js';
 import { mkdirSync, chmodSync } from 'node:fs';
@@ -12,12 +14,29 @@ import { applyTaskOp, applySpaceOp, withSpaces, applyConversationVisibility, emp
 export const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export class Store extends LegacyFeatures {
   db: Database.Database;
+  readonly activity: ActionActivity;
+  readonly archive: ActionArchive;
+  private pendingEvents?: [string | symbol, any[]][];
+  override emit(event: string | symbol, ...args: any[]) {
+    if (this.pendingEvents) { this.pendingEvents.push([event, args]); return true; }
+    return super.emit(event, ...args);
+  }
+  atomic<T>(write: () => T): T {
+    if (this.pendingEvents) return this.db.transaction(write)();
+    const events: [string | symbol, any[]][] = []; this.pendingEvents = events;
+    let result: T;
+    try { result = this.db.transaction(write)(); }
+    catch (error) { this.pendingEvents = undefined; throw error; }
+    this.pendingEvents = undefined;
+    for (const [event, args] of events) this.emit(event, ...args);
+    return result;
+  }
   readonly legacyInstallation: boolean;
   constructor(path: string) {
     super();
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     this.db = new Database(path);
-    if(Number(this.db.pragma('user_version',{simple:true}))>8){this.db.close();throw new Error('This database needs a newer Herts version.');}
+    if(Number(this.db.pragma('user_version',{simple:true}))>10){this.db.close();throw new Error('This database needs a newer Herts version.');}
     this.legacyInstallation = Number(this.db.pragma('user_version', { simple: true })) > 0;
     this.db.pragma('journal_mode = WAL'); this.db.pragma('synchronous = FULL'); this.db.pragma('foreign_keys = ON');
     this.db.exec(`
@@ -69,6 +88,8 @@ export class Store extends LegacyFeatures {
       `);
       this.db.pragma('user_version = 5');
     })();
+    this.activity = new ActionActivity(this);
+    this.archive = new ActionArchive(this);
   }
   bindProfiles(profile: string) {
     this.db.transaction(() => {
@@ -76,7 +97,7 @@ export class Store extends LegacyFeatures {
       for (const [id, binding] of this.bindings()) if (!binding.profile) this.saveBinding(id, { ...binding, profile: this.context(id)?.profile || profile });
       this.setMeta('profiles-bound', true);
       // Version 8 retains gateway identities and receipts in existing JSON records.
-      this.db.pragma('user_version = 8');
+      if (Number(this.db.pragma('user_version', { simple: true })) < 8) this.db.pragma('user_version = 8');
     })();
   }
   getMeta<T = any>(key: string): T | undefined { const r = this.db.prepare('SELECT value FROM meta WHERE key=?').get(key) as any; return r ? JSON.parse(r.value) : undefined; }
@@ -115,8 +136,13 @@ export class Store extends LegacyFeatures {
   }
   saveContext(context: ConversationContext) {
     context = { ...context, ...(this.getMeta('profiles-bound') ? { profile: context.profile || context.link?.profile || this.getMeta<any>('hermesTarget')?.profile || 'default' } : {}), ...(context.link?.profile ? { profile: context.link.profile } : {}), ...(context.link?.botChat ? { botChat: true } : {}) };
-    this.db.prepare('INSERT OR REPLACE INTO contexts VALUES (?,?)').run(context.id, JSON.stringify(context));
-    for (const alias of context.aliases) this.db.prepare('INSERT INTO context_aliases VALUES (?,?) ON CONFLICT(alias) DO UPDATE SET context_id=excluded.context_id').run(alias, context.id);
+    this.db.transaction(() => {
+      const prior = this.db.prepare('SELECT data FROM contexts WHERE id=?').get(context.id) as { data: string } | undefined;
+      const data = JSON.stringify(context);
+      this.db.prepare('INSERT OR REPLACE INTO contexts VALUES (?,?)').run(context.id, data);
+      for (const alias of context.aliases) this.db.prepare('INSERT INTO context_aliases VALUES (?,?) ON CONFLICT(alias) DO UPDATE SET context_id=excluded.context_id').run(alias, context.id);
+      if (prior?.data !== data) this.activity?.changed(context.id);
+    })();
     return context;
   }
   ensureContext(link: Link, aliases: string[] = [], preferred: string = randomUUID()): ConversationContext {
@@ -150,8 +176,19 @@ export class Store extends LegacyFeatures {
     })(); this.emit('change', { type: 'contexts' });
   }
   bumpRevision() { const meta = this.getMeta('snapshot'); meta.revision++; this.setMeta('snapshot', meta); }
-  actions(taskId?: string): Action[] { return (taskId ? this.db.prepare('SELECT data FROM actions WHERE task_id=? ORDER BY rowid DESC').all(this.context(taskId)?.id || taskId) : this.db.prepare('SELECT data FROM actions ORDER BY rowid DESC').all()).map((r: any) => JSON.parse(r.data)); }
-  action(id: string): Action | undefined { const r = this.db.prepare('SELECT data FROM actions WHERE id=?').get(id) as any; return r && JSON.parse(r.data); }
+  actions(taskId?: string): Action[] {
+    const context = taskId && (this.context(taskId)?.id || taskId);
+    const sql = this.activity ? `SELECT a.data FROM actions a JOIN action_index i ON i.id=a.id ${context ? 'WHERE a.task_id=?' : ''} ORDER BY i.ordinal DESC`
+      : `SELECT data FROM actions ${context ? 'WHERE task_id=?' : ''} ORDER BY rowid DESC`;
+    return (this.db.prepare(sql).all(...(context ? [context] : [])) as { data: string }[]).map(row => JSON.parse(row.data));
+  }
+  action(id: string): Action | undefined {
+    const row = this.db.prepare('SELECT data FROM actions WHERE id=?').get(id) as { data: string } | undefined;
+    const archived = !row && this.archive ? this.db.prepare('SELECT data FROM archived_actions WHERE id=?').get(id) as { data: string } | undefined : undefined;
+    return row || archived ? JSON.parse((row || archived)!.data) : undefined;
+  }
+  actionUploadIds(): string[] { return (this.db.prepare('SELECT DISTINCT upload_id FROM action_uploads').all() as { upload_id: string }[]).map(row => row.upload_id); }
+  hasActionUpload(id: string) { return !!this.db.prepare('SELECT 1 FROM action_uploads WHERE upload_id=? LIMIT 1').get(id); }
   saveAction(action: Action) {
     const previous = this.action(action.id);
     // Late execution updates must not bring a deleted saved copy back.
@@ -163,15 +200,31 @@ export class Store extends LegacyFeatures {
         for (const id of action.uploadIds) this.db.prepare('INSERT OR IGNORE INTO discarded_uploads VALUES (?)').run(id);
         Object.assign(action, redactSavedMessage(action)); delete action.answers;
       }
+      this.db.prepare('DELETE FROM archived_actions WHERE id=?').run(action.id);
+      this.db.prepare('DELETE FROM action_uploads WHERE action_id=?').run(action.id);
+      for (const id of action.uploadIds) this.db.prepare('INSERT OR IGNORE INTO action_uploads VALUES (?,?)').run(action.id, id);
       this.db.prepare('INSERT INTO actions VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').run(action.id, action.taskId, JSON.stringify(action));
+      this.activity.recordAction(action);
     })();
     this.emit('change', { type: 'action', action });
   }
   binding(taskId: string): Binding | undefined { const r = this.db.prepare('SELECT data FROM bindings WHERE task_id=?').get(this.context(taskId)?.id || taskId) as any; return r && JSON.parse(r.data); }
   bindings(): [string, Binding][] { return (this.db.prepare('SELECT * FROM bindings').all() as any[]).map(r => [r.task_id, JSON.parse(r.data)]); }
-  saveBinding(taskId: string, binding: Binding) { this.db.prepare('INSERT OR REPLACE INTO bindings VALUES (?,?)').run(taskId, JSON.stringify(binding)); }
+  saveBinding(taskId: string, binding: Binding) {
+    this.db.transaction(() => {
+      const data = JSON.stringify(binding), prior = this.db.prepare('SELECT data FROM bindings WHERE task_id=?').get(taskId) as { data: string } | undefined;
+      if (data === prior?.data) return;
+      this.db.prepare('INSERT OR REPLACE INTO bindings VALUES (?,?)').run(taskId, data);
+      this.activity.changed(taskId);
+    })();
+  }
+  deleteBinding(contextId: string) {
+    this.db.transaction(() => {
+      if (this.db.prepare('DELETE FROM bindings WHERE task_id=?').run(contextId).changes) this.activity.changed(contextId);
+    })();
+  }
   upload(id: string): Upload | undefined { const r = this.db.prepare('SELECT data FROM uploads WHERE id=?').get(id) as any; return r && JSON.parse(r.data); }
   saveUpload(u: Upload) { this.db.prepare('INSERT OR REPLACE INTO uploads VALUES (?,?)').run(u.id, JSON.stringify(u)); }
   notify(id: string, taskId: string, kind: string) { this.db.prepare('INSERT OR IGNORE INTO notices VALUES (?,?,?,?)').run(id, taskId, kind, Date.now()); this.emit('notice'); }
-  close() { this.db.close(); }
+  close() { this.archive.close(); this.db.close(); }
 }

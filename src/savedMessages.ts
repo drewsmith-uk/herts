@@ -1,5 +1,5 @@
 import { hasSavedMessage, type Action, type Upload } from '../shared/core';
-import { api, db, getState, publish, acceptSnapshot, purgeDeletedSavedMessages, rebuild, saveConversationDraft, type Draft, type LocalFile } from './data';
+import { api, activityApi, db, getState, publish, acceptActivityDetails, acceptSnapshot, purgeDeletedSavedMessages, rebuild, saveConversationDraft, type Draft, type LocalFile } from './data';
 
 export async function copySavedMessage(action: Action, fallback: Draft): Promise<Draft> {
   // Downloads happen before the transaction: an unavailable attachment leaves
@@ -15,10 +15,11 @@ export async function copySavedMessage(action: Action, fallback: Draft): Promise
     if (blob.size !== upload.size || hash !== upload.hash) throw new Error(`Could not verify ${upload.name}. Try copying the message again.`);
     files.push({ id, name: upload.name, type: upload.type, blob, hash, ...(upload.owner ? { owner: upload.owner } : {}) });
   }
-  return db.transaction('rw', db.kv, db.drafts, db.files, async () => {
+  return db.transaction('rw', db.kv, db.drafts, db.files, db.activityCache, async () => {
     const cached = (await db.kv.get('state'))?.value?.actions?.find((a: Action) => a.id === action.id) as Action | undefined;
     const current = getState().actions.find(a => a.id === action.id);
-    if (!hasSavedMessage(current || action) || cached?.savedMessageDeletedAt)
+    const deleted = (await db.activityCache.get(`retired:${action.id}`))?.value?.deletedAt;
+    if (!hasSavedMessage(current || action) || cached?.savedMessageDeletedAt || deleted)
       throw new Error('This saved message is no longer available.');
     const draft = await db.drafts.get(action.taskId) || fallback;
     const next: Draft = {
@@ -36,10 +37,11 @@ export async function copySavedMessage(action: Action, fallback: Draft): Promise
 }
 
 export async function deleteSavedMessage(id: string) {
-  const { action }: { action: Action } = await api(`/actions/${id}/discard-saved-message`, {});
+  const result = await activityApi(`/actions/${id}/discard-saved-message`, {}), action: Action = result.action;
   const state = getState(), current = state.actions.find(a => a.id === id);
   const actions = await purgeDeletedSavedMessages(state.actions.map(a => a.id === id ? { ...(current && current.updatedAt > action.updatedAt ? current : action), savedMessageDeletedAt: action.savedMessageDeletedAt } : a));
   publish({ actions });
   await acceptSnapshot(state.remote, actions);
+  if (result.activity) await acceptActivityDetails(result.activity);
   await rebuild();
 }
