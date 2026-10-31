@@ -385,3 +385,25 @@ test('a recovered state read clears its warning while retaining saved draft choi
   expect(saved.input.id).toBe(pending.operationId);
   expect(saved.input.values).toEqual({ effort: 'high' });
 });
+
+test('a failed state read retries promptly while an open conversation keeps its draft', async ({ page }) => {
+  await page.goto('/#/conversation/existing');
+  const editor = page.getByRole('textbox', { name: 'Message Hermes', exact: true });
+  await editor.fill('Keep this unsent message during automatic recovery.');
+  await expect(status(page)).toHaveText('Connection status: Connected and synced');
+  let fail = true, failedReads = 0, successfulReads = 0, sends = 0;
+  page.on('request', request => { if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/v1/actions') sends++; });
+  await page.route('**/api/v1/state*', async route => {
+    if (fail) { failedReads++; await route.abort(); }
+    else { successfulReads++; await route.continue(); }
+  });
+  await page.evaluate(() => (window as any).__HERTS_PLUGIN_RUNTIME__.sdk.refresh());
+  await expect.poll(() => failedReads).toBeGreaterThan(0);
+  await expect(status(page)).toHaveText('Connection status: Synchronization needs attention');
+  fail = false;
+  await expect(status(page)).toHaveText('Connection status: Connected and synced', { timeout: 5000 });
+  expect(successfulReads).toBeGreaterThan(0);
+  await expect(editor).toHaveValue('Keep this unsent message during automatic recovery.');
+  expect(sends).toBe(0);
+  await page.unrouteAll({ behavior: 'wait' });
+});

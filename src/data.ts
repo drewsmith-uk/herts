@@ -144,6 +144,7 @@ const activityRevisions = new Map<string, number>();
 const contextObservations = new Map<string, ContextObservation>();
 const visibleConversations = new Set<string>();
 let backgroundTimer: ReturnType<typeof setTimeout> | undefined;
+let backgroundRetry = false;
 export function beginActivityRead() {
     return { observation: ++connectionObservation, revision: ++activityRevision, generation: state.activityGeneration };
 }
@@ -158,9 +159,13 @@ export function observeConversation(id: string) {
         }
     };
 }
-function scheduleBackgroundRefresh() {
-    if (backgroundTimer) return;
-    const delay = Math.max(200, lastBackgroundRefresh + (visibleConversations.size ? 30000 : 1000) - Date.now());
+function scheduleBackgroundRefresh(retry = false) {
+    if (backgroundTimer) {
+        if (!retry || backgroundRetry) return;
+        clearTimeout(backgroundTimer);
+    }
+    backgroundRetry = retry;
+    const delay = retry ? 1000 : Math.max(200, lastBackgroundRefresh + (visibleConversations.size ? 30000 : 1000) - Date.now());
     backgroundTimer = setTimeout(() => {
         backgroundTimer = undefined;
         if (navigator.onLine && !document.hidden) void refresh(false, true);
@@ -173,6 +178,7 @@ function acceptConnection(data: Pick<State, 'gateway' | 'pushKey' | 'activitySyn
         connectionVersion: state.connectionVersion + (recovered ? 1 : 0) });
     if (recovered) void sync();
     if (data.activitySync) void syncActivity();
+    if (state.stateRefreshError) scheduleBackgroundRefresh(true);
 }
 let connectionRequest: AbortController | undefined;
 export async function refreshConnection(recover = false) {
