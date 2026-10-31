@@ -1,3 +1,4 @@
+import { seedPendingDraftSettings } from './pending-sync-helpers';
 import { openConnectionDetails } from './navigation-helpers';
 import { test, expect } from '@playwright/test';
 
@@ -326,4 +327,39 @@ test('tabs can enter an empty More section even when all tabs fit', async ({ pag
   await expect(page.locator('[id^=DndLiveRegion]')).toContainText('over droppable area __navigation_more__');
   await page.mouse.up();
   await expect(nav.getByRole('button', {name: 'More', exact: true})).toBeVisible();
+});
+
+test('background reads preserve waiting settings without claiming to send them', async ({ page, context }) => {
+  await page.goto('/#/settings');
+  await expect(status(page)).toHaveText('Connection status: Connected and synced');
+  const pending = await seedPendingDraftSettings(page);
+  let writes = 0;
+  page.on('request', request => { if (request.method() === 'POST' && request.url().includes(`/contexts/${pending.id}/settings`)) writes++; });
+  let release!: () => void, started = false;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/v1/state*', async route => { started = true; await held; await route.continue(); });
+  try {
+    await page.evaluate(() => window.dispatchEvent(new Event('online')));
+    await expect.poll(() => started).toBe(true);
+    await expect(status(page)).toHaveText('Connection status: Changes waiting to sync');
+    const close = await openConnectionDetails(page);
+    const dialog = page.getByRole('dialog', { name: 'Connection and sync', exact: true });
+    await expect(dialog).toContainText('Waiting for first message');
+    await close();
+  } finally { release(); await page.unrouteAll({ behavior: 'wait' }); }
+  await page.reload();
+  await openConnectionDetails(page);
+  const dialog = page.getByRole('dialog', { name: 'Connection and sync', exact: true });
+  await expect(dialog).toContainText('1 pending');
+  await expect(dialog).toContainText('Waiting for first message');
+  await context.setOffline(true);
+  await expect(dialog).toContainText('Disconnected');
+  await expect(dialog).toContainText('Waiting for first message');
+  const saved = await page.evaluate(async id => {
+    const db = (window as any).__HERTS_PLUGIN_RUNTIME__.sdk.conversationDrafts.db;
+    return { settings: (await db.table('kv').get(`settings-op:${id}`)).value, draft: await db.table('drafts').get(id) };
+  }, pending.id);
+  expect(saved.settings.input.id).toBe(pending.operationId);
+  expect(saved.draft.text).toBe('Preserve this unsent draft.');
+  expect(writes).toBe(0);
 });

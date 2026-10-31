@@ -1,8 +1,8 @@
 import { useId, useState } from 'react';
 import { CircleAlert, Check, ChevronRight, Clock, LoaderCircle, RefreshCw, TriangleAlert, WifiOff } from 'lucide-react';
-import { Button, DialogFrame, DialogHeading, StatusMessage } from './ui';
+import { Button, DialogFrame, DialogHeading, StatusMessage, ItemList, ItemRow } from './ui';
 import { refresh, useApp } from './data';
-import { connectionStatus } from './connectionStatus';
+import { connectionStatus, pendingChanges } from './connectionStatus';
 
 function StatusIcon({ badge = false }: { badge?: boolean }) {
   const status = connectionStatus(useApp());
@@ -37,6 +37,14 @@ export function ConnectionStatusRow() {
         <dt>Sync</dt><dd>{status.pending ? `${status.pending} pending` : 'Up to date'}</dd>
       </dl>
       {(state.error || state.activitySyncError || state.syncError || state.gateway.promptError || error) && <StatusMessage>{state.error || state.activitySyncError || state.syncError || state.gateway.promptError || error}</StatusMessage>}
+      {status.pending > 0 && <ItemList divided className="pending-changes" aria-label="Pending changes">
+        {pendingChanges(state).map(change => <ItemRow key={change.key} variant="preview" href={change.href}
+          onClick={() => setOpen(false)} trailing={<ChevronRight size={18} aria-hidden="true"/>}>
+          <span className="item-title">{change.label}</span>
+          {change.detail && <p className="item-preview">{change.detail}</p>}
+          <p className="item-preview">{change.reason}</p>
+        </ItemRow>)}
+      </ItemList>}
       <Button disabled={retrying} onClick={() => void retry()}>{retrying ? 'Checking…' : 'Check again'}</Button>
     </DialogFrame>}
   </>;
