@@ -255,13 +255,15 @@ test('the browser can use legacy responses when incremental sync is disabled', a
     if (data.destination) data.destination.activitySync = false;
     await route.fulfill({ response, json: data });
   });
-  await page.goto(fixture.url);
-  await expect(page.locator('.history')).toContainText('Current conversation history is ready.');
-  await page.getByLabel('Message Hermes', { exact: true }).fill('Keep the fallback draft.');
-  await expect.poll(() => page.evaluate(id => (window as any).__HERTS_PLUGIN_RUNTIME__.sdk.getCore().actions.filter((a: any) => a.taskId === id).length, fixture.context.id)).toBe(1);
-  await page.reload();
-  await expect(page.getByLabel('Message Hermes', { exact: true })).toHaveValue('Keep the fallback draft.');
-  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
+  try {
+    await page.goto(fixture.url);
+    await expect(page.locator('.history')).toContainText('Current conversation history is ready.');
+    await page.getByLabel('Message Hermes', { exact: true }).fill('Keep the fallback draft.');
+    await expect.poll(() => page.evaluate(id => (window as any).__HERTS_PLUGIN_RUNTIME__.sdk.getCore().actions.filter((a: any) => a.taskId === id).length, fixture.context.id)).toBe(1);
+    await page.reload();
+    await expect(page.getByLabel('Message Hermes', { exact: true })).toHaveValue('Keep the fallback draft.');
+    await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
+  } finally { await page.unrouteAll({ behavior: 'wait' }); }
 });
 
 
