@@ -34,6 +34,7 @@ export interface ReadingState {
     items: ReadingItem[];
     unread: List;
     autoDownload: boolean;
+    urlCleanup?: UrlCleanup;
 }
 export interface ReadingOp {
     id: string;
@@ -53,8 +54,9 @@ export interface ReadingOp {
     listVersion?: number;
     offline?: ReadingItem['offline'];
     autoDownload?: boolean;
+    urlCleanup?: UrlCleanup;
 }
-export const emptyReading = (): ReadingState => ({ items: [], unread: { ids: [], version: 0 }, autoDownload: true });
+export const emptyReading = (): ReadingState => ({ items: [], unread: { ids: [], version: 0 }, autoDownload: true, urlCleanup: 'off' });
 export function conversationReadingItems(conversation: Conversation, state: ReadingState, contexts: ConversationContext[]) {
     const aliases = new Set([conversation.id, conversation.key, ...conversation.aliases]);
     const linkedContexts = new Set(contexts.filter(context => context.link &&
@@ -73,18 +75,36 @@ export function normalizeUrl(raw: string): string {
         throw new Conflict('Use an http or https link without embedded credentials.');
     return url.href;
 }
+export type UrlCleanup = 'off' | 'tracking' | 'all';
+const trackingKeys = new Set(['fbclid', 'gclid', 'dclid', 'gbraid', 'wbraid', 'msclkid', 'mc_cid', 'mc_eid']);
+export function cleanUrl(raw: string, mode: UrlCleanup): string {
+    normalizeUrl(raw);
+    if (mode === 'off') return raw;
+    const hash = raw.indexOf('#'), end = hash < 0 ? raw.length : hash;
+    const query = raw.indexOf('?');
+    if (query < 0 || query > end) return raw;
+    const parts = raw.slice(query + 1, end).split('&');
+    const kept = mode === 'all' ? [] : parts.filter(part => {
+        const key = [...new URLSearchParams(part).keys()][0]?.toLowerCase() || '';
+        return !key.startsWith('utm_') && !trackingKeys.has(key);
+    });
+    if (kept.length === parts.length) return raw;
+    return raw.slice(0, query) + (kept.length ? '?' + kept.join('&') : '') + raw.slice(end);
+}
+function mapUrls(text: string, transform: (url: string) => string): string {
+    return text.replace(/https?:\/\/[^\s<>"\u201c\u201d]+/gi, match => {
+        let candidate = match.replace(/[.,;!?]+$/, '');
+        while (candidate.endsWith(')') && (candidate.match(/\)/g)?.length || 0) > (candidate.match(/\(/g)?.length || 0)) candidate = candidate.slice(0, -1);
+        try { normalizeUrl(candidate); return transform(candidate) + match.slice(candidate.length); }
+        catch { return match; }
+    });
+}
+export function cleanSharedText(text: string, mode: UrlCleanup): string {
+    return mode === 'off' ? text : mapUrls(text, url => cleanUrl(url, mode));
+}
 export function sharedUrls(...parts: string[]): string[] {
     const urls = new Set<string>();
-    for (const part of parts)
-        for (const match of part.matchAll(/https?:\/\/[^\s<>"\u201c\u201d]+/gi)) {
-            let candidate = match[0].replace(/[.,;!?]+$/, '');
-            while (candidate.endsWith(')') && (candidate.match(/\)/g)?.length || 0) > (candidate.match(/\(/g)?.length || 0))
-                candidate = candidate.slice(0, -1);
-            try {
-                urls.add(normalizeUrl(candidate));
-            }
-            catch { /* Ignore non-web or credentialed shares. */ }
-        }
+    for (const part of parts) mapUrls(part, url => { urls.add(normalizeUrl(url)); return url; });
     return [...urls];
 }
 export function retainsArticle(item: ReadingItem, state: ReadingState) { return (item.readAt === null || !!item.articleHold) && (item.offline === 'keep' || (item.offline === 'auto' && state.autoDownload)); }
@@ -102,10 +122,11 @@ export function applyReadingOp(input: ReadingState, op: ReadingOp, check = true)
         s.unread.version++;
     }
     else if (op.kind === 'settings') {
-        s.autoDownload = op.autoDownload!;
-        for (const i of s.items)
-            if (i.offline === 'auto')
-                i.downloadVersion++;
+        if (op.urlCleanup !== undefined) s.urlCleanup = op.urlCleanup;
+        if (op.autoDownload !== undefined && op.autoDownload !== s.autoDownload) {
+            s.autoDownload = op.autoDownload;
+            for (const i of s.items) if (i.offline === 'auto') i.downloadVersion++;
+        }
     }
     else {
         if (!item)

@@ -186,17 +186,17 @@ async function bots(request: import('@playwright/test').APIRequestContext, actio
 }
 test.afterEach(async ({ page, request }) => { await page.unrouteAll({ behavior: 'wait' }); await bots(request, 'disable'); await pinnedPlugin(request, 'disable'); });
 
-for (const missing of ['PageHeader', 'DragHandle', 'DragPreview', 'ComposerPlaceholder', 'captureLayout']) test(`an app without ${missing} gets an actionable plugin update message`, async ({ page }) => {
+for (const missing of ['PageHeader', 'DragHandle', 'DragPreview', 'ComposerPlaceholder', 'captureLayout', 'transformDraft']) test(`an app without ${missing} gets an actionable plugin update message`, async ({ page }) => {
   await page.addInitScript(missing => {
     Object.defineProperty(globalThis, '__HERTS_PLUGIN_RUNTIME__', {
       configurable: true,
       set(runtime) {
-        Object.defineProperty(globalThis, '__HERTS_PLUGIN_RUNTIME__', { configurable: true, writable: true, value: { ...runtime, sdk: { ...runtime.sdk, ...(missing === 'captureLayout' ? { composerCapabilities: { ...runtime.sdk.composerCapabilities, captureLayout: undefined } } : { [missing]: undefined }) } } });
+        Object.defineProperty(globalThis, '__HERTS_PLUGIN_RUNTIME__', { configurable: true, writable: true, value: { ...runtime, sdk: { ...runtime.sdk, ...(['captureLayout', 'transformDraft'].includes(missing) ? { composerCapabilities: { ...runtime.sdk.composerCapabilities, [missing]: undefined } } : { [missing]: undefined }) } } });
       },
     });
   }, missing);
   await page.goto('/#/settings/plugins');
-  await expect(page.getByText('Update Herts in Settings → App updates to use this version of Tasks.', { exact: true })).toBeVisible();
+  if (missing !== 'transformDraft') await expect(page.getByText('Update Herts in Settings → App updates to use this version of Tasks.', { exact: true })).toBeVisible();
   if (missing !== 'captureLayout') await expect(page.getByText('Update Herts in Settings → App updates to use this version of Reading.', { exact: true })).toBeVisible();
   await page.goto('/#/settings'); await openSettingsGroups(page);
   await expect(page.getByRole('button', { name: 'Check for updates', exact: true })).toBeVisible();
@@ -746,6 +746,10 @@ for (const theme of builtinThemes) test(`${theme.name}: refined capture and read
     await page.goto('/#/reading/add');
     await page.getByLabel('Message Hermes', { exact: true }).fill('Reading notes\nhttps://example.com/' + 'long-reference/'.repeat(15) + '\nhttps://example.com/second');
     await expect(page.getByLabel('Reading title', { exact: true })).toHaveCount(0);
+    await page.getByLabel('URL cleanup', { exact: true }).selectOption('all');
+    await expect(page.getByText('May break some links.', { exact: true })).toBeVisible();
+    await page.getByLabel('URL cleanup', { exact: true }).focus();
+    await expect(page.getByLabel('URL cleanup', { exact: true })).toBeFocused();
     await page.getByRole('radio').last().check();
     await expect(page.getByRole('radio').last()).toBeChecked();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -1212,4 +1216,21 @@ test('make-task dialog protects its title during delayed submission and failure'
   await expect(field).toHaveValue(title);
   await expect(field).toBeEditable();
   await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeEnabled();
+});
+
+for (const width of [320, 390, 768, 1280]) test(`Reading URL cleanup settings fit at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 844 });
+  await page.goto('/#/settings/plugins');
+  const choice = page.getByLabel('URL cleanup', { exact: true });
+  await choice.selectOption('all');
+  await choice.focus();
+  await expect(choice).toBeFocused();
+  await expect(page.getByText('May break some links.', { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  const bounds = (await choice.boundingBox())!;
+  expect(bounds.x).toBeGreaterThanOrEqual(0);
+  expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+  await page.screenshot({ path: `test-results/reading-cleanup-settings-${width}.png`, fullPage: true });
+  await choice.selectOption('off');
+  await expect(page.locator('.save-state')).toContainText('Changes synced');
 });
