@@ -198,3 +198,33 @@ for (const width of [320, 1280]) test(`a rejected conversion can be discarded wi
   expect(tasks.find((task: any) => task.title === `Recovered conversion ${width}`)).toMatchObject({ spaceId: originalSpaceId, status: 'next' });
   expect(tasks.some((task: any) => task.title === 'Keep later work available after this rejected task creation request')).toBe(false);
 });
+
+test('voice shortcut waits for task data before choosing the default space', async ({ page, request }) => {
+  const work = crypto.randomUUID(), headers = { 'x-tasks-request': '1' };
+  await request.post('/api/v1/spaces/sync', { headers, data: { id: crypto.randomUUID(), spaceId: work, kind: 'create', name: 'Delayed voice default', at: Date.now() } });
+  const before = await state(request);
+  await request.post('/api/v1/spaces/sync', { headers, data: { id: crypto.randomUUID(), spaceId: work, kind: 'default', baseDefaultSpaceId: before.defaultSpaceId, at: Date.now() } });
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  let reads = 0;
+  await page.route('**/api/v1/state', async route => {
+    if (++reads === 1) {
+      const response = await route.fetch(), data = await response.json();
+      data.pluginData.tasks.records = {};
+      await route.fulfill({ response, json: data });
+    } else { await held; await route.continue(); }
+  });
+  try {
+    await page.goto('/#/tasks/inbox/record');
+    await expect(page.getByRole('status', { name: 'Opening draft', exact: true })).toBeVisible();
+    await expect(page).toHaveURL(/#\/tasks\/inbox\/record$/);
+    await expect(page.getByRole('button', { name: 'Stop recording and transcribe', exact: true })).toHaveCount(0);
+    release();
+    await expect(spaceTab(page, work)).toHaveAttribute('aria-current', 'page');
+    await expect(page.getByRole('button', { name: 'Stop recording and transcribe', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Cancel dictation', exact: true }).click();
+    await page.reload();
+    await expect(page.getByRole('button', { name: 'Dictate', exact: true })).toBeEnabled();
+    await expect(page.getByRole('button', { name: 'Stop recording and transcribe', exact: true })).toHaveCount(0);
+  } finally { release(); await page.unrouteAll({ behavior: 'wait' }); }
+});

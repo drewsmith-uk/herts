@@ -1,5 +1,5 @@
 import { TaskCapture } from './TaskCapture';
-import { ActionRow, RenameAction, FormDialog, FormField, PageHeader, Button, IconButton, SectionNav, ItemList, EmptyState, StatusMessage } from '@herts/plugin-api/client';
+import { ComposerPlaceholder, ActionRow, RenameAction, FormDialog, FormField, PageHeader, Button, IconButton, SectionNav, ItemList, EmptyState, StatusMessage } from '@herts/plugin-api/client';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Inbox, ArrowRight, Clock3, Pause, Check, Plus, ChevronLeft, ArrowUp, ArrowDown, AlarmClock, Pencil, CheckCheck } from 'lucide-react';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
@@ -64,18 +64,20 @@ export function TasksScreen({ path, parts, recordRequest, shared }: RouteProps) 
     const state = useApp();
     let [screen, id, status] = parts;
     const [record, setRecord] = useState<string>();
-    useEffect(() => { if (path === '/tasks/inbox/record') {
+    const tasksReady = !!state.pluginData.tasks?.records.state;
+    useEffect(() => { if (path === '/tasks/inbox/record' && tasksReady) {
         const target = spacePath(state.snapshot.defaultSpaceId || originalSpaceId);
         history.replaceState(history.state, '', `/#${target}`);
         setRecord(crypto.randomUUID());
         dispatchEvent(new PopStateEvent('popstate'));
-    } }, [path]);
+    } }, [path, tasksReady, state.snapshot.defaultSpaceId]);
     const task = screen === 'task' ? state.snapshot.tasks.find(t => t.id === id) : undefined;
     const space = task ? taskSpaceId(task) : screen === 'spaces' ? id : screen === 'tasks' && id ? (state.snapshot.spaces?.some(s => s.id === originalSpaceId) ? originalSpaceId : state.snapshot.defaultSpaceId || state.viewedSpaceId) : state.viewedSpaceId;
     const selected = screen === 'spaces' ? status : id;
     const current = statuses.includes(selected as Status) ? selected as Status : 'inbox';
     useEffect(() => { if (state.snapshot.spaces?.some(s => s.id === space))
         rememberSpace(space); }, [space]);
+    if (path === '/tasks/inbox/record' && !tasksReady) return <ComposerPlaceholder/>;
     if (screen === 'plugins' && id === 'tasks' && status === 'reminders')
         return <ReminderSummary id={parts[3]}/>;
     if (path === '/plugins/tasks/share' && shared)
