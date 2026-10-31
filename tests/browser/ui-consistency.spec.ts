@@ -761,7 +761,6 @@ for (const theme of builtinThemes) test(`${theme.name}: refined capture and read
     const inputBounds = await input.boundingBox();
     expect(bounds!.x).toBe(inputBounds!.x);
     expect(bounds!.width).toBeLessThanOrEqual(inputBounds!.width);
-    await input.press('ControlOrMeta+Home');
     await page.screenshot({ path: `test-results/reading-preview-${theme.id}-${width}.png` });
 
     await page.getByLabel('URL cleanup', { exact: true }).focus();
