@@ -1,4 +1,11 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
+
+async function setCleanupDefault(page: Page, value: string) {
+  const saved = page.waitForResponse(response => response.url().endsWith('/api/v1/plugins/reading/commands') && response.request().method() === 'POST' && response.request().postDataJSON().input.urlCleanup === value);
+  await page.getByLabel('URL cleanup', { exact: true }).selectOption(value);
+  expect((await saved).ok()).toBe(true);
+  await expect(page.locator('.save-state')).toContainText('Changes synced');
+}
 
 for (const mode of ['off', 'tracking', 'all']) test(`shared Reading links use ${mode} cleanup for saving and sending`, async ({ page, request }) => {
   const original = `https://example.com/cleanup-${mode}?id=1&utm_source=feed#part`;
@@ -22,16 +29,14 @@ for (const mode of ['off', 'tracking', 'all']) test(`shared Reading links use ${
 
 test('settings initialize new drafts and overrides survive offline saving', async ({ page, request, context }) => {
   await page.goto('/#/settings/plugins');
-  await page.getByLabel('URL cleanup', { exact: true }).selectOption('all');
-  await expect(page.locator('.save-state')).toContainText('Changes synced');
+  await setCleanupDefault(page, 'all');
   await page.goto('/#/reading/add');
   const choice = page.getByLabel('URL cleanup', { exact: true });
   await expect(choice).toHaveValue('all');
   await page.getByLabel('Message Hermes', { exact: true }).fill('https://example.com/offline-cleanup?id=1&utm_source=x#part');
   await choice.selectOption('tracking');
   await page.goto('/#/settings/plugins');
-  await page.getByLabel('URL cleanup', { exact: true }).selectOption('off');
-  await expect(page.locator('.save-state')).toContainText('Changes synced');
+  await setCleanupDefault(page, 'off');
   await page.goto('/#/reading/add');
   await expect(choice).toHaveValue('tracking');
   await context.setOffline(true);
