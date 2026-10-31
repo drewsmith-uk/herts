@@ -451,8 +451,16 @@ export class Actions {
         this.store.saveAction(stop);
       }
     }
+    this.refreshObsoleteRecovery(taskId, binding);
     this.store.emit('change', { type: 'binding' });
     return true;
+  }
+  private refreshObsoleteRecovery(taskId: string, binding: Binding) {
+    // An obsolete connection still blocks archival when an operation has an unknown outcome.
+    binding.recoveryPending = this.store.actions(taskId).some(action => this.dispatching.has(action.id) ||
+      activeStates.has(action.state) || action.state === 'unknown' || ['pending', 'unknown'].includes(action.receipt) ||
+      !!action.settings?.inFlight || !!(action.settings?.confirmation && !action.settings.confirmedModel));
+    this.store.saveBinding(taskId, binding);
   }
   async reconcile(taskId: string) {
     const profile = this.store.context(taskId)?.profile || this.gateway.profile;
@@ -462,7 +470,11 @@ export class Actions {
     if (this.polling.has(taskId)) return false; this.polling.add(taskId);
     let observed: Binding | undefined;
     try {
-      const b = this.store.binding(taskId), a = this.main(taskId); if (!b || !a || b.unavailable || b.epoch !== this.gateway.epoch) return true;
+      const b = this.store.binding(taskId), a = this.main(taskId); if (!b || !a) return true;
+      if (b.unavailable || b.epoch !== this.gateway.epoch) {
+        if (b.unavailable || this.gateway.online && this.gateway.protocol !== 'hermes-gateway-v1') this.refreshObsoleteRecovery(taskId, b);
+        return true;
+      }
       if (b.recoveryPending) return false;
       if (this.dispatching.has(a.id) || (a.state === 'preparing' && a.kind === 'send')) return false;
       observed = b;
@@ -772,14 +784,15 @@ export class Actions {
     const priorities = new Map(this.store.bindings().map(([id]) => [id, Number(activeStates.has(this.main(id)?.state || 'ready'))]));
     const bindings = this.store.bindings().sort(([left], [right]) => priorities.get(right)! - priorities.get(left)!);
     for (const [taskId, b] of bindings) {
-      if (b.unavailable) continue;
+      if (b.unavailable) { this.refreshObsoleteRecovery(taskId, b); continue; }
       if (this.gateway.protocol !== 'hermes-gateway-v1' && b.epoch !== this.gateway.epoch) {
-        b.ready = false; b.known = false; b.recoveryPending = true; this.store.saveBinding(taskId, b);
+        b.ready = false; b.known = false;
         const a = this.main(taskId);
         if (a && activeStates.has(a.state)) {
           a.state = 'unknown'; a.error = 'Hermes restarted. Review the available history. Sending a new message will prepare this conversation again; the previous message will not be resent.';
           this.store.saveAction(a);
         }
+        this.refreshObsoleteRecovery(taskId, b);
         continue;
       }
       pending.push(this.scheduleRecovery(taskId, b));
