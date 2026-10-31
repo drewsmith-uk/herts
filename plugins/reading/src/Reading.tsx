@@ -1,12 +1,12 @@
 import { readingTitle, ComposerPlaceholder, MessageComposer, useEntryDraft, type Draft } from '@herts/plugin-api/client';
-import { DragPreview, DragHandle, ActionRow, ActionRowLink, RenameAction, PageHeader, Button, ButtonLink, IconButton, SectionNav, SectionLink, ItemList, ItemRow, ItemMeta, EmptyState, StatusMessage, SettingsSection, SettingRow } from '@herts/plugin-api/client';
+import { DragPreview, DragHandle, ActionRow, ActionRowLink, RenameAction, PageHeader, Button, ButtonLink, IconButton, SectionNav, SectionLink, ItemList, ItemRow, ItemMeta, EmptyState, StatusMessage, SettingsSection, SettingRow, FormField } from '@herts/plugin-api/client';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { BookOpen, Bookmark, BookmarkCheck, Plus, Check, Circle, ExternalLink, Download, Trash2, LoaderCircle } from 'lucide-react';
 import { DndContext, DragOverlay, closestCenter, type DragEndEvent } from '@dnd-kit/core';
 import { useHoldSensors, holdListeners, useDragClickGuard } from '@herts/plugin-api/client';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { emptyReading, normalizeUrl, sharedUrls, type ReadingItem, type Article } from './model';
+import { emptyReading, normalizeUrl, sharedUrls, cleanUrl, cleanSharedText, type UrlCleanup, type ReadingItem, type Article } from './model';
 import { useApp, addReading, readingChange, changeReadingWithUndo, db, sync, publish, getArticle } from './data';
 import { ConversationPanel } from '@herts/plugin-api/client';
 import { ConversationHeader } from '@herts/plugin-api/client';
@@ -63,28 +63,32 @@ function ReadingRow({ item, index, items }: {
   </ItemRow></div>;
 }
 export function ReadingCapture({ sharedContent, id }: { sharedContent?: import('@herts/plugin-api/types').SharedContent; id?: string }) {
+    const state = useApp();
     const shared = !!sharedContent;
     const text = sharedContent ? [sharedContent.text, sharedContent.url].filter((v, i, a) => v && a.indexOf(v) === i).join('\n') || sharedContent.title : undefined;
     const entry = useEntryDraft({ key: shared ? `share:${JSON.stringify(sharedContent)}` : 'reading-capture', pluginId: 'reading', id,
       route: draftId => `/reading/add/${draftId}`, initialText: text,
-      initialFields: sharedContent?.title && !sharedUrls(sharedContent.title).length ? { title: sharedContent.title.slice(0, 2000) } : undefined,
+      initialFields: { urlCleanup: state.snapshot.reading?.urlCleanup ?? 'off', ...(sharedContent?.title && !sharedUrls(sharedContent.title).length ? { title: sharedContent.title.slice(0, 2000) } : {}) },
       legacy: shared ? undefined : { read: async () => { const saved = await db.drafts.get('reading-capture'); if (!saved) return; try { const old = JSON.parse(saved.text); return { text: old.url || '', files: saved.files, fields: { title: old.title || '' } }; } catch { return { text: saved.text, files: saved.files }; } }, clear: () => db.drafts.delete('reading-capture') },
     });
+    const cleanup = (entry.fields.urlCleanup || 'off') as UrlCleanup;
     async function prepare(draft: Draft) {
-      const urls = sharedUrls(draft.text), chosen = entry.fields.url && urls.includes(entry.fields.url) ? entry.fields.url : urls.length === 1 ? urls[0] : undefined;
+      const urls = sharedUrls(draft.text);
+      const selected = entry.fields.url ? normalizeUrl(cleanUrl(entry.fields.url, cleanup)) : undefined;
+      const chosen = selected && urls.includes(selected) ? selected : urls.length === 1 ? urls[0] : undefined;
       if (!chosen) throw new Error(urls.length ? 'Choose which link to save to Reading.' : 'Add a link to your message first.');
       let title = entry.fields.title?.trim() || '';
       if (/^https?:\/\/\S*$/i.test(title)) {
-        try { if (normalizeUrl(title) !== normalizeUrl(chosen)) title = ''; }
+        try { title = cleanUrl(title, cleanup); if (normalizeUrl(title) !== normalizeUrl(chosen)) title = ''; }
         catch { title = ''; }
       }
       await addReading(chosen, title, undefined, draft.id);
     }
     const leave = async (sent: boolean) => { await entry.complete(); if (shared) history.replaceState(null, '', '/'); navigate(sent ? `/reading-item/${entry.id}` : '/reading'); };
     return <><a href="#/reading" className="back-link">Reading list</a><PageHeader title="Add to Reading"/>
-      {entry.id ? <MessageComposer context={entry.context} persist={entry.persist} prepare={prepare} owner={entry.owner} saveLabel="Save only" onSaved={() => leave(false)} onSent={() => leave(true)} fields={draft => {
+      {entry.id ? <MessageComposer context={entry.context} persist={entry.persist} transformDraft={draft => cleanup === 'off' ? draft : { ...draft, text: cleanSharedText(draft.text, cleanup) }} prepare={prepare} owner={entry.owner} saveLabel="Save only" onSaved={() => leave(false)} onSent={() => leave(true)} fields={draft => {
         const urls = sharedUrls(draft.text);
-        return urls.length > 1 && <fieldset className="entry-links"><legend>Which link belongs in Reading?</legend>{urls.map(url => <label className="share-choice" key={url}><input type="radio" name="reading-link" checked={entry.fields.url === url} onChange={() => void entry.updateFields({ url })}/><span>{url}</span></label>)}</fieldset>;
+        return <><FormField label="URL cleanup" htmlFor="reading-capture-cleanup"><CleanupSelect id="reading-capture-cleanup" value={cleanup} onChange={urlCleanup => void entry.updateFields({ urlCleanup })}/></FormField>{cleanup === 'all' && <p>May break some links.</p>}{urls.length > 1 && <fieldset className="entry-links"><legend>Which link belongs in Reading?</legend>{urls.map(url => <label className="share-choice" key={url}><input type="radio" name="reading-link" checked={entry.fields.url === url} onChange={() => void entry.updateFields({ url })}/><span>{url}</span></label>)}</fieldset>}</>;
       }}/> : <ComposerPlaceholder/>}{entry.error && <StatusMessage>{entry.error}</StatusMessage>}
     </>;
 }
@@ -215,7 +219,12 @@ export function BookmarkLink({ href, conversationId, children }: {
     }
     return <>{url && <button className={`bookmark-button ${existing ? 'saved' : ''}`} aria-label={`${existing ? 'Open reading item' : 'Save to reading list'}: ${url}`} title={existing ? 'Open reading item' : 'Save to reading list'} disabled={busy} onClick={() => void bookmark()}>{busy ? <LoaderCircle size={15} className="spin"/> : existing ? <BookmarkCheck size={16}/> : <Bookmark size={16}/>}</button>}{error && <span role="alert" className="inline-error">{error}</span>}</>;
 }
+function CleanupSelect({ value, onChange, id }: { value: UrlCleanup; onChange: (value: UrlCleanup) => void; id?: string }) {
+    return <select id={id} value={value} onChange={event => onChange(event.target.value as UrlCleanup)}>
+      <option value="off">Off</option><option value="tracking">Known tracking parameters</option><option value="all">All query parameters</option>
+    </select>;
+}
 export function ReadingSettings() {
     const state = useApp(), { run, error } = useReadingAction();
-    return <SettingsSection title="Offline reading" icon={<Download size={22}/>}><SettingRow label="Automatically download unread articles" htmlFor="reading-auto-download" description="Marking an item read removes its offline download." control={<input id="reading-auto-download" type="checkbox" checked={state.snapshot.reading?.autoDownload ?? true} onChange={e => run(() => readingChange(crypto.randomUUID(), { kind: 'settings', autoDownload: e.target.checked }))}/>}/>{error && <StatusMessage>{error}</StatusMessage>}</SettingsSection>;
+    return <><SettingsSection title="Shared links" icon={<ExternalLink size={22}/>}><FormField label="URL cleanup" htmlFor="reading-url-cleanup"><CleanupSelect id="reading-url-cleanup" value={state.snapshot.reading?.urlCleanup ?? 'off'} onChange={urlCleanup => run(() => readingChange(crypto.randomUUID(), { kind: 'settings', urlCleanup }))}/></FormField>{state.snapshot.reading?.urlCleanup === 'all' && <p>May break some links.</p>}</SettingsSection><SettingsSection title="Offline reading" icon={<Download size={22}/>}><SettingRow label="Automatically download unread articles" htmlFor="reading-auto-download" description="Marking an item read removes its offline download." control={<input id="reading-auto-download" type="checkbox" checked={state.snapshot.reading?.autoDownload ?? true} onChange={e => run(() => readingChange(crypto.randomUUID(), { kind: 'settings', autoDownload: e.target.checked }))}/>}/></SettingsSection>{error && <StatusMessage>{error}</StatusMessage>}</>;
 }

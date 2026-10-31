@@ -17,6 +17,16 @@ async function fixture(legacy=false){
 }
 const op=(command:string,input:any,generation=0)=>({id:input.id,generation,command,input});
 describe('public plugin framework',()=>{
+  it('validates and retains independent Reading cleanup settings', async () => {
+    const f = await fixture(); await f.plugins.activate('reading');
+    const settings = (fields: object) => op('reading', { id: randomUUID(), itemId: randomUUID(), kind: 'settings', at: 1, ...fields });
+    await f.plugins.command('reading', settings({ urlCleanup: 'all' }));
+    expect(f.plugins.storage.data('reading').records.state).toMatchObject({ urlCleanup: 'all', autoDownload: true });
+    await f.plugins.command('reading', settings({ autoDownload: false }));
+    expect(f.plugins.storage.data('reading').records.state).toMatchObject({ urlCleanup: 'all', autoDownload: false });
+    await expect(f.plugins.command('reading', settings({ urlCleanup: 'invalid' }))).rejects.toThrow();
+    await expect(f.plugins.command('reading', settings({}))).rejects.toThrow();
+  });
   it('creates linked tasks in selected lists atomically and replays without duplicates', async () => {
     const f = await fixture(); await f.plugins.activate('tasks');
     const spaceId = randomUUID();

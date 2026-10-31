@@ -1,4 +1,4 @@
-import { DragHandle, DragPreview, RenameAction, ActionRow } from '@herts/plugin-api/client';
+import { composerCapabilities, DragHandle, DragPreview, RenameAction, ActionRow } from '@herts/plugin-api/client';
 import { BookOpen } from 'lucide-react';
 import { readingTitle, undoableAction, PageHeader, ComposerPlaceholder, MessageComposer, getCore, type ClientPlugin, type RouteProps, type ConversationActionProps } from '@herts/plugin-api/client';
 import { ReadingList, ReadingCapture, ReadingDetail, Reader, BookmarkLink, ReadingSettings } from './Reading';
@@ -13,7 +13,7 @@ function ReadingBadge({ conversation }: ConversationActionProps) {
 function Screen({ parts, path, shared }: RouteProps) { const [screen, id] = parts; return ['reading-item', 'reader'].includes(screen) ? <ReadingDetail key={id} id={id} initialMode={screen === 'reader' ? 'article' : 'discussion'}/> : id === 'add' ? <ReadingCapture sharedContent={shared} id={parts[2]}/> : <ReadingList read={id === 'read'}/>; }
 function Conflicts() { const state = useApp(); return <>{state.readingPending.filter(p => p.conflict).map(p => <div className="conflict-banner" key={p.op.id}><strong>A reading-list change needs your choice</strong><p>{p.conflict}</p>{p.op.kind === 'title' && <><p>Your title: {p.op.title}</p><p>Synced title: {state.remote.reading.items.find(i => i.id === p.op.itemId)?.title}</p></>}<div className="button-row"><button onClick={() => void resolveReadingConflict(p.op.id, true)}>Keep my change</button><button onClick={() => void resolveReadingConflict(p.op.id, false)}>Use synced version</button></div></div>)}</>; }
 export default function activate(): ClientPlugin {
-    if (!DragHandle || !DragPreview || !RenameAction || !ActionRow || !readingTitle || !PageHeader || !MessageComposer || !ComposerPlaceholder || !undoableAction) throw new Error('Update Herts in Settings → App updates to use this version of Reading.');
+    if (!composerCapabilities?.transformDraft || !DragHandle || !DragPreview || !RenameAction || !ActionRow || !readingTitle || !PageHeader || !MessageComposer || !ComposerPlaceholder || !undoableAction) throw new Error('Update Herts in Settings → App updates to use this version of Reading.');
     return {
         tab: { title: 'Reading', path: '/reading', icon: BookOpen }, routes: [{ match: path => /^\/(reading|reading-item|reader)(\/|$)/.test(path), component: Screen }],
         Settings: ReadingSettings, Conflicts, MessageLink: BookmarkLink, ConversationBadge: ReadingBadge,
