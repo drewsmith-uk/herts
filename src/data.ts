@@ -111,6 +111,7 @@ export interface State {
     checkingStatus?: boolean;
     syncActive?: boolean;
     syncError?: string;
+    activitySyncError?: string;
     stateRefreshPending?: boolean;
     connectionVersion: number;
     loaded: boolean;
@@ -253,7 +254,7 @@ export function syncActivity(): Promise<void> {
             } catch (error) {
                 if (controller.signal.aborted) continue;
                 if (error instanceof ApiError && error.status === 409 && error.data?.rebase) { await activityCache.reset(position); continue; }
-                publish({ syncError: 'Activity could not be updated. Select Sync now in Settings.' });
+                publish({ activitySyncError: 'Activity could not be updated. Select Sync now in Settings.' });
                 return;
             } finally { stop(); }
         }
@@ -275,7 +276,8 @@ export function syncActivity(): Promise<void> {
                 } finally { stop(); }
             }
         }));
-    })().catch(() => { publish({ syncError: 'Activity could not be saved. Reload to try again.' }); }).finally(() => { activitySyncRequest = undefined; });
+        if (state.online && state.activitySync) publish({ activitySyncError: '' });
+    })().catch(() => { publish({ activitySyncError: 'Activity could not be saved. Reload to try again.' }); }).finally(() => { activitySyncRequest = undefined; });
     return activitySyncRequest;
 }
 export async function readConversationActivity(contextId: string, signal: AbortSignal, priority = false) {

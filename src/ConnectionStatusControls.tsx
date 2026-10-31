@@ -36,7 +36,7 @@ export function ConnectionStatusRow() {
         <dt>Hermes</dt><dd>{!state.online ? 'Unavailable' : state.gateway.online ? 'Connected' : state.gateway.configured ? 'Unavailable' : 'Not configured'}</dd>
         <dt>Sync</dt><dd>{status.pending ? `${status.pending} pending` : 'Up to date'}</dd>
       </dl>
-      {(state.error || state.syncError || state.gateway.promptError || error) && <StatusMessage>{state.error || state.syncError || state.gateway.promptError || error}</StatusMessage>}
+      {(state.error || state.activitySyncError || state.syncError || state.gateway.promptError || error) && <StatusMessage>{state.error || state.activitySyncError || state.syncError || state.gateway.promptError || error}</StatusMessage>}
       <Button disabled={retrying} onClick={() => void retry()}>{retrying ? 'Checking…' : 'Check again'}</Button>
     </DialogFrame>}
   </>;
