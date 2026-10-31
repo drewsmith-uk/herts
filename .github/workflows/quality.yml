@@ -85,6 +85,15 @@ jobs:
           name: browser-timings-${{ matrix.shard }}-attempt-${{ github.run_attempt }}
           path: test-results/release-timings-*
           retention-days: 7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ always() }}
+        with:
+          name: reading-preview-${{ matrix.shard }}-attempt-${{ github.run_attempt }}
+          path: |
+            test-results/reading-preview-*.png
+            test-results/capture-open-*.png
+          if-no-files-found: ignore
+          retention-days: 7
   verify:
     needs: [prepare, browser]
     if: ${{ always() }}

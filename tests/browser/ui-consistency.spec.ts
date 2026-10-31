@@ -186,17 +186,17 @@ async function bots(request: import('@playwright/test').APIRequestContext, actio
 }
 test.afterEach(async ({ page, request }) => { await page.unrouteAll({ behavior: 'wait' }); await bots(request, 'disable'); await pinnedPlugin(request, 'disable'); });
 
-for (const missing of ['PageHeader', 'DragHandle', 'DragPreview', 'ComposerPlaceholder', 'captureLayout', 'transformDraft']) test(`an app without ${missing} gets an actionable plugin update message`, async ({ page }) => {
+for (const missing of ['PageHeader', 'DragHandle', 'DragPreview', 'ComposerPlaceholder', 'captureLayout', 'transformDraft', 'textPreview']) test(`an app without ${missing} gets an actionable plugin update message`, async ({ page }) => {
   await page.addInitScript(missing => {
     Object.defineProperty(globalThis, '__HERTS_PLUGIN_RUNTIME__', {
       configurable: true,
       set(runtime) {
-        Object.defineProperty(globalThis, '__HERTS_PLUGIN_RUNTIME__', { configurable: true, writable: true, value: { ...runtime, sdk: { ...runtime.sdk, ...(['captureLayout', 'transformDraft'].includes(missing) ? { composerCapabilities: { ...runtime.sdk.composerCapabilities, [missing]: undefined } } : { [missing]: undefined }) } } });
+        Object.defineProperty(globalThis, '__HERTS_PLUGIN_RUNTIME__', { configurable: true, writable: true, value: { ...runtime, sdk: { ...runtime.sdk, ...(['captureLayout', 'transformDraft', 'textPreview'].includes(missing) ? { composerCapabilities: { ...runtime.sdk.composerCapabilities, [missing]: undefined } } : { [missing]: undefined }) } } });
       },
     });
   }, missing);
   await page.goto('/#/settings/plugins');
-  if (missing !== 'transformDraft') await expect(page.getByText('Update Herts in Settings → App updates to use this version of Tasks.', { exact: true })).toBeVisible();
+  if (!['transformDraft', 'textPreview'].includes(missing)) await expect(page.getByText('Update Herts in Settings → App updates to use this version of Tasks.', { exact: true })).toBeVisible();
   if (missing !== 'captureLayout') await expect(page.getByText('Update Herts in Settings → App updates to use this version of Reading.', { exact: true })).toBeVisible();
   await page.goto('/#/settings'); await openSettingsGroups(page);
   await expect(page.getByRole('button', { name: 'Check for updates', exact: true })).toBeVisible();
@@ -744,10 +744,26 @@ for (const theme of builtinThemes) test(`${theme.name}: refined capture and read
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({path:`test-results/capture-open-${theme.id}-${width}.png`});
     await page.goto('/#/reading/add');
-    await page.getByLabel('Message Hermes', { exact: true }).fill('Reading notes\nhttps://example.com/' + 'long-reference/'.repeat(15) + '\nhttps://example.com/second');
+    await page.getByLabel('Message Hermes', { exact: true }).fill('Reading notes\nhttps://example.com/' + 'long-reference/'.repeat(15) + '?id=1&utm_source=feed#part\nhttps://example.com/second?fbclid=x');
     await expect(page.getByLabel('Reading title', { exact: true })).toHaveCount(0);
     await page.getByLabel('URL cleanup', { exact: true }).selectOption('all');
     await expect(page.getByText('May break some links.', { exact: true })).toBeVisible();
+    const preview = page.locator('.composer-text-preview');
+    await expect(preview.locator('.text-removal')).toHaveText(['?id=1&utm_source=feed', '?fbclid=x']);
+    const input = page.getByLabel('Message Hermes', { exact: true });
+    await input.focus();
+    await input.press('ControlOrMeta+End');
+    await expect.poll(() => input.evaluate(element => {
+      const preview = element.parentElement!.querySelector('.composer-text-preview')!;
+      return Math.abs(element.scrollTop - preview.scrollTop);
+    })).toBeLessThanOrEqual(1);
+    const bounds = await preview.boundingBox();
+    const inputBounds = await input.boundingBox();
+    expect(bounds!.x).toBe(inputBounds!.x);
+    expect(bounds!.width).toBeLessThanOrEqual(inputBounds!.width);
+    await input.press('ControlOrMeta+Home');
+    await page.screenshot({ path: `test-results/reading-preview-${theme.id}-${width}.png` });
+
     await page.getByLabel('URL cleanup', { exact: true }).focus();
     await expect(page.getByLabel('URL cleanup', { exact: true })).toBeFocused();
     await page.getByRole('radio').last().check();

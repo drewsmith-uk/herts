@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyReadingOp, cleanUrl, cleanSharedText, emptyReading, sharedUrls } from '../plugins/reading/src/model';
+import { applyReadingOp, cleanUrl, cleanSharedText, emptyReading, sharedUrls, sharedTextRemovalRanges } from '../plugins/reading/src/model';
 
 describe('Reading URL cleanup', () => {
   it('preserves all original bytes when disabled or no trackers match', () => {
@@ -70,4 +70,20 @@ describe('Reading URL cleanup', () => {
     expect(offline.items[0].downloadVersion).toBe(state.items[0].downloadVersion + 1);
     expect(emptyReading().urlCleanup).toBe('off');
   });
+});
+
+for (const [query, removed] of [
+  ['utm_source=x&id=1', ['utm_source=x&']],
+  ['id=1&utm_source=x', ['&utm_source=x']],
+  ['id=1&utm_source=x&fbclid=y&q=2', ['&utm_source=x', '&fbclid=y']],
+  ['utm_source=x&fbclid=y&id=1', ['utm_source=x&', 'fbclid=y&']],
+  ['utm_source=x&fbclid=y', ['?utm_source=x&fbclid=y']],
+  ['id=1', []],
+] as const) it(`previews exact removals for ${query}`, () => {
+  const url = `https://example.com/a?${query}#part`;
+  const text = `Read **${url}** then \`${url}\`.`;
+  const ranges = sharedTextRemovalRanges(text, 'tracking');
+  expect(ranges.map(range => text.slice(range.start, range.end))).toEqual([...removed, ...removed]);
+  expect(sharedTextRemovalRanges(text, 'off')).toEqual([]);
+  expect(sharedTextRemovalRanges(text, 'all').map(range => text.slice(range.start, range.end))).toEqual([`?${query}`, `?${query}`]);
 });
