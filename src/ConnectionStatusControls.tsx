@@ -18,7 +18,8 @@ export function ConnectionAnnouncement() {
   return <><span id="connection-status-label" className="visually-hidden" aria-live="polite">Connection status: {status.label}</span><span className="visually-hidden save-state" aria-hidden="true">{status.kind === 'synced' ? 'Changes synced' : status.label}</span></>;
 }
 export function ConnectionStatusRow() {
-  const state = useApp(), status = connectionStatus(state), id = useId();
+  const state = useApp(), status = connectionStatus(state), changes = pendingChanges(state), id = useId();
+  const syncProblem = state.error || state.activitySyncError || state.stateRefreshError || state.syncError;
   const [open, setOpen] = useState(false), [retrying, setRetrying] = useState(false), [error, setError] = useState('');
   async function retry() {
     setRetrying(true); setError('');
@@ -34,11 +35,11 @@ export function ConnectionStatusRow() {
       <p role="status">{status.label}</p>
       <dl><dt>Herts</dt><dd>{!state.connectionChecked ? 'Checking connection' : state.online ? 'Connected' : 'Server unavailable'}</dd>
         <dt>Hermes</dt><dd>{!state.online ? 'Unavailable' : state.gateway.online ? 'Connected' : state.gateway.configured ? 'Unavailable' : 'Not configured'}</dd>
-        <dt>Sync</dt><dd>{status.pending ? `${status.pending} pending` : 'Up to date'}</dd>
+        <dt>Sync</dt><dd>{status.pending ? `${status.pending} pending` : syncProblem ? 'Needs attention' : 'Up to date'}</dd>
       </dl>
-      {(state.error || state.activitySyncError || state.syncError || state.gateway.promptError || error) && <StatusMessage>{state.error || state.activitySyncError || state.syncError || state.gateway.promptError || error}</StatusMessage>}
-      {status.pending > 0 && <ItemList divided className="pending-changes" aria-label="Pending changes">
-        {pendingChanges(state).map(change => <ItemRow key={change.key} variant="preview" href={change.href}
+      {(syncProblem || state.gateway.promptError || error) && <StatusMessage>{syncProblem || state.gateway.promptError || error}</StatusMessage>}
+      {changes.length > 0 && <ItemList divided className="pending-changes" aria-label="Saved changes">
+        {changes.map(change => <ItemRow key={change.key} variant="preview" href={change.href}
           onClick={() => setOpen(false)} trailing={<ChevronRight size={18} aria-hidden="true"/>}>
           <span className="item-title">{change.label}</span>
           {change.detail && <p className="item-preview">{change.detail}</p>}

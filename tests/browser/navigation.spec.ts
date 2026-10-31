@@ -329,7 +329,7 @@ test('tabs can enter an empty More section even when all tabs fit', async ({ pag
   await expect(nav.getByRole('button', {name: 'More', exact: true})).toBeVisible();
 });
 
-test('background reads preserve waiting settings without claiming to send them', async ({ page, context }) => {
+test('background reads keep draft settings saved without claiming to send them', async ({ page, context }) => {
   await page.goto('/#/settings');
   await expect(status(page)).toHaveText('Connection status: Connected and synced');
   const pending = await seedPendingDraftSettings(page);
@@ -341,20 +341,20 @@ test('background reads preserve waiting settings without claiming to send them',
   try {
     await page.evaluate(() => window.dispatchEvent(new Event('online')));
     await expect.poll(() => started).toBe(true);
-    await expect(status(page)).toHaveText('Connection status: Changes waiting to sync');
+    await expect(status(page)).toHaveText('Connection status: Connected and synced');
     const close = await openConnectionDetails(page);
     const dialog = page.getByRole('dialog', { name: 'Connection and sync', exact: true });
-    await expect(dialog).toContainText('Waiting for first message');
+    await expect(dialog).toContainText('Saved with draft');
     await close();
   } finally { release(); await page.unrouteAll({ behavior: 'wait' }); }
   await page.reload();
   await openConnectionDetails(page);
   const dialog = page.getByRole('dialog', { name: 'Connection and sync', exact: true });
-  await expect(dialog).toContainText('1 pending');
-  await expect(dialog).toContainText('Waiting for first message');
+  await expect(dialog).toContainText('Up to date');
+  await expect(dialog).toContainText('Saved with draft');
   await context.setOffline(true);
   await expect(dialog).toContainText('Disconnected');
-  await expect(dialog).toContainText('Waiting for first message');
+  await expect(dialog).toContainText('Saved with draft');
   const saved = await page.evaluate(async id => {
     const db = (window as any).__HERTS_PLUGIN_RUNTIME__.sdk.conversationDrafts.db;
     return { settings: (await db.table('kv').get(`settings-op:${id}`)).value, draft: await db.table('drafts').get(id) };
@@ -362,4 +362,26 @@ test('background reads preserve waiting settings without claiming to send them',
   expect(saved.settings.input.id).toBe(pending.operationId);
   expect(saved.draft.text).toBe('Preserve this unsent draft.');
   expect(writes).toBe(0);
+});
+
+test('a recovered state read clears its warning while retaining saved draft choices', async ({ page }) => {
+  await page.goto('/#/settings');
+  await expect(status(page)).toHaveText('Connection status: Connected and synced');
+  const pending = await seedPendingDraftSettings(page);
+  let fail = true;
+  await page.route('**/api/v1/state*', route => fail ? route.abort() : route.continue());
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await openConnectionDetails(page);
+  const dialog = page.getByRole('dialog', { name: 'Connection and sync', exact: true });
+  await expect(dialog).toContainText('Updates could not be loaded.');
+  await expect(dialog.locator('dd').nth(2)).toHaveText('Needs attention');
+  fail = false;
+  await dialog.getByRole('button', { name: 'Check again', exact: true }).click();
+  await expect(dialog).not.toContainText('Updates could not be loaded.');
+  await expect(dialog).toContainText('Connected and synced');
+  await expect(dialog.locator('dd').nth(2)).toHaveText('Up to date');
+  await expect(dialog).toContainText('Saved with draft');
+  const saved = await page.evaluate(async id => (await (window as any).__HERTS_PLUGIN_RUNTIME__.sdk.conversationDrafts.db.table('kv').get(`settings-op:${id}`)).value, pending.id);
+  expect(saved.input.id).toBe(pending.operationId);
+  expect(saved.input.values).toEqual({ effort: 'high' });
 });

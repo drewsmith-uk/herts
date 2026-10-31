@@ -7,6 +7,9 @@ describe('connection status', () => {
   it('requires a checked connection and distinguishes unavailable Hermes', () => {
     const state = ready();
     expect(connectionStatus(state).kind).toBe('synced');
+    state.defaultsReady = false; state.stateRefreshPending = true;
+    expect(connectionStatus(state).kind).toBe('checking');
+    state.defaultsReady = true; state.stateRefreshPending = false;
     state.connectionChecked = false;
     expect(connectionStatus(state).kind).toBe('checking');
     state.error = 'Device storage is unavailable';
@@ -60,8 +63,25 @@ it('identifies draft settings, missing conversations, defaults, and disabled plu
     { input: { id: 'defaults', revision: 0, values: {} }, conflict: 'Review saved choices' },
   ];
   const changes = pendingChanges(state);
-  expect(changes.map(change => change.reason)).toEqual(['Plugin disabled', 'Waiting for first message', 'Conversation unavailable', 'Review saved choices']);
+  expect(changes.map(change => change.reason)).toEqual(['Plugin disabled', 'Saved with draft', 'Conversation unavailable', 'Review saved choices']);
   expect(changes[1]).toMatchObject({ label: 'Conversation settings', detail: 'Keep this draft', href: '#/conversations' });
   expect(changes[3].href).toBe('#/settings');
   expect(JSON.stringify(changes)).not.toContain('Private input');
+});
+
+it('retains draft settings without treating them as unsynced server changes', () => {
+  const state = ready();
+  state.snapshot = { revision: 0, hiddenConversations: [], contexts: [{ id: 'draft', title: 'Draft', link: null, aliases: [] }] };
+  state.remote = { revision: 0, hiddenConversations: [], contexts: [] };
+  state.settingsPending = [{ contextId: 'draft', input: { id: 'choices', revision: 0, values: { effort: 'high' } } }];
+  state.stateRefreshPending = true;
+  expect(connectionStatus(state)).toMatchObject({ kind: 'synced', pending: 0 });
+  state.stateRefreshError = 'Read failed';
+  expect(connectionStatus(state).kind).toBe('warning');
+  state.stateRefreshError = '';
+  state.remote.contexts = state.snapshot.contexts;
+  expect(connectionStatus(state)).toMatchObject({ kind: 'waiting', pending: 1 });
+  state.remote.contexts = [];
+  state.settingsPending[0].conflict = 'Review choices';
+  expect(connectionStatus(state)).toMatchObject({ kind: 'warning', pending: 1 });
 });

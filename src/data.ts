@@ -112,6 +112,7 @@ export interface State {
     syncActive?: boolean;
     syncError?: string;
     activitySyncError?: string;
+    stateRefreshError?: string;
     stateRefreshPending?: boolean;
     connectionVersion: number;
     loaded: boolean;
@@ -569,11 +570,12 @@ export async function refresh(recover = false, background = false) {
             if (data.actions?.some((a: Action) => a.id === s.id))
                 await db.submissions.update(s.id, { confirmed: true });
         await rebuild();
+        publish({ stateRefreshError: '' });
         void sync();
     }
     catch (e) {
         if (!controller.signal.aborted) {
-            publish({ defaultsReady: true, syncError: 'Updates could not be loaded. Select Sync now in Settings.' });
+            publish({ defaultsReady: true, stateRefreshError: 'Updates could not be loaded. Select Check again.' });
             void refreshConnection();
         } else if (background) scheduleBackgroundRefresh();
     }
