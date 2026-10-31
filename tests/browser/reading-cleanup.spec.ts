@@ -83,3 +83,21 @@ test('cleanup survives a delayed send and a lost receipt without duplicate messa
   const item = state.snapshot.reading.items.find((i: any) => i.url === 'https://example.com/cleanup-receipt?id=1');
   expect(state.actions.filter((a: any) => a.taskId === item.contextId).map((a: any) => a.text)).toEqual([item.url]);
 });
+
+for (const mode of ['tracking', 'all']) test(`Markdown formatting survives ${mode} cleanup when saving and sending`, async ({ page, request }) => {
+  const url = `https://example.com/markdown-${mode}?utm_source=x`;
+  const clean = `https://example.com/markdown-${mode}`;
+  const message = (link: string) => `Read **${link}** and \`${link}\` next.`;
+  await page.goto('/#/reading/add');
+  await page.getByLabel('Message Hermes', { exact: true }).fill(message(url));
+  await page.getByLabel('URL cleanup', { exact: true }).selectOption(mode);
+  await expect(page.getByRole('radio')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase', 'complete');
+  const state = await (await request.get('/api/v1/state')).json();
+  const item = state.snapshot.reading.items.find((i: any) => i.url === clean);
+  expect(item).toBeTruthy();
+  expect(state.actions.filter((a: any) => a.taskId === item.contextId).map((a: any) => a.text)).toEqual([message(clean)]);
+  await expect(page.locator('.message.from-user strong')).toHaveText(clean);
+  await expect(page.locator('.message.from-user code')).toHaveText(clean);
+});

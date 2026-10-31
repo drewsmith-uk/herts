@@ -1,3 +1,7 @@
+import { unified } from 'unified';
+import remarkParse from 'remark-parse';
+import remarkGfm from 'remark-gfm';
+import type { RootContent, Root } from 'mdast';
 import { Conflict } from '@herts/plugin-api/types';
 import type { Conversation, ConversationContext } from '@herts/plugin-api/types';
 interface List {
@@ -91,7 +95,28 @@ export function cleanUrl(raw: string, mode: UrlCleanup): string {
     if (kept.length === parts.length) return raw;
     return raw.slice(0, query) + (kept.length ? '?' + kept.join('&') : '') + raw.slice(end);
 }
+const markdown = unified().use(remarkParse).use(remarkGfm);
 function mapUrls(text: string, transform: (url: string) => string): string {
+    if (!/https?:\/\//i.test(text)) return text;
+    // Keep Markdown delimiters outside URL replacements.
+    const boundaries = new Set<number>([0, text.length]);
+    function visit(node: Root | RootContent) {
+        const start = node.position?.start.offset, end = node.position?.end.offset;
+        if (start !== undefined && end !== undefined) {
+            if (node.type === 'text') boundaries.add(end);
+            if (node.type === 'inlineCode') {
+                const closing = text.slice(start, end).match(/`+$/)![0].length;
+                boundaries.add(end - closing);
+                boundaries.add(end);
+            }
+        }
+        if ('children' in node) for (const child of node.children) visit(child);
+    }
+    visit(markdown.parse(text));
+    const offsets = [...boundaries].sort((a, b) => a - b);
+    return offsets.slice(1).map((end, index) => mapUrlText(text.slice(offsets[index], end), transform)).join('');
+}
+function mapUrlText(text: string, transform: (url: string) => string): string {
     return text.replace(/https?:\/\/[^\s<>"\u201c\u201d]+/gi, match => {
         let candidate = match.replace(/[.,;!?]+$/, '');
         while (candidate.endsWith(')') && (candidate.match(/\)/g)?.length || 0) > (candidate.match(/\(/g)?.length || 0)) candidate = candidate.slice(0, -1);

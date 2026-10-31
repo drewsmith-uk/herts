@@ -27,6 +27,39 @@ describe('Reading URL cleanup', () => {
     expect(cleanSharedText(clean, 'tracking')).toBe(clean);
     expect(cleanSharedText(text, 'off')).toBe(text);
   });
+  for (const mode of ['tracking', 'all'] as const) {
+    it(`preserves Markdown boundaries with ${mode} cleanup`, () => {
+      const original = 'https://example.com/a?utm_source=x';
+      const clean = 'https://example.com/a';
+      for (const wrap of [
+        (url: string) => `Read **${url}** next.`,
+        (url: string) => `Read *${url}* next.`,
+        (url: string) => `Read _${url}_ next.`,
+        (url: string) => `Read __${url}__ next.`,
+        (url: string) => `Read ***${url}*** next.`,
+        (url: string) => `Read ~~${url}~~ next.`,
+        (url: string) => `Read \`${url}\` next.`,
+        (url: string) => `Read \`\`${url}\`\` next.`,
+        (url: string) => `**Read ${url}** next.`,
+        (url: string) => `**Read *${url}* now.**`,
+        (url: string) => `[Read](${url}) next.`,
+        (url: string) => `<${url}> next.`,
+        (url: string) => `\`${url}\` \`\`${url}\`\``,
+      ]) {
+        expect(cleanSharedText(wrap(original), mode)).toBe(wrap(clean));
+        expect(sharedUrls(wrap(original))).toEqual([original]);
+        expect(sharedUrls(wrap(clean))).toEqual([clean]);
+        expect(cleanSharedText(wrap(original), 'off')).toBe(wrap(original));
+      }
+    });
+  }
+  it('keeps literal URL characters and encoded delimiters', () => {
+    for (const path of ['a_b', 'a*b', 'a~b', 'a%60b', 'a%2Ab']) {
+      const url = `https://example.com/${path}?id=a_b%2A%60&utm_source=x`;
+      expect(cleanSharedText(url, 'tracking')).toBe(`https://example.com/${path}?id=a_b%2A%60`);
+      expect(sharedUrls(url)).toEqual([url]);
+    }
+  });
   it('changes cleanup independently from download settings and existing items', () => {
     const state = applyReadingOp(emptyReading(), { id: 'create', itemId: 'item', contextId: 'context', kind: 'create', url: 'https://example.com/?utm_source=x', at: 1 });
     delete state.urlCleanup;
