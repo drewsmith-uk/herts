@@ -1,3 +1,4 @@
+import { seedPendingDraftSettings } from './pending-sync-helpers';
 import { openConnectionDetails } from './navigation-helpers';
 import { test, expect } from '@playwright/test';
 
@@ -326,4 +327,107 @@ test('tabs can enter an empty More section even when all tabs fit', async ({ pag
   await expect(page.locator('[id^=DndLiveRegion]')).toContainText('over droppable area __navigation_more__');
   await page.mouse.up();
   await expect(nav.getByRole('button', {name: 'More', exact: true})).toBeVisible();
+});
+
+test('background reads keep draft settings saved without claiming to send them', async ({ page, context }) => {
+  await page.goto('/#/settings');
+  await expect(status(page)).toHaveText('Connection status: Connected and synced');
+  const pending = await seedPendingDraftSettings(page);
+  let writes = 0;
+  page.on('request', request => { if (request.method() === 'POST' && request.url().includes(`/contexts/${pending.id}/settings`)) writes++; });
+  let release!: () => void, started = false;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/v1/state*', async route => { started = true; await held; await route.continue(); });
+  try {
+    await page.evaluate(() => window.dispatchEvent(new Event('online')));
+    await expect.poll(() => started).toBe(true);
+    await expect(status(page)).toHaveText('Connection status: Connected and synced');
+    const close = await openConnectionDetails(page);
+    const dialog = page.getByRole('dialog', { name: 'Connection and sync', exact: true });
+    await expect(dialog).toContainText('Saved with draft');
+    await close();
+  } finally { release(); await page.unrouteAll({ behavior: 'wait' }); }
+  await page.reload();
+  await openConnectionDetails(page);
+  const dialog = page.getByRole('dialog', { name: 'Connection and sync', exact: true });
+  await expect(dialog).toContainText('Up to date');
+  await expect(dialog).toContainText('Saved with draft');
+  await context.setOffline(true);
+  await expect(dialog).toContainText('Disconnected');
+  await expect(dialog).toContainText('Saved with draft');
+  const saved = await page.evaluate(async id => {
+    const db = (window as any).__HERTS_PLUGIN_RUNTIME__.sdk.conversationDrafts.db;
+    return { settings: (await db.table('kv').get(`settings-op:${id}`)).value, draft: await db.table('drafts').get(id) };
+  }, pending.id);
+  expect(saved.settings.input.id).toBe(pending.operationId);
+  expect(saved.draft.text).toBe('Preserve this unsent draft.');
+  expect(writes).toBe(0);
+});
+
+test('a recovered state read clears its warning while retaining saved draft choices', async ({ page }) => {
+  await page.goto('/#/settings');
+  await expect(status(page)).toHaveText('Connection status: Connected and synced');
+  const pending = await seedPendingDraftSettings(page);
+  let fail = true;
+  await page.route('**/api/v1/state*', route => fail ? route.abort() : route.continue());
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await openConnectionDetails(page);
+  const dialog = page.getByRole('dialog', { name: 'Connection and sync', exact: true });
+  await expect(dialog).toContainText('Updates could not be loaded.');
+  await expect(dialog.locator('dd').nth(2)).toHaveText('Needs attention');
+  fail = false;
+  await dialog.getByRole('button', { name: 'Check again', exact: true }).click();
+  await expect(dialog).not.toContainText('Updates could not be loaded.');
+  await expect(dialog).toContainText('Connected and synced');
+  await expect(dialog.locator('dd').nth(2)).toHaveText('Up to date');
+  await expect(dialog).toContainText('Saved with draft');
+  const saved = await page.evaluate(async id => (await (window as any).__HERTS_PLUGIN_RUNTIME__.sdk.conversationDrafts.db.table('kv').get(`settings-op:${id}`)).value, pending.id);
+  expect(saved.input.id).toBe(pending.operationId);
+  expect(saved.input.values).toEqual({ effort: 'high' });
+});
+
+test('a failed state read retries promptly while an open conversation keeps its draft', async ({ page }) => {
+  await page.goto('/#/conversation/existing');
+  const editor = page.getByRole('textbox', { name: 'Message Hermes', exact: true });
+  await editor.fill('Keep this unsent message during automatic recovery.');
+  await expect(status(page)).toHaveText('Connection status: Connected and synced');
+  let fail = true, failedReads = 0, successfulReads = 0, sends = 0;
+  page.on('request', request => { if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/v1/actions') sends++; });
+  await page.route('**/api/v1/state*', async route => {
+    if (fail) { failedReads++; await route.abort(); }
+    else { successfulReads++; await route.continue(); }
+  });
+  await page.evaluate(() => (window as any).__HERTS_PLUGIN_RUNTIME__.sdk.refresh());
+  await expect.poll(() => failedReads).toBeGreaterThan(0);
+  await expect(status(page)).toHaveText('Connection status: Synchronization needs attention');
+  fail = false;
+  await expect(status(page)).toHaveText('Connection status: Connected and synced', { timeout: 5000 });
+  expect(successfulReads).toBeGreaterThan(0);
+  await expect(editor).toHaveValue('Keep this unsent message during automatic recovery.');
+  expect(sends).toBe(0);
+  await page.unrouteAll({ behavior: 'wait' });
+});
+
+test('resolving a conflict clears its warning while draft choices remain saved', async ({ page }) => {
+  await page.goto('/#/settings/plugins');
+  await expect(status(page)).toHaveText('Connection status: Connected and synced');
+  const draft = await seedPendingDraftSettings(page);
+  await page.route('**/api/v1/plugins/tasks/commands', route => route.fulfill({ status: 409, json: { error: 'Review this saved space.' } }));
+  await page.getByLabel('New space name', { exact: true }).fill('Conflict recovery');
+  await page.getByRole('button', { name: 'Create space', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__HERTS_PLUGIN_RUNTIME__.sdk.getCore().pluginPending[0]?.conflict)).toBe('Review this saved space.');
+  await page.evaluate(() => (window as any).__HERTS_PLUGIN_RUNTIME__.sdk.rebuild());
+  await expect(status(page)).toHaveText('Connection status: Synchronization needs attention');
+  await page.evaluate(async () => {
+    const sdk = (window as any).__HERTS_PLUGIN_RUNTIME__.sdk;
+    await sdk.resolvePluginOperation(sdk.getCore().pluginPending[0].id);
+    await sdk.sync();
+  });
+  await expect(status(page)).toHaveText('Connection status: Connected and synced');
+  const saved = await page.evaluate(async id => {
+    const db = (window as any).__HERTS_PLUGIN_RUNTIME__.sdk.conversationDrafts.db;
+    return { settings: (await db.kv.get(`settings-op:${id}`)).value, draft: await db.drafts.get(id) };
+  }, draft.id);
+  expect(saved.settings.input.id).toBe(draft.operationId);
+  expect(saved.draft.text).toBe('Preserve this unsent draft.');
 });

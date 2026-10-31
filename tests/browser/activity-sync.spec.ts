@@ -1,7 +1,65 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
+import { openConnectionDetails } from './navigation-helpers';
 
 test.use({ serviceWorkers: 'block' });
 const headers = { 'x-herts-request': '1' };
+
+for (const width of [390, 1280]) test(`activity retry preserves a pending edit at ${width}px`, async ({ page }, testInfo) => {
+  await page.setViewportSize({ width, height: 844 });
+  await page.goto('/#/settings/plugins');
+  await expect(page.locator('#connection-status-label')).toHaveText('Connection status: Connected and synced');
+  await page.route('**/api/v1/plugins/tasks/commands', route => route.fulfill({ status: 409,
+    json: { error: 'This saved edit needs review.' } }));
+  await page.getByLabel('New space name', { exact: true }).fill('Preserve this pending space');
+  await page.getByRole('button', { name: 'Create space', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__HERTS_PLUGIN_RUNTIME__.sdk.getCore().pluginPending.length)).toBe(1);
+  let fail = true, successful = 0;
+  await page.route('**/api/v1/activity-sync*', async route => {
+    if (fail) return route.abort();
+    successful++; await route.continue();
+  });
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await openConnectionDetails(page);
+  const dialog = page.getByRole('dialog', { name: 'Connection and sync', exact: true });
+  await expect(dialog).toContainText('Activity could not be updated.');
+  await expect(dialog).toContainText('1 pending');
+  await page.screenshot({ path: testInfo.outputPath('activity-failed.png') });
+  fail = false;
+  await dialog.getByRole('button', { name: 'Check again', exact: true }).click();
+  await expect.poll(() => successful).toBeGreaterThan(0);
+  await expect(dialog).not.toContainText('Activity could not be updated.');
+  await expect(dialog).toContainText('This saved edit needs review.');
+  await expect(dialog).toContainText('1 pending');
+  const pending = await page.evaluate(async () => (window as any).__HERTS_PLUGIN_RUNTIME__.sdk.conversationDrafts.db.table('pluginPending').toArray());
+  expect(pending).toHaveLength(1);
+  expect(pending[0].operation.input).toMatchObject({ name: 'Preserve this pending space' });
+  await page.screenshot({ path: testInfo.outputPath('activity-recovered.png') });
+});
+
+
+test('a successful edit cannot clear an ongoing activity failure', async ({ page }) => {
+  await page.goto('/#/settings/plugins');
+  await expect(page.locator('#connection-status-label')).toHaveText('Connection status: Connected and synced');
+  await page.route('**/api/v1/activity-sync*', route => route.abort());
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await expect.poll(() => page.evaluate(() => (window as any).__HERTS_PLUGIN_RUNTIME__.sdk.getCore().activitySyncError)).toContain('Activity could not be updated.');
+  let writes = 0;
+  await page.route('**/api/v1/plugins/tasks/commands', async route => { writes++; await route.continue(); });
+  await page.getByLabel('New space name', { exact: true }).fill('Successfully saved space');
+  await page.getByRole('button', { name: 'Create space', exact: true }).click();
+  await expect.poll(() => writes).toBe(1);
+  await expect.poll(() => page.evaluate(() => (window as any).__HERTS_PLUGIN_RUNTIME__.sdk.getCore().pluginPending.length)).toBe(0);
+  await openConnectionDetails(page);
+  const dialog = page.getByRole('dialog', { name: 'Connection and sync', exact: true });
+  await expect(dialog).toContainText('Activity could not be updated.');
+  await expect(dialog).toContainText('Synchronization needs attention');
+  await page.unroute('**/api/v1/activity-sync*');
+  await dialog.getByRole('button', { name: 'Check again', exact: true }).click();
+  await expect(dialog).not.toContainText('Activity could not be updated.');
+  await expect(dialog).toContainText('Connected and synced');
+  expect(writes).toBe(1);
+});
+
 async function conversation(request: APIRequestContext, count = 1, recovery = false) {
   const id = `activity-${crypto.randomUUID()}`;
   await request.post('/__test/conversation-message', { headers, data: { id, title: 'Incremental conversation', text: 'Current conversation history is ready.' } });
@@ -197,13 +255,15 @@ test('the browser can use legacy responses when incremental sync is disabled', a
     if (data.destination) data.destination.activitySync = false;
     await route.fulfill({ response, json: data });
   });
-  await page.goto(fixture.url);
-  await expect(page.locator('.history')).toContainText('Current conversation history is ready.');
-  await page.getByLabel('Message Hermes', { exact: true }).fill('Keep the fallback draft.');
-  await expect.poll(() => page.evaluate(id => (window as any).__HERTS_PLUGIN_RUNTIME__.sdk.getCore().actions.filter((a: any) => a.taskId === id).length, fixture.context.id)).toBe(1);
-  await page.reload();
-  await expect(page.getByLabel('Message Hermes', { exact: true })).toHaveValue('Keep the fallback draft.');
-  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
+  try {
+    await page.goto(fixture.url);
+    await expect(page.locator('.history')).toContainText('Current conversation history is ready.');
+    await page.getByLabel('Message Hermes', { exact: true }).fill('Keep the fallback draft.');
+    await expect.poll(() => page.evaluate(id => (window as any).__HERTS_PLUGIN_RUNTIME__.sdk.getCore().actions.filter((a: any) => a.taskId === id).length, fixture.context.id)).toBe(1);
+    await page.reload();
+    await expect(page.getByLabel('Message Hermes', { exact: true })).toHaveValue('Keep the fallback draft.');
+    await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
+  } finally { await page.unrouteAll({ behavior: 'wait' }); }
 });
 
 

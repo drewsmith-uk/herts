@@ -1,3 +1,4 @@
+import { seedPendingDraftSettings } from './pending-sync-helpers';
 import { openSettingsGroups } from './composer-helpers';
 import { pageAction, closePageActions } from './composer-helpers';
 import { openConnectionDetails } from './navigation-helpers';
@@ -1213,3 +1214,79 @@ test('make-task dialog protects its title during delayed submission and failure'
   await expect(field).toBeEditable();
   await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeEnabled();
 });
+
+for (const [width, height] of [[320, 844], [390, 844], [768, 844], [1280, 844], [390, 480]]) {
+  test(`pending sync details preserve draft settings at ${width}x${height}`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    await page.goto('/#/settings');
+    await expect(page.locator('#connection-status-label')).toHaveText('Connection status: Connected and synced');
+    const pending = await seedPendingDraftSettings(page);
+    await openConnectionDetails(page);
+    const dialog = page.getByRole('dialog', { name: 'Connection and sync', exact: true });
+    await expect(dialog).toContainText('Up to date');
+    await expect(dialog).toContainText('Saved with draft');
+    await expect(dialog).toContainText(pending.title);
+    const link = dialog.getByRole('link', { name: /Conversation settings/ });
+    await expect(link).toHaveAttribute('href', '#/conversations');
+    await link.focus();
+    await expect(link).toBeFocused();
+    expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: test.info().outputPath('pending-settings.png') });
+    const retry = dialog.getByRole('button', { name: 'Check again', exact: true });
+    await retry.scrollIntoViewIfNeeded();
+    const bounds = (await retry.boundingBox())!;
+    expect(bounds.y).toBeGreaterThanOrEqual(0);
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(height);
+    await retry.click();
+    await expect(dialog).toContainText('Up to date');
+    await page.keyboard.press('Escape');
+    await expect(dialog).not.toBeVisible();
+    await expect(page.getByRole('button', { name: /^Connection status:/ })).toBeFocused();
+    await openConnectionDetails(page);
+    await link.click();
+    await page.getByRole('link', { name: /Review the project arrangements/ }).click();
+    await expect(page.getByRole('textbox', { name: 'Message Hermes', exact: true })).toHaveValue('Preserve this unsent draft.');
+  });
+}
+
+for (const [width, height] of [[320, 844], [390, 844], [768, 844], [390, 480]]) {
+  test(`connection details retain their styling inside More at ${width}x${height}`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    await page.addInitScript(() => localStorage.setItem('herts-navigation-more', JSON.stringify(['reading'])));
+    await page.goto('/#/settings');
+    await expect(page.locator('#connection-status-label')).toHaveText('Connection status: Connected and synced');
+    await seedPendingDraftSettings(page);
+    await page.route('**/api/v1/state*', route => route.abort());
+    await page.evaluate(() => window.dispatchEvent(new Event('online')));
+    await expect(page.locator('#connection-status-label')).toHaveText('Connection status: Synchronization needs attention');
+    await openConnectionDetails(page);
+    const dialog = page.getByRole('dialog', { name: 'Connection and sync', exact: true });
+    const metrics = () => dialog.evaluate(element => {
+      const row = element.querySelector('.pending-changes .item-row')!, list = element.querySelector('.pending-changes')!;
+      const preview = row.querySelector('.item-preview')!, heading = element.querySelector('.dialog-heading')!;
+      const left = element.getBoundingClientRect().left;
+      return { rowLeft: row.getBoundingClientRect().left - left, listMargin: getComputedStyle(list).marginLeft,
+        previewWeight: getComputedStyle(preview).fontWeight, headingBackground: getComputedStyle(heading).backgroundColor,
+        headingMargin: getComputedStyle(heading).marginLeft };
+    });
+    const direct = await metrics();
+    await page.screenshot({ path: test.info().outputPath('connection-direct.png') });
+    await page.keyboard.press('Escape');
+    const moreButton = page.locator('.mobile-nav').getByRole('button', { name: 'More', exact: true });
+    await moreButton.click();
+    const more = page.getByRole('dialog', { name: 'More', exact: true });
+    const trigger = more.getByRole('button', { name: /^Connection status:/ });
+    await trigger.click();
+    await expect(dialog).toContainText('Updates could not be loaded.');
+    expect(await metrics()).toEqual(direct);
+    expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await page.screenshot({ path: test.info().outputPath('connection-from-more.png') });
+    await dialog.getByRole('button', { name: 'Check again', exact: true }).scrollIntoViewIfNeeded();
+    await page.keyboard.press('Escape');
+    await expect(trigger).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(moreButton).toBeFocused();
+    await page.unrouteAll({ behavior: 'wait' });
+  });
+}

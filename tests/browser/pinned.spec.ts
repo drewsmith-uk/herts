@@ -50,7 +50,13 @@ test('keeps blocked pins, supports search, and recovers notification display', a
   await page.getByRole('searchbox', { name: 'Search pinned notifications' }).fill('unmatched');
   await expect(page.getByRole('heading', { name: 'No pins match this search' })).toBeVisible();
   await page.getByRole('button', { name: 'Clear search pinned notifications' }).click();
-  await context.grantPermissions(['notifications']); await page.locator('.pinned-list').getByRole('button', { name: 'Retry', exact: true }).click();
+  await page.exposeFunction('grantPinnedNotificationPermission', () => context.grantPermissions(['notifications']));
+  await page.evaluate(() => {
+    Object.defineProperty(Notification, 'requestPermission', { configurable: true, value: async () => {
+      await (window as any).grantPinnedNotificationPermission(); return Notification.permission;
+    } });
+  });
+  await page.locator('.pinned-list').getByRole('button', { name: 'Retry', exact: true }).click();
   await expect(page.locator('.pinned-list').getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0);
   expect((await notices(page))[0].data.key).toBe(record.key);
   await page.locator('.pinned-list').getByRole('button', { name: /^Unpin:/ }).click();

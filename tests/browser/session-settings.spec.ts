@@ -80,7 +80,10 @@ test('General Settings defaults apply to new conversations with a per-conversati
   await page.goto('/#/new');
   await expect(settingsButton(page)).toContainText('chosen-model');
   await open(page); await page.getByLabel('Reasoning effort', { exact: true }).selectOption('low'); await page.getByRole('button', { name: 'Apply', exact: true }).click(); await expect(page.getByRole('dialog')).toHaveCount(0);
-  await page.getByLabel(/^(Message Hermes|Add a task)$/).fill('Use my new conversation defaults'); await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
+  await page.getByLabel(/^(Message Hermes|Add a task)$/).fill('Use my new conversation defaults');
+  await expect(page.locator('#connection-status-label')).toHaveText('Connection status: Connected and synced');
+  expect(await writes(request)).toEqual(before);
+  await page.getByRole('button', { name: /^(Send|Send to Hermes)$/, exact: true }).click();
   await expect(page.locator('.conversation-panel')).toHaveAttribute('data-phase','complete');
   const sent = (await writes(request)).slice(before.length); expect(sent.find(c => c.method === 'session.create')?.params).toMatchObject({ model: 'chosen-model', provider: 'configured', reasoning_effort: 'low', cwd: '/projects/work' });
 });

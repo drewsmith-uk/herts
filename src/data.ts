@@ -111,6 +111,9 @@ export interface State {
     checkingStatus?: boolean;
     syncActive?: boolean;
     syncError?: string;
+    syncErrorRequestId?: string;
+    activitySyncError?: string;
+    stateRefreshError?: string;
     stateRefreshPending?: boolean;
     connectionVersion: number;
     loaded: boolean;
@@ -142,6 +145,7 @@ const activityRevisions = new Map<string, number>();
 const contextObservations = new Map<string, ContextObservation>();
 const visibleConversations = new Set<string>();
 let backgroundTimer: ReturnType<typeof setTimeout> | undefined;
+let backgroundRetry = false;
 export function beginActivityRead() {
     return { observation: ++connectionObservation, revision: ++activityRevision, generation: state.activityGeneration };
 }
@@ -156,9 +160,13 @@ export function observeConversation(id: string) {
         }
     };
 }
-function scheduleBackgroundRefresh() {
-    if (backgroundTimer) return;
-    const delay = Math.max(200, lastBackgroundRefresh + (visibleConversations.size ? 30000 : 1000) - Date.now());
+function scheduleBackgroundRefresh(retry = false) {
+    if (backgroundTimer) {
+        if (!retry || backgroundRetry) return;
+        clearTimeout(backgroundTimer);
+    }
+    backgroundRetry = retry;
+    const delay = retry ? 1000 : Math.max(200, lastBackgroundRefresh + (visibleConversations.size ? 30000 : 1000) - Date.now());
     backgroundTimer = setTimeout(() => {
         backgroundTimer = undefined;
         if (navigator.onLine && !document.hidden) void refresh(false, true);
@@ -171,6 +179,7 @@ function acceptConnection(data: Pick<State, 'gateway' | 'pushKey' | 'activitySyn
         connectionVersion: state.connectionVersion + (recovered ? 1 : 0) });
     if (recovered) void sync();
     if (data.activitySync) void syncActivity();
+    if (state.stateRefreshError) scheduleBackgroundRefresh(true);
 }
 let connectionRequest: AbortController | undefined;
 export async function refreshConnection(recover = false) {
@@ -253,7 +262,7 @@ export function syncActivity(): Promise<void> {
             } catch (error) {
                 if (controller.signal.aborted) continue;
                 if (error instanceof ApiError && error.status === 409 && error.data?.rebase) { await activityCache.reset(position); continue; }
-                publish({ syncError: 'Activity could not be updated. Select Sync now in Settings.' });
+                publish({ activitySyncError: 'Activity could not be updated. Select Sync now in Settings.' });
                 return;
             } finally { stop(); }
         }
@@ -275,7 +284,8 @@ export function syncActivity(): Promise<void> {
                 } finally { stop(); }
             }
         }));
-    })().catch(() => { publish({ syncError: 'Activity could not be saved. Reload to try again.' }); }).finally(() => { activitySyncRequest = undefined; });
+        if (state.online && state.activitySync) publish({ activitySyncError: '' });
+    })().catch(() => { publish({ activitySyncError: 'Activity could not be saved. Reload to try again.' }); }).finally(() => { activitySyncRequest = undefined; });
     return activitySyncRequest;
 }
 export async function readConversationActivity(contextId: string, signal: AbortSignal, priority = false) {
@@ -380,7 +390,7 @@ async function pendingVisibility(): Promise<PendingVisibility[]> {
 }
 let rebuildVersion = 0;
 export async function rebuild() {
-    const version = ++rebuildVersion;
+    const version = ++rebuildVersion, errorRequestId = state.syncErrorRequestId;
     const visibilityPending = await pendingVisibility();
     const localContexts = (await db.kv.where('key').startsWith('context:').toArray()).map(r => r.value as ConversationContext);
     const pluginPending = await db.pluginPending.orderBy('order').toArray(), submissions = await db.submissions.toArray();
@@ -409,7 +419,11 @@ export async function rebuild() {
     // A slower read must not replace a newer snapshot and briefly remove a
     // draft created while its device-storage reads were in flight.
     if (version !== rebuildVersion) return;
-    publish({ snapshot, pluginData, pluginPending, visibilityPending, settingsPending, outgoing, localSubmissions, checkingStatus: !!localSubmissions.length && (refreshing || focusedStatusReads > 0) });
+    const errorResolved = errorRequestId && errorRequestId === state.syncErrorRequestId
+        && !pluginPending.some(p => p.operation.id === errorRequestId)
+        && !visibilityPending.some(p => p.op.id === errorRequestId)
+        && !settingsPending.some(p => p.input.id === errorRequestId);
+    publish({ ...(errorResolved ? { syncError: '', syncErrorRequestId: undefined } : {}), snapshot, pluginData, pluginPending, visibilityPending, settingsPending, outgoing, localSubmissions, checkingStatus: !!localSubmissions.length && (refreshing || focusedStatusReads > 0) });
 }
 export async function acceptPlugins(catalogue: PluginCatalogue, data: Record<string, PluginData> = state.pluginRemote) {
     if (catalogue.revision < state.plugins.revision)
@@ -484,7 +498,7 @@ export async function initialise() {
         const activity = await activityCache.read(), position = await activityCache.position();
         publish({ actions: activity.actions, activitySummaries: activity.summaries, activityGeneration: position.generation });
         liveQuery(() => activityCache.read()).subscribe({ next: value => publish({ actions: value.actions, activitySummaries: value.summaries }),
-            error: () => publish({ syncError: 'Saved activity could not be loaded. Reload to try again.' }) });
+            error: () => publish({ syncError: 'Saved activity could not be loaded. Reload to try again.', syncErrorRequestId: undefined }) });
         if (saved && saved.snapshot.revision >= state.remote.revision)
             publish({ remote: { ...empty(), ...saved.snapshot } });
         if (plugins)
@@ -567,11 +581,12 @@ export async function refresh(recover = false, background = false) {
             if (data.actions?.some((a: Action) => a.id === s.id))
                 await db.submissions.update(s.id, { confirmed: true });
         await rebuild();
+        publish({ stateRefreshError: '' });
         void sync();
     }
     catch (e) {
         if (!controller.signal.aborted) {
-            publish({ defaultsReady: true, syncError: 'Updates could not be loaded. Select Sync now in Settings.' });
+            publish({ defaultsReady: true, stateRefreshError: 'Updates could not be loaded. Select Check again.' });
             void refreshConnection();
         } else if (background) scheduleBackgroundRefresh();
     }
@@ -632,12 +647,12 @@ export async function mutatePlugin(pluginId: string, command: string, input: any
     return id;
 }
 let activeSyncRequests = 0;
-async function syncRequest(path: string, input: unknown, timeout?: number) {
+async function syncRequest(path: string, input: { id: string }, timeout?: number) {
     activeSyncRequests++;
-    publish({ syncActive: true, syncError: '' });
+    publish({ syncActive: true, syncError: '', syncErrorRequestId: undefined });
     try { return await api(path, input, undefined, timeout); }
     catch (error) {
-        publish({ syncError: error instanceof Error ? error.message : 'Synchronization failed. Try again.' });
+        publish({ syncError: error instanceof Error ? error.message : 'Synchronization failed. Try again.', syncErrorRequestId: input.id });
         throw error;
     }
     finally { activeSyncRequests--; publish({ syncActive: activeSyncRequests > 0 }); }
@@ -710,7 +725,6 @@ async function syncNow() {
             }
         }
     await syncSessionSettings();
-    if (state.online && !state.pluginPending.length && !state.visibilityPending.length && !state.settingsPending?.length) publish({ syncError: '' });
 }
 const settingsWrites = new Map<string, Promise<void>>();
 async function syncSettingsKey(key: string): Promise<void> {

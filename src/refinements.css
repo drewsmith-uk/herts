@@ -146,11 +146,11 @@
 :root[data-theme="press"] .connection-badge { border:1px solid var(--design-ink); background:var(--design-sheet); color:var(--design-ink); }
 :root[data-theme="press"] .connection-badge:is(.status-checking,.status-syncing,.status-waiting) { background:var(--design-selected); }
 :root[data-theme="press"] .connection-badge:is(.status-offline,.status-warning) { background:var(--design-ink); color:var(--design-sheet); }
-.navigation-sheet .item-list { gap:0; }
-.navigation-sheet .item-row, .navigation-sheet .connection-status-row { min-height:52px; padding:8px 0; border:0; border-bottom:1px solid var(--color-menu-rule); border-radius:0; box-shadow:none; background:transparent; }
-.navigation-sheet .item-row-leading { flex-basis:24px; }
-.navigation-sheet .connection-status-row { margin:0; }
-.navigation-sheet .item-row[aria-current="page"] { color:var(--color-text); background:var(--color-selected); }
+.navigation-sheet > .item-list { gap:0; }
+.navigation-sheet > .item-list > .item-row, .navigation-sheet > .connection-status-row { min-height:52px; padding:8px 0; border:0; border-bottom:1px solid var(--color-menu-rule); border-radius:0; box-shadow:none; background:transparent; }
+.navigation-sheet > .item-list > .item-row .item-row-leading { flex-basis:24px; }
+.navigation-sheet > .connection-status-row { margin:0; }
+.navigation-sheet > .item-list > .item-row[aria-current="page"] { color:var(--color-text); background:var(--color-selected); }
 .session-dialog-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
 .session-dialog-actions > .button-row { margin-left:auto; }
 .session-dialog-actions > .text-button { font-size:var(--text-meta); padding-inline:0; }
@@ -190,7 +190,7 @@
 .plugin-settings-groups .setting-row p { margin:6px 0 0; }
 @media(max-width:1000px) {
   .dialog-frame:is(.detail-action-menu,.navigation-sheet,.session-settings-dialog) { top:auto; bottom:calc(100dvh - var(--viewport-top, 0px) - var(--viewport-height, 100dvh)); margin:0; width:100%; max-width:none; max-height:calc(var(--viewport-height, 100dvh) - 16px); border-inline:0; border-bottom:0; border-radius:0; background:var(--color-sheet); padding-bottom:calc(20px + env(safe-area-inset-bottom)); }
-  .dialog-frame:is(.detail-action-menu,.navigation-sheet) .dialog-heading { background:var(--color-sheet); }
+  .dialog-frame:is(.detail-action-menu,.navigation-sheet) > .dialog-heading { background:var(--color-sheet); }
   .dialog-frame.session-settings-dialog { padding:0; }
   .session-settings-dialog.form-dialog form { max-height:calc(var(--viewport-height, 100dvh) - 18px); }
   .session-settings-dialog .dialog-heading, .session-settings-dialog .form-dialog-footer { background:var(--color-sheet); }
@@ -249,15 +249,15 @@
 .bots-roster .item-row-actions { align-self:center; padding-top:0; }
 :root[data-theme="press"] .bots > .search-field { background:var(--color-input-recess); border:1px solid var(--color-subtle-border); }
 .dialog-frame:is(.detail-action-menu,.navigation-sheet) { padding-inline:20px; }
-.detail-action-menu .dialog-heading, .navigation-sheet .dialog-heading { margin-inline:-20px; padding:0 20px 6px; border-bottom:1px solid var(--color-menu-rule); }
+.detail-action-menu .dialog-heading, .navigation-sheet > .dialog-heading { margin-inline:-20px; padding:0 20px 6px; border-bottom:1px solid var(--color-menu-rule); }
 .detail-action-menu .action-row { position:relative; border-bottom:0; }
 .detail-action-menu .action-row::after { content:""; position:absolute; inset:auto -14px 0; border-bottom:1px solid var(--color-menu-rule); }
 .detail-action-menu .action-row-value { font-weight:400; }
 .detail-action-menu .action-row-icon svg { width:18px; height:18px; stroke-width:1.75; }
-.navigation-sheet .item-list, .navigation-sheet .connection-status-row { margin-inline:-20px; }
-.navigation-sheet .connection-status-row { width:calc(100% + 40px); max-width:none; font-size:var(--text-body); gap:8px; }
-.navigation-sheet .connection-status-row > .connection-icon { flex:0 0 24px; }
-.navigation-sheet .item-row, .navigation-sheet .connection-status-row { padding-inline:20px; font-weight:600; }
+.navigation-sheet > .item-list, .navigation-sheet > .connection-status-row { margin-inline:-20px; }
+.navigation-sheet > .connection-status-row { width:calc(100% + 40px); max-width:none; font-size:var(--text-body); gap:8px; }
+.navigation-sheet > .connection-status-row > .connection-icon { flex:0 0 24px; }
+.navigation-sheet > .item-list > .item-row, .navigation-sheet > .connection-status-row { padding-inline:20px; font-weight:600; }
 :root[data-theme="press"] .connection-icon.status-synced { color:var(--color-text); }
 .dialog-heading-copy { min-width:0; align-self:center; }
 .dialog-heading-copy p { margin:4px 0 0; font-size:var(--text-meta); font-weight:400; color:var(--color-text-secondary); }
