@@ -47,7 +47,10 @@ test('offline snooze survives reload; a lost receipt and a conflicting device ca
   try{
     await other.goto(url);await expect((await detailsField(other, 'Task list'))).toHaveValue('snoozed');await expect(other.locator('.save-state')).toContainText('Changes synced');await second.setOffline(true);
     await (await detailsControl(other, 'button', 'Change reminder')).click();await chooseTime(other,at+3600_000);await other.getByRole('button',{name:'Save reminder',exact:true}).click();
-    await (await detailsControl(page, 'button', 'Change reminder')).click();await chooseTime(page,at+7200_000);await page.getByRole('button',{name:'Save reminder',exact:true}).click();await expect(page.locator('.save-state')).toContainText('Changes synced');
+    await expect(other.getByRole('dialog',{name:'Change reminder',exact:true})).toHaveCount(0);
+    await (await detailsControl(page, 'button', 'Change reminder')).click();await chooseTime(page,at+7200_000);await page.getByRole('button',{name:'Save reminder',exact:true}).click();
+    await expect.poll(async()=>(await snapshot(request)).tasks.find((t:any)=>t.id===ids[0]).snoozedUntil).toBe(at+7200_000);
+    await expect(page.locator('.save-state')).toContainText('Changes synced');
     await second.setOffline(false);await expect(other.getByText('The reminder changed on another device.',{exact:true})).toBeVisible();await expect(other.getByText('Your change: Snooze until',{exact:false})).toBeVisible();await closePageActions(other); await other.getByRole('button',{name:'Use synced version',exact:true}).click();await expect(other.locator('.save-state')).toContainText('Changes synced');
     expect((await snapshot(request)).tasks.find((t:any)=>t.id===ids[0]).snoozedUntil).toBe(at+7200_000);
   }finally{await second.close();}
