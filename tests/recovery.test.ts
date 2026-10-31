@@ -4,6 +4,7 @@ import { Store } from '../server/store';
 import { Actions } from '../server/actions';
 import { Gateway, GatewayError } from '../server/gateway';
 import { RecoveryQueue } from '../server/recoveryQueue';
+import type { Action } from '../shared/core';
 
 const cleanup: (() => void)[] = [];
 afterEach(() => { cleanup.splice(0).forEach(close => close()); vi.useRealTimers(); });
@@ -27,6 +28,107 @@ function fixture() {
   return { store, gateway, engine, notices };
 }
 const complete = { session_id: 'runtime', seq: 2, type: 'message.complete', payload: { status: 'complete' } };
+
+describe('obsolete recovery', () => {
+  function completedHistory() {
+    const f = fixture();
+    const old: Action = { ...f.store.action('action')!, state: 'finished', phase: 'complete', terminal: 'complete',
+      updatedAt: Date.now() - 31 * 86400000 };
+    f.store.db.prepare('UPDATE actions SET data=? WHERE id=?').run(JSON.stringify(old), old.id);
+    f.store.activity.recordAction(old);
+    return { ...f, old };
+  }
+  function latest(f: ReturnType<typeof completedHistory>) {
+    f.store.saveAction({ ...f.old, id: 'latest', createdAt: 2 });
+  }
+  it.each(['epoch change', 'unavailable session'])('releases completed history after %s while retaining saved messages', async cause => {
+    const f = completedHistory();
+    f.store.saveAction({ ...f.old, id: 'saved', state: 'failed', receipt: 'rejected', terminal: undefined, text: 'Keep this saved copy' });
+    latest(f);
+    f.store.saveBinding('context', { ...f.store.binding('context')!, recoveryPending: true,
+      ...(cause === 'unavailable session' ? { unavailable: true, known: false, monitored: false, ready: false } : {}) });
+    f.gateway.epoch = 'new-epoch';
+    const before = f.store.actions();
+    await f.engine.reconnect();
+    expect(f.store.actions()).toEqual(before);
+    expect(f.store.binding('context')).toMatchObject({ recoveryPending: false, ready: false, known: false, seq: 1 });
+    expect(f.store.activity.summary('context').pendingRecovery).toBe(false);
+    expect(f.store.archive.batch().moved).toBe(1);
+    expect(f.store.actions().map(a => a.id)).toEqual(['latest', 'saved']);
+    expect(f.store.action('action')).toEqual(f.old);
+    expect(f.store.action('saved')?.text).toBe('Keep this saved copy');
+    expect(f.notices()).toBe(0);
+    expect(f.gateway.rpc).not.toHaveBeenCalled();
+    f.gateway.emit('disconnected');
+    await f.engine.reconnect();
+    expect(f.store.binding('context')?.recoveryPending).toBe(false);
+  });
+  const unresolved: Partial<Action>[] = [
+    { state: 'unknown', receipt: 'unknown' },
+    { state: 'unknown', receipt: 'accepted' },
+    { state: 'running', receipt: 'accepted' },
+    { kind: 'stop', state: 'stopping', receipt: 'accepted', targetId: 'action' },
+    { state: 'preparing', receipt: 'pending' },
+    { settings: { revision: 1, values: {}, applied: [], inFlight: 'model' } },
+    { settings: { revision: 1, values: {}, applied: [], confirmation: 'confirmation' } },
+  ];
+  for (const unavailable of [false, true]) it.each(unresolved)('retains older unresolved operations with unavailable='+unavailable+': %j', async patch => {
+    const f = completedHistory();
+    f.store.saveAction({ ...f.old, id: 'unresolved', terminal: undefined, ...patch });
+    latest(f);
+    f.store.saveBinding('context', { ...f.store.binding('context')!, unavailable });
+    f.gateway.epoch = 'new-epoch';
+    const before = f.store.actions();
+    await f.engine.reconnect();
+    expect(f.store.actions()).toEqual(before);
+    expect(f.store.binding('context')?.recoveryPending).toBe(true);
+    expect(f.store.archive.batch().moved).toBe(0);
+    expect(f.gateway.rpc).not.toHaveBeenCalled();
+    expect(f.notices()).toBe(0);
+  });
+  it('retains dispatch protection until an obsolete conversation is checked after dispatch ends', async () => {
+    const f = completedHistory(); latest(f); f.gateway.epoch = 'new-epoch';
+    f.engine.dispatching.add('action');
+    await f.engine.reconnect();
+    expect(f.store.binding('context')?.recoveryPending).toBe(true);
+    expect(f.store.archive.batch().moved).toBe(0);
+    f.engine.dispatching.delete('action');
+    await f.engine.reconcile('context');
+    expect(f.store.binding('context')?.recoveryPending).toBe(false);
+    expect(f.store.archive.batch().moved).toBe(1);
+    expect(f.gateway.rpc).not.toHaveBeenCalled();
+  });
+  it('clears a newly unavailable session only when completion is already confirmed', async () => {
+    const f = completedHistory(); latest(f);
+    f.gateway.rpc.mockRejectedValue(new GatewayError('Synthetic missing session', false, 4001));
+    await f.engine.reconnect();
+    expect(f.store.binding('context')).toMatchObject({ unavailable: true, recoveryPending: false, ready: false });
+    expect(f.store.archive.batch().moved).toBe(1);
+    expect(f.gateway.rpc.mock.calls.map(call => call[0])).toEqual(['session.events.since']);
+    expect(f.notices()).toBe(0);
+  });
+  it('continues recovery for a current connection even when its latest action is finished', async () => {
+    const f = completedHistory(); latest(f);
+    f.gateway.rpc.mockRejectedValueOnce(new GatewayError('Synthetic replay timeout'));
+    await f.engine.reconnect();
+    expect(f.store.binding('context')?.recoveryPending).toBe(true);
+    expect(f.store.archive.batch().moved).toBe(0);
+    expect(f.gateway.rpc.mock.calls.map(call => call[0])).toEqual(['session.events.since']);
+    expect(f.notices()).toBe(0);
+  });
+  it('preserves gateway recovery across an authority change', async () => {
+    const f = completedHistory(); latest(f);
+    f.store.saveBinding('context', { ...f.store.binding('context')!, recoveryPending: true });
+    f.gateway.protocol = 'hermes-gateway-v1'; f.gateway.epoch = 'new-authority';
+    await f.engine.reconcile('context');
+    expect(f.store.binding('context')?.recoveryPending).toBe(true);
+    f.gateway.rpc.mockRejectedValue(new GatewayError('Synthetic snapshot timeout'));
+    await f.engine.reconnect();
+    expect(f.store.binding('context')?.recoveryPending).toBe(true);
+    expect(f.store.archive.batch().moved).toBe(0);
+    expect(f.gateway.rpc.mock.calls.map(call => call[0])).toEqual(['session.resume']);
+  });
+});
 
 describe('execution recovery', () => {
   it('processes completion before a newer live event and delivers one durable notice', async () => {
