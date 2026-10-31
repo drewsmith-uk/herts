@@ -13,7 +13,7 @@ import { SessionSettingsControls } from './SessionSettings';
 import { Voice } from './Voice';
 import { useDraftPersistence, useUpdatePreparation } from './updateSafety';
 
-export const composerCapabilities = { taskCapture: true, captureLayout: true } as const;
+export const composerCapabilities = { taskCapture: true, captureLayout: true, transformDraft: true } as const;
 
 export function ComposerPlaceholder({ capture = false, inputLabel = 'Message Hermes' }: { capture?: boolean; inputLabel?: string }) {
   return <div className={`composer-wrap composer-loading ${capture ? 'composer-docked composer-capture is-collapsed' : 'composer-entry is-expanded'}`} aria-busy="true" role="status" aria-label="Opening draft">
@@ -36,6 +36,7 @@ export interface MessageComposerProps {
   capture?: boolean;
   fields?: ReactNode | ((draft: Draft) => ReactNode);
   persist?: (draft: Draft) => Promise<unknown>;
+  transformDraft?: (draft: Draft) => Draft;
   prepare?: (draft: Draft) => Promise<void>;
   saveLabel?: string;
   primaryAction?: 'send' | 'save';
@@ -54,7 +55,7 @@ export interface MessageComposerProps {
   savedMessagesHost?: HTMLElement | null;
   recoveryInHistory?: boolean;
 }
-export function MessageComposer({ context, initialText = '', canSend = true, docked = false, capture = false, fields, persist, prepare, saveLabel, primaryAction = 'send', inputLabel, sendLabel = 'Send', destination, agentOptions = false, allowSaveEmpty = false, onSaved, onSending, onSubmissionChange, onSent, owner, voiceOwner, recordRequest, savedMessagesHost, recoveryInHistory = false }: MessageComposerProps) {
+export function MessageComposer({ context, initialText = '', canSend = true, docked = false, capture = false, fields, persist, transformDraft, prepare, saveLabel, primaryAction = 'send', inputLabel, sendLabel = 'Send', destination, agentOptions = false, allowSaveEmpty = false, onSaved, onSending, onSubmissionChange, onSent, owner, voiceOwner, recordRequest, savedMessagesHost, recoveryInHistory = false }: MessageComposerProps) {
   const state = useApp(), [draft, setDraft] = useState<Draft>({ id: context.id, text: initialText, files: [] });
   const [files, setFiles] = useState<LocalFile[]>([]), [loaded, setLoaded] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState(''), [dirty, setDirty] = useState(false);
   const [recording, setRecording] = useState(false), [expanded, setExpanded] = useState(!docked), [settingsOpen, setSettingsOpen] = useState(false);
@@ -111,23 +112,28 @@ export function MessageComposer({ context, initialText = '', canSend = true, doc
     if (working.current || attaching.current || voiceBusy.current || settingsOpen || !savingAllowed || (send && (!allowed || document.hidden))) return;
     const current = draftRef.current; if (!current.text.trim() && !current.files.length && (send || !allowSaveEmpty)) return;
     working.current = true; setBusy(true); setError('');
-    const submitted = send ? { ...current, submissionId: crypto.randomUUID() } : undefined;
+    let submitted: (Draft & { submissionId: string }) | undefined;
     try {
+      const transformed = transformDraft?.(current) || current;
+      submitted = send ? { ...transformed, submissionId: crypto.randomUUID() } : undefined;
       if (submitted) {
         setSubmitting(true); onSubmissionChange?.(submitted); onSending?.();
         if (onSubmissionChange) setExpanded(false);
       }
-      await persistDraft(current); await prepare?.(current);
+      if (transformed !== current) await update(transformed);
+      else await persistDraft(current);
+      await prepare?.(transformed);
       if (submitted) {
         const id = submitted.submissionId; await update(submitted);
         recovery.current = { id, draft: submitted };
-        await submit({ id, contextId: context.id, kind: 'send', text: current.text, uploadIds: current.files });
+        await submit({ id, contextId: context.id, kind: 'send', text: transformed.text, uploadIds: transformed.files });
         recovery.current = undefined;
         await update({ id: context.id, text: '', files: [] });
         setExpanded(false); await onSent?.();
       } else { await onSaved?.(); setNotice('Saved. Your message has not been sent.'); }
     } catch (e) {
-      const unconfirmed = submitted && getState().localSubmissions.some(s => s.id === submitted.submissionId);
+      const submissionId = submitted?.submissionId;
+      const unconfirmed = submissionId && getState().localSubmissions.some(s => s.id === submissionId);
       setError(unconfirmed ? '' : (e as Error).message);
       if (!unconfirmed) open(false);
     }
