@@ -111,6 +111,7 @@ export interface State {
     checkingStatus?: boolean;
     syncActive?: boolean;
     syncError?: string;
+    syncErrorRequestId?: string;
     activitySyncError?: string;
     stateRefreshError?: string;
     stateRefreshPending?: boolean;
@@ -389,7 +390,7 @@ async function pendingVisibility(): Promise<PendingVisibility[]> {
 }
 let rebuildVersion = 0;
 export async function rebuild() {
-    const version = ++rebuildVersion;
+    const version = ++rebuildVersion, errorRequestId = state.syncErrorRequestId;
     const visibilityPending = await pendingVisibility();
     const localContexts = (await db.kv.where('key').startsWith('context:').toArray()).map(r => r.value as ConversationContext);
     const pluginPending = await db.pluginPending.orderBy('order').toArray(), submissions = await db.submissions.toArray();
@@ -418,7 +419,11 @@ export async function rebuild() {
     // A slower read must not replace a newer snapshot and briefly remove a
     // draft created while its device-storage reads were in flight.
     if (version !== rebuildVersion) return;
-    publish({ snapshot, pluginData, pluginPending, visibilityPending, settingsPending, outgoing, localSubmissions, checkingStatus: !!localSubmissions.length && (refreshing || focusedStatusReads > 0) });
+    const errorResolved = errorRequestId && errorRequestId === state.syncErrorRequestId
+        && !pluginPending.some(p => p.operation.id === errorRequestId)
+        && !visibilityPending.some(p => p.op.id === errorRequestId)
+        && !settingsPending.some(p => p.input.id === errorRequestId);
+    publish({ ...(errorResolved ? { syncError: '', syncErrorRequestId: undefined } : {}), snapshot, pluginData, pluginPending, visibilityPending, settingsPending, outgoing, localSubmissions, checkingStatus: !!localSubmissions.length && (refreshing || focusedStatusReads > 0) });
 }
 export async function acceptPlugins(catalogue: PluginCatalogue, data: Record<string, PluginData> = state.pluginRemote) {
     if (catalogue.revision < state.plugins.revision)
@@ -493,7 +498,7 @@ export async function initialise() {
         const activity = await activityCache.read(), position = await activityCache.position();
         publish({ actions: activity.actions, activitySummaries: activity.summaries, activityGeneration: position.generation });
         liveQuery(() => activityCache.read()).subscribe({ next: value => publish({ actions: value.actions, activitySummaries: value.summaries }),
-            error: () => publish({ syncError: 'Saved activity could not be loaded. Reload to try again.' }) });
+            error: () => publish({ syncError: 'Saved activity could not be loaded. Reload to try again.', syncErrorRequestId: undefined }) });
         if (saved && saved.snapshot.revision >= state.remote.revision)
             publish({ remote: { ...empty(), ...saved.snapshot } });
         if (plugins)
@@ -642,12 +647,12 @@ export async function mutatePlugin(pluginId: string, command: string, input: any
     return id;
 }
 let activeSyncRequests = 0;
-async function syncRequest(path: string, input: unknown, timeout?: number) {
+async function syncRequest(path: string, input: { id: string }, timeout?: number) {
     activeSyncRequests++;
-    publish({ syncActive: true, syncError: '' });
+    publish({ syncActive: true, syncError: '', syncErrorRequestId: undefined });
     try { return await api(path, input, undefined, timeout); }
     catch (error) {
-        publish({ syncError: error instanceof Error ? error.message : 'Synchronization failed. Try again.' });
+        publish({ syncError: error instanceof Error ? error.message : 'Synchronization failed. Try again.', syncErrorRequestId: input.id });
         throw error;
     }
     finally { activeSyncRequests--; publish({ syncActive: activeSyncRequests > 0 }); }
@@ -720,7 +725,6 @@ async function syncNow() {
             }
         }
     await syncSessionSettings();
-    if (state.online && !state.pluginPending.length && !state.visibilityPending.length && !state.settingsPending?.length) publish({ syncError: '' });
 }
 const settingsWrites = new Map<string, Promise<void>>();
 async function syncSettingsKey(key: string): Promise<void> {

@@ -407,3 +407,27 @@ test('a failed state read retries promptly while an open conversation keeps its 
   expect(sends).toBe(0);
   await page.unrouteAll({ behavior: 'wait' });
 });
+
+test('resolving a conflict clears its warning while draft choices remain saved', async ({ page }) => {
+  await page.goto('/#/settings/plugins');
+  await expect(status(page)).toHaveText('Connection status: Connected and synced');
+  const draft = await seedPendingDraftSettings(page);
+  await page.route('**/api/v1/plugins/tasks/commands', route => route.fulfill({ status: 409, json: { error: 'Review this saved space.' } }));
+  await page.getByLabel('New space name', { exact: true }).fill('Conflict recovery');
+  await page.getByRole('button', { name: 'Create space', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__HERTS_PLUGIN_RUNTIME__.sdk.getCore().pluginPending[0]?.conflict)).toBe('Review this saved space.');
+  await page.evaluate(() => (window as any).__HERTS_PLUGIN_RUNTIME__.sdk.rebuild());
+  await expect(status(page)).toHaveText('Connection status: Synchronization needs attention');
+  await page.evaluate(async () => {
+    const sdk = (window as any).__HERTS_PLUGIN_RUNTIME__.sdk;
+    await sdk.resolvePluginOperation(sdk.getCore().pluginPending[0].id);
+    await sdk.sync();
+  });
+  await expect(status(page)).toHaveText('Connection status: Connected and synced');
+  const saved = await page.evaluate(async id => {
+    const db = (window as any).__HERTS_PLUGIN_RUNTIME__.sdk.conversationDrafts.db;
+    return { settings: (await db.kv.get(`settings-op:${id}`)).value, draft: await db.drafts.get(id) };
+  }, draft.id);
+  expect(saved.settings.input.id).toBe(draft.operationId);
+  expect(saved.draft.text).toBe('Preserve this unsent draft.');
+});
