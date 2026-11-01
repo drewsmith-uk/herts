@@ -14,7 +14,7 @@ import { SessionSettingsControls } from './SessionSettings';
 import { Voice } from './Voice';
 import { useDraftPersistence, useUpdatePreparation } from './updateSafety';
 
-export const composerCapabilities = { taskCapture: true, captureLayout: true, transformDraft: true, textPreview: true } as const;
+export const composerCapabilities = { taskCapture: true, captureLayout: true, transformDraft: true, textPreview: true, settingsFields: true } as const;
 
 export function ComposerPlaceholder({ capture = false, inputLabel = 'Message Hermes' }: { capture?: boolean; inputLabel?: string }) {
   return <div className={`composer-wrap composer-loading ${capture ? 'composer-docked composer-capture is-collapsed' : 'composer-entry is-expanded'}`} aria-busy="true" role="status" aria-label="Opening draft">

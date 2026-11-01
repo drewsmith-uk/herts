@@ -186,17 +186,17 @@ async function bots(request: import('@playwright/test').APIRequestContext, actio
 }
 test.afterEach(async ({ page, request }) => { await page.unrouteAll({ behavior: 'wait' }); await bots(request, 'disable'); await pinnedPlugin(request, 'disable'); });
 
-for (const missing of ['PageHeader', 'DragHandle', 'DragPreview', 'ComposerPlaceholder', 'captureLayout', 'transformDraft', 'textPreview']) test(`an app without ${missing} gets an actionable plugin update message`, async ({ page }) => {
+for (const missing of ['PageHeader', 'DragHandle', 'DragPreview', 'ComposerPlaceholder', 'captureLayout', 'transformDraft', 'textPreview', 'settingsFields']) test(`an app without ${missing} gets an actionable plugin update message`, async ({ page }) => {
   await page.addInitScript(missing => {
     Object.defineProperty(globalThis, '__HERTS_PLUGIN_RUNTIME__', {
       configurable: true,
       set(runtime) {
-        Object.defineProperty(globalThis, '__HERTS_PLUGIN_RUNTIME__', { configurable: true, writable: true, value: { ...runtime, sdk: { ...runtime.sdk, ...(['captureLayout', 'transformDraft', 'textPreview'].includes(missing) ? { composerCapabilities: { ...runtime.sdk.composerCapabilities, [missing]: undefined } } : { [missing]: undefined }) } } });
+        Object.defineProperty(globalThis, '__HERTS_PLUGIN_RUNTIME__', { configurable: true, writable: true, value: { ...runtime, sdk: { ...runtime.sdk, ...(['captureLayout', 'transformDraft', 'textPreview', 'settingsFields'].includes(missing) ? { composerCapabilities: { ...runtime.sdk.composerCapabilities, [missing]: undefined } } : { [missing]: undefined }) } } });
       },
     });
   }, missing);
   await page.goto('/#/settings/plugins');
-  if (!['transformDraft', 'textPreview'].includes(missing)) await expect(page.getByText('Update Herts in Settings → App updates to use this version of Tasks.', { exact: true })).toBeVisible();
+  if (!['transformDraft', 'textPreview', 'settingsFields'].includes(missing)) await expect(page.getByText('Update Herts in Settings → App updates to use this version of Tasks.', { exact: true })).toBeVisible();
   if (missing !== 'captureLayout') await expect(page.getByText('Update Herts in Settings → App updates to use this version of Reading.', { exact: true })).toBeVisible();
   await page.goto('/#/settings'); await openSettingsGroups(page);
   await expect(page.getByRole('button', { name: 'Check for updates', exact: true })).toBeVisible();
