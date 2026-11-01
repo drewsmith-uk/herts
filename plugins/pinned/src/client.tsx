@@ -11,14 +11,29 @@ function createStore() {
   const service = sdk.pluginNotifications<PinMetadata>(ID);
   let state = { rows: [] as PinRecord[], loading: true, checking: true, error: '', compatibility: '', permission: 'default' };
   const listeners = new Set<() => void>();
-  let alive = true, readVersion = 0, checkVersion = 0;
+  let alive = true, readVersion = 0;
+  let checkPending: Promise<void> | undefined, retryTimer: ReturnType<typeof setTimeout> | undefined, retryDelay = 1000;
   const publish = (patch: Partial<typeof state>) => { if (!alive) return; state = { ...state, ...patch }; for (const listener of listeners) listener(); };
   const permission = () => 'Notification' in window ? Notification.permission : 'unsupported';
-  async function check() {
-    const version = ++checkVersion;
+  function check(): Promise<void> {
+    if (!alive) return Promise.resolve();
+    if (checkPending) return checkPending;
+    clearTimeout(retryTimer);
     publish({ checking: true, permission: permission() });
-    try { await service.ready(); if (version === checkVersion) publish({ checking: false, compatibility: '' }); }
-    catch (error) { if (version === checkVersion) publish({ checking: false, compatibility: message(error) }); }
+    checkPending = (async () => {
+      try {
+        await service.ready();
+        retryDelay = 1000;
+        publish({ checking: false, compatibility: '' });
+      } catch (error) {
+        publish({ checking: false, compatibility: message(error) });
+        if (alive) {
+          retryTimer = setTimeout(() => { if (document.visibilityState === 'visible') void check(); }, retryDelay);
+          retryDelay = Math.min(retryDelay * 2, 30000);
+        }
+      } finally { checkPending = undefined; }
+    })();
+    return checkPending;
   }
   async function reload() {
     const version = ++readVersion;
@@ -52,11 +67,16 @@ function createStore() {
       const stop = service.watch(() => { void reload(); }, error => { readVersion++; publish({ loading: false, error: message(error) }); });
       const stopCore = sdk.subscribeCore(() => { void updateTitles(); });
       void check();
-      const visible = () => { if (document.visibilityState === 'visible') publish({ permission: permission() }); };
+      const visible = () => {
+        if (document.visibilityState !== 'visible') return;
+        publish({ permission: permission() });
+        if (state.compatibility) void check();
+      };
       const controller = () => { void check(); };
       document.addEventListener('visibilitychange', visible);
+      window.addEventListener('focus', visible);
       navigator.serviceWorker?.addEventListener('controllerchange', controller);
-      return () => { alive = false; stop(); stopCore(); document.removeEventListener('visibilitychange', visible); navigator.serviceWorker?.removeEventListener('controllerchange', controller); };
+      return () => { alive = false; clearTimeout(retryTimer); stop(); stopCore(); document.removeEventListener('visibilitychange', visible); window.removeEventListener('focus', visible); navigator.serviceWorker?.removeEventListener('controllerchange', controller); };
     },
     async permit() { await service.requestPermission(); publish({ permission: permission() }); },
   };
