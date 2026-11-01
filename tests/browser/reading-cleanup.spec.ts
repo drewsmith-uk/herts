@@ -108,6 +108,10 @@ for (const mode of ['tracking', 'all']) test(`Markdown formatting survives ${mod
 });
 
 test('cleanup preview preserves editable text, focus, and mode changes', async ({ page }) => {
+  await page.route('**/api/v1/session-settings?*', async route => {
+    const response = await route.fetch();
+    await route.fulfill({ response, body: (await response.text()).replaceAll('profile-model', 'gpt-6.1-sol') });
+  });
   await page.goto('/#/reading/add');
   const input = page.getByLabel('Message Hermes', { exact: true });
   const choice = page.getByLabel('URL cleanup', { exact: true });
@@ -120,6 +124,26 @@ test('cleanup preview preserves editable text, focus, and mode changes', async (
   await expect(input).toHaveValue(original);
   await choice.selectOption('all');
   await expect(preview.locator('.text-removal')).toHaveText('?id=1&utm_source=feed');
+  for (const width of [320, 390, 450, 768, 1280, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    const model = page.getByRole('button', { name: /^Conversation settings:/ });
+    const modelBounds = (await model.boundingBox())!;
+    const choiceBounds = (await choice.boundingBox())!;
+    const rowBounds = (await page.locator('.composer-settings-row.has-settings-fields').boundingBox())!;
+    if (modelBounds.width + choiceBounds.width + 8 <= rowBounds.width) {
+      expect(Math.abs(choiceBounds.y - modelBounds.y)).toBeLessThanOrEqual(1);
+      expect(choiceBounds.x + choiceBounds.width).toBeCloseTo(rowBounds.x + rowBounds.width, 0);
+    } else {
+      expect(choiceBounds.y).toBeGreaterThanOrEqual(modelBounds.y + modelBounds.height + 8);
+      expect(choiceBounds.x).toBeCloseTo(rowBounds.x, 0);
+    }
+    await expect(choice.locator('option:checked')).toHaveText('Remove query string');
+    const composerBounds = (await page.locator('.composer').boundingBox())!;
+    expect(composerBounds.y - choiceBounds.y - choiceBounds.height).toBeGreaterThanOrEqual(8);
+    await expect(page.locator('.composer-preview-hint')).toHaveCount(0);
+    await expect(page.getByText('Draft saved on this device · Not sent', { exact: true })).toHaveCount(0);
+    await page.screenshot({ path: `test-results/reading-inline-${width}.png`, fullPage: true });
+  }
   await choice.selectOption('off');
   await expect(preview).toHaveCount(0);
   await expect(input).toHaveValue(original);

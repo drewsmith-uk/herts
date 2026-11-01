@@ -86,7 +86,7 @@ export function ReadingCapture({ sharedContent, id }: { sharedContent?: import('
     }
     const leave = async (sent: boolean) => { await entry.complete(); if (shared) history.replaceState(null, '', '/'); navigate(sent ? `/reading-item/${entry.id}` : '/reading'); };
     return <><a href="#/reading" className="back-link">Reading list</a><PageHeader title="Add to Reading"/>
-      {entry.id ? <MessageComposer context={entry.context} persist={entry.persist} textPreview={text => {
+      {entry.id ? <MessageComposer context={entry.context} persist={entry.persist} quietStatus settingsFields={<CleanupSelect id="reading-capture-cleanup" value={cleanup} onChange={urlCleanup => void entry.updateFields({ urlCleanup })}/>} textPreview={text => {
         const ranges = sharedTextRemovalRanges(text, cleanup);
         if (!ranges.length) return null;
         let offset = 0;
@@ -94,9 +94,9 @@ export function ReadingCapture({ sharedContent, id }: { sharedContent?: import('
         for (const range of ranges) { parts.push(text.slice(offset, range.start), <span className="text-removal" key={range.start}>{text.slice(range.start, range.end)}</span>); offset = range.end; }
         parts.push(text.slice(offset));
         return parts;
-      }} textPreviewHint="Grey text will be removed when saved or sent." transformDraft={draft => cleanup === 'off' ? draft : { ...draft, text: cleanSharedText(draft.text, cleanup) }} prepare={prepare} owner={entry.owner} saveLabel="Save only" onSaved={() => leave(false)} onSent={() => leave(true)} fields={draft => {
+      }} transformDraft={draft => cleanup === 'off' ? draft : { ...draft, text: cleanSharedText(draft.text, cleanup) }} prepare={prepare} owner={entry.owner} saveLabel="Save only" onSaved={() => leave(false)} onSent={() => leave(true)} fields={draft => {
         const urls = sharedUrls(draft.text);
-        return <><FormField label="URL cleanup" htmlFor="reading-capture-cleanup"><CleanupSelect id="reading-capture-cleanup" value={cleanup} onChange={urlCleanup => void entry.updateFields({ urlCleanup })}/></FormField>{cleanup === 'all' && <p>May break some links.</p>}{urls.length > 1 && <fieldset className="entry-links"><legend>Which link belongs in Reading?</legend>{urls.map(url => <label className="share-choice" key={url}><input type="radio" name="reading-link" checked={entry.fields.url === url} onChange={() => void entry.updateFields({ url })}/><span>{url}</span></label>)}</fieldset>}</>;
+        return <>{urls.length > 1 && <fieldset className="entry-links"><legend>Which link belongs in Reading?</legend>{urls.map(url => <label className="share-choice" key={url}><input type="radio" name="reading-link" checked={entry.fields.url === url} onChange={() => void entry.updateFields({ url })}/><span>{url}</span></label>)}</fieldset>}</>;
       }}/> : <ComposerPlaceholder/>}{entry.error && <StatusMessage>{entry.error}</StatusMessage>}
     </>;
 }
@@ -228,11 +228,11 @@ export function BookmarkLink({ href, conversationId, children }: {
     return <>{url && <button className={`bookmark-button ${existing ? 'saved' : ''}`} aria-label={`${existing ? 'Open reading item' : 'Save to reading list'}: ${url}`} title={existing ? 'Open reading item' : 'Save to reading list'} disabled={busy} onClick={() => void bookmark()}>{busy ? <LoaderCircle size={15} className="spin"/> : existing ? <BookmarkCheck size={16}/> : <Bookmark size={16}/>}</button>}{error && <span role="alert" className="inline-error">{error}</span>}</>;
 }
 function CleanupSelect({ value, onChange, id }: { value: UrlCleanup; onChange: (value: UrlCleanup) => void; id?: string }) {
-    return <select id={id} value={value} onChange={event => onChange(event.target.value as UrlCleanup)}>
-      <option value="off">Off</option><option value="tracking">Known tracking parameters</option><option value="all">All query parameters</option>
+    return <select className="ui-button" id={id} aria-label="URL cleanup" value={value} onChange={event => onChange(event.target.value as UrlCleanup)}>
+      <option value="off">Keep query string</option><option value="tracking">Remove tracking</option><option value="all">Remove query string</option>
     </select>;
 }
 export function ReadingSettings() {
     const state = useApp(), { run, error } = useReadingAction();
-    return <><SettingsSection title="Shared links" icon={<ExternalLink size={22}/>}><FormField label="URL cleanup" htmlFor="reading-url-cleanup"><CleanupSelect id="reading-url-cleanup" value={state.snapshot.reading?.urlCleanup ?? 'off'} onChange={urlCleanup => run(() => readingChange(crypto.randomUUID(), { kind: 'settings', urlCleanup }))}/></FormField>{state.snapshot.reading?.urlCleanup === 'all' && <p>May break some links.</p>}</SettingsSection><SettingsSection title="Offline reading" icon={<Download size={22}/>}><SettingRow label="Automatically download unread articles" htmlFor="reading-auto-download" description="Marking an item read removes its offline download." control={<input id="reading-auto-download" type="checkbox" checked={state.snapshot.reading?.autoDownload ?? true} onChange={e => run(() => readingChange(crypto.randomUUID(), { kind: 'settings', autoDownload: e.target.checked }))}/>}/></SettingsSection>{error && <StatusMessage>{error}</StatusMessage>}</>;
+    return <><SettingsSection title="Shared links" icon={<ExternalLink size={22}/>}><FormField label="URL cleanup" htmlFor="reading-url-cleanup"><CleanupSelect id="reading-url-cleanup" value={state.snapshot.reading?.urlCleanup ?? 'off'} onChange={urlCleanup => run(() => readingChange(crypto.randomUUID(), { kind: 'settings', urlCleanup }))}/></FormField></SettingsSection><SettingsSection title="Offline reading" icon={<Download size={22}/>}><SettingRow label="Automatically download unread articles" htmlFor="reading-auto-download" description="Marking an item read removes its offline download." control={<input id="reading-auto-download" type="checkbox" checked={state.snapshot.reading?.autoDownload ?? true} onChange={e => run(() => readingChange(crypto.randomUUID(), { kind: 'settings', autoDownload: e.target.checked }))}/>}/></SettingsSection>{error && <StatusMessage>{error}</StatusMessage>}</>;
 }

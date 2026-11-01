@@ -5,8 +5,8 @@ const agentCalls = async (request: APIRequestContext) => ((await (await request.
 const snapshot = async (request: APIRequestContext) => (await request.get('/api/v1/state')).json();
 
 async function restoreTitle(page: Page, text: string, title: string) {
-  // Close the composer before restoring legacy metadata so pending autosave cannot overwrite the fixture.
-  await expect(page.locator('.composer-note')).toHaveText('Draft saved on this device · Not sent');
+  // Finish draft writes and close the composer before restoring legacy metadata.
+  await page.evaluate(() => (window as any).__HERTS_PLUGIN_RUNTIME__.sdk.prepareForUpdate());
   const captureUrl = page.url();
   await page.getByRole('link', { name: 'Reading list', exact: true }).click();
   await expect(page.getByRole('heading', { name: /^Reading list/ })).toBeVisible();

@@ -14,7 +14,7 @@ import { SessionSettingsControls } from './SessionSettings';
 import { Voice } from './Voice';
 import { useDraftPersistence, useUpdatePreparation } from './updateSafety';
 
-export const composerCapabilities = { taskCapture: true, captureLayout: true, transformDraft: true, textPreview: true } as const;
+export const composerCapabilities = { taskCapture: true, captureLayout: true, transformDraft: true, textPreview: true, settingsFields: true } as const;
 
 export function ComposerPlaceholder({ capture = false, inputLabel = 'Message Hermes' }: { capture?: boolean; inputLabel?: string }) {
   return <div className={`composer-wrap composer-loading ${capture ? 'composer-docked composer-capture is-collapsed' : 'composer-entry is-expanded'}`} aria-busy="true" role="status" aria-label="Opening draft">
@@ -35,6 +35,8 @@ export interface MessageComposerProps {
   canSend?: boolean;
   docked?: boolean;
   capture?: boolean;
+  settingsFields?: ReactNode;
+  quietStatus?: boolean;
   fields?: ReactNode | ((draft: Draft) => ReactNode);
   persist?: (draft: Draft) => Promise<unknown>;
   textPreview?: (text: string) => ReactNode;
@@ -58,7 +60,7 @@ export interface MessageComposerProps {
   savedMessagesHost?: HTMLElement | null;
   recoveryInHistory?: boolean;
 }
-export function MessageComposer({ context, initialText = '', canSend = true, docked = false, capture = false, fields, persist, textPreview, textPreviewHint, transformDraft, prepare, saveLabel, primaryAction = 'send', inputLabel, sendLabel = 'Send', destination, agentOptions = false, allowSaveEmpty = false, onSaved, onSending, onSubmissionChange, onSent, owner, voiceOwner, recordRequest, savedMessagesHost, recoveryInHistory = false }: MessageComposerProps) {
+export function MessageComposer({ context, initialText = '', canSend = true, docked = false, capture = false, fields, settingsFields, quietStatus = false, persist, textPreview, textPreviewHint, transformDraft, prepare, saveLabel, primaryAction = 'send', inputLabel, sendLabel = 'Send', destination, agentOptions = false, allowSaveEmpty = false, onSaved, onSending, onSubmissionChange, onSent, owner, voiceOwner, recordRequest, savedMessagesHost, recoveryInHistory = false }: MessageComposerProps) {
   const state = useApp(), [draft, setDraft] = useState<Draft>({ id: context.id, text: initialText, files: [] });
   const [files, setFiles] = useState<LocalFile[]>([]), [loaded, setLoaded] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState(''), [dirty, setDirty] = useState(false);
   const [recording, setRecording] = useState(false), [expanded, setExpanded] = useState(!docked), [settingsOpen, setSettingsOpen] = useState(false);
@@ -168,14 +170,14 @@ export function MessageComposer({ context, initialText = '', canSend = true, doc
   }
   const hasDraft = !!draft.text.trim() || !!draft.files.length;
   const secondarySave = saveLabel && primarySend && <button type="button" disabled={!savingAllowed || (!hasDraft && !allowSaveEmpty)} onClick={() => void commit(false)}>{saveLabel}</button>;
-  const draftStatus = submitting || uncertain ? '' : dirty ? 'Saving draft…' : !state.online ? 'Offline. Your draft stays on this device.' : !state.gateway.online ? 'Hermes is unavailable. Your draft is saved.' : hasDraft ? 'Draft saved on this device · Not sent' : '';
+  const draftStatus = submitting || uncertain ? '' : dirty ? 'Saving draft…' : !state.online ? 'Offline. Your draft stays on this device.' : !state.gateway.online ? 'Hermes is unavailable. Your draft is saved.' : hasDraft && !quietStatus ? 'Draft saved on this device · Not sent' : '';
   const showingSubmission = submitting && !!onSubmissionChange;
   const preview = !showingSubmission && textPreview?.(draft.text);
   const hasPreview = preview != null && preview !== false;
   const editor = <textarea ref={textarea} aria-describedby={hasPreview && textPreviewHint ? previewHintId : undefined} onFocus={() => setExpanded(true)} aria-label={inputLabel || `Message ${context.botChat ? context.title : 'Hermes'}`} placeholder={inputLabel ? `${inputLabel}…` : `Message ${context.botChat ? context.title : 'Hermes'}…`} value={showingSubmission ? '' : draft.text} disabled={!loaded || busy} onChange={event => { void update({ ...draftRef.current, text: event.target.value, submissionId: undefined }).catch(() => {}); }} rows={3} onKeyDown={event => { if (!event.nativeEvent.isComposing && (event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); void commit(primarySend); } }}/>;
   return <div ref={root} className={`composer-wrap ${docked ? 'composer-docked' : 'composer-entry'} ${capture ? 'composer-capture' : ''} ${expanded ? 'is-expanded' : 'is-collapsed'}`}>
     <div className="composer-expanded">
-      <div className="composer-settings-row">{agentOptions ? <details className="agent-options"><summary>Agent options</summary><SessionSettingsControls context={context} onOpen={() => { void ensure(); setSettingsOpen(true); }} onClose={() => setSettingsOpen(false)}/></details> : <SessionSettingsControls context={context} onOpen={() => { void ensure(); setSettingsOpen(true); }} onClose={() => setSettingsOpen(false)}/>}{docked && <button className="icon-button composer-collapse" aria-label="Collapse message box" onClick={() => { textarea.current?.blur(); setExpanded(false); }}><ChevronDown size={20}/></button>}</div>
+      <div className={`composer-settings-row ${settingsFields ? 'has-settings-fields' : ''}`}>{agentOptions ? <details className="agent-options"><summary>Agent options</summary><SessionSettingsControls showStatus={!settingsFields} context={context} onOpen={() => { void ensure(); setSettingsOpen(true); }} onClose={() => setSettingsOpen(false)}/></details> : <SessionSettingsControls showStatus={!settingsFields} context={context} onOpen={() => { void ensure(); setSettingsOpen(true); }} onClose={() => setSettingsOpen(false)}/>}{settingsFields && <fieldset className="composer-settings-fields" disabled={!loaded || busy || uncertain}>{settingsFields}</fieldset>}{docked && <button className="icon-button composer-collapse" aria-label="Collapse message box" onClick={() => { textarea.current?.blur(); setExpanded(false); }}><ChevronDown size={20}/></button>}</div>
       {destination && <p className="capture-destination">{destination}</p>}<fieldset className="composer-fields" disabled={!loaded || busy || uncertain}>{typeof fields === 'function' ? fields(draft) : fields}</fieldset>
     </div>
     <form className="composer" onSubmit={event => { event.preventDefault(); void commit(primarySend); }}>
