@@ -46,6 +46,26 @@ Show warnings on the affected screen with a specific recovery action.
 Do not repeat status information or describe internal storage and synchronization rules in normal dialogs.
 Review new UI text for unnecessary explanations before completion.
 
+Normal screens must not explain colours, automatic saving, storage locations, or synchronization.
+Keep routine success text out of capture screens.
+Keep loading, offline, error, and recovery information when users need to act or protect their work.
+Remove warnings that have no specific recovery action.
+Before completion, review every help sentence and state which decision or recovery action requires it.
+Remove sentences without such a purpose.
+
+### Styling review
+
+Use shared control styles for every control, including controls without visible labels.
+Removing a label must not remove the control's shared styling or accessible name.
+Check typography, borders, backgrounds, focus indicators, spacing, and target sizes against the closest existing control.
+Do not use browser default styling as a substitute for shared styles.
+Check invisible elements and reserved status space before accepting wrapped controls.
+Controls requested on one row must share that row whenever their visible content fits with the specified gap.
+Do not shrink text or targets to force controls onto one row.
+Test the requested layout at the reported viewport and nearby widths with realistic labels.
+Test assertions must enforce the requested layout, not preserve an unintended implementation difference.
+Inspect actual screenshots before deployment and correct visible inconsistencies even when automated tests pass.
+
 ## UI completion criteria
 
 Before you implement a screen, inspect the closest existing Herts screen.

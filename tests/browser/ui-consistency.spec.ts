@@ -747,7 +747,32 @@ for (const theme of builtinThemes) test(`${theme.name}: refined capture and read
     await page.getByLabel('Message Hermes', { exact: true }).fill('Reading notes\nhttps://example.com/' + 'long-reference/'.repeat(15) + '?id=1&utm_source=feed#part\nhttps://example.com/second?fbclid=x');
     await expect(page.getByLabel('Reading title', { exact: true })).toHaveCount(0);
     await page.getByLabel('URL cleanup', { exact: true }).selectOption('all');
-    await expect(page.getByText('May break some links.', { exact: true })).toBeVisible();
+    const cleanupChoice = page.getByLabel('URL cleanup', { exact: true });
+    const modelSettings = page.getByRole('button', { name: /^Conversation settings:/ });
+    await modelSettings.focus();
+    await page.keyboard.press('Tab');
+    await expect(cleanupChoice).toBeFocused();
+    await expect(cleanupChoice.locator('option:checked')).toHaveText('Remove query string');
+    await expect(page.locator('label[for="reading-capture-cleanup"]')).toHaveCount(0);
+    const cleanupBounds = (await cleanupChoice.boundingBox())!;
+    const modelBounds = (await modelSettings.boundingBox())!;
+    expect(cleanupBounds.x + cleanupBounds.width).toBeLessThanOrEqual(width);
+    const rowBounds = (await page.locator('.composer-settings-row.has-settings-fields').boundingBox())!;
+    if (modelBounds.width + cleanupBounds.width + 8 <= rowBounds.width) {
+      expect(Math.abs(cleanupBounds.y - modelBounds.y)).toBeLessThanOrEqual(1);
+      expect(cleanupBounds.x + cleanupBounds.width).toBeCloseTo(rowBounds.x + rowBounds.width, 0);
+    }
+    else {
+      expect(cleanupBounds.y).toBeGreaterThanOrEqual(modelBounds.y + modelBounds.height + 8);
+      expect(cleanupBounds.x).toBeCloseTo(rowBounds.x, 0);
+    }
+    await expect(page.getByText('May break some links.', { exact: true })).toHaveCount(0);
+    await expect(page.locator('.composer-preview-hint')).toHaveCount(0);
+    await expect(page.getByText('Draft saved on this device · Not sent', { exact: true })).toHaveCount(0);
+    await expect(cleanupChoice).toHaveCSS('font-size', '14px');
+    await expect(cleanupChoice).toHaveCSS('border-top-width', await modelSettings.evaluate(element => getComputedStyle(element).borderTopWidth));
+    await expect(cleanupChoice).toHaveCSS('background-color', await modelSettings.evaluate(element => getComputedStyle(element).backgroundColor));
+    expect(cleanupBounds.height).toBe(modelBounds.height);
     const preview = page.locator('.composer-text-preview');
     await expect(preview.locator('.text-removal')).toHaveText(['?id=1&utm_source=feed', '?fbclid=x']);
     const input = page.getByLabel('Message Hermes', { exact: true });
@@ -1240,7 +1265,7 @@ for (const width of [320, 390, 768, 1280]) test(`Reading URL cleanup settings fi
   await choice.selectOption('all');
   await choice.focus();
   await expect(choice).toBeFocused();
-  await expect(page.getByText('May break some links.', { exact: true })).toBeVisible();
+  await expect(page.getByText('May break some links.', { exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   const bounds = (await choice.boundingBox())!;
   expect(bounds.x).toBeGreaterThanOrEqual(0);

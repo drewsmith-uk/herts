@@ -35,7 +35,7 @@ function useSettingsView(contextId?: string) {
   return { view: merged, error, loading, refresh };
 }
 
-export function SessionSettingsControls({ context, onOpen, onClose }: { context: ConversationContext; onOpen: () => void; onClose: () => void }) {
+export function SessionSettingsControls({ context, onOpen, onClose, showStatus = true }: { showStatus?: boolean; context: ConversationContext; onOpen: () => void; onClose: () => void }) {
   const state = useApp(), { view, error, loading, refresh } = useSettingsView(context.id), [editing, setEditing] = useState(false);
   const local = state.settingsPending?.find(p => p.contextId === context.id), values = view ? effectiveSettings(view, !context.link) : {};
   const pending = hasSettings(view?.pending.values), saving = state.actions.some(a => a.taskId === context.id && a.kind === 'send' && a.receipt === 'pending');
@@ -50,7 +50,7 @@ export function SessionSettingsControls({ context, onOpen, onClose }: { context:
     <button type="button" className="session-settings-button" aria-label={`Conversation settings: ${model} · ${effort}${wireEffort}`} aria-haspopup="dialog" aria-expanded={editing} title={`Conversation settings: ${model} · ${effort}${wireEffort}`} disabled={!view || saving} onClick={open}>
       <SlidersHorizontal size={18} aria-hidden="true"/><span className="session-settings-label"><span className="session-settings-model">{model}</span><span className="session-settings-details"><span aria-hidden="true" className="session-settings-separator">·</span><span className="session-settings-effort">{effort}{wireEffort}</span></span></span>
     </button>
-    <span className="session-settings-note session-settings-status" role="status">{note}</span>
+    {showStatus && <span className="session-settings-note session-settings-status" role="status">{note}</span>}
     </div>
     {local?.conflict && <p role="alert" className="inline-error">{local.conflict} <button type="button" className="text-button" onClick={() => void useSyncedSessionChoices(context.id)}>Use synced choices</button><button type="button" className="text-button" onClick={open}>Review choices</button></p>}
     {error && <p className="session-settings-note">{error} <button type="button" className="text-button" disabled={loading} onClick={() => void refresh(true)}>Refresh settings</button></p>}

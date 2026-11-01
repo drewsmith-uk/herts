@@ -7,7 +7,7 @@
   --section-gap: 24px;
   --item-gap: 8px;
 }
-:where(button, .ui-button, a.primary-button, a.quiet-button) {
+:where(button, .ui-button, a.primary-button, a.quiet-button), select.ui-button {
   cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   min-height: var(--control-size); max-width: 100%; padding: var(--design-button-padding, 8px 12px);
   border: var(--border-width, 1px) solid var(--color-border); border-radius: var(--radius-control);
@@ -238,9 +238,14 @@ body:has(.update-toast) .undo-toast { bottom: 220px; }
 .composer-text-input.has-text-preview textarea { color:transparent; -webkit-text-fill-color:transparent; caret-color:var(--color-text); }
 .composer-text-input.has-text-preview textarea::selection { background:var(--color-selected); }
 .composer-text-preview { position:absolute; top:0; left:0; box-sizing:border-box; overflow:hidden; pointer-events:none; color:var(--color-text); }
-.composer-text-preview .text-removal { color:var(--design-muted); }
+.composer-text-preview .text-removal { color:var(--design-muted); opacity:.4; }
 .composer-preview-hint { margin:0; padding:4px 18px; font-size:12px; color:var(--design-muted); }
 @media (forced-colors: active) {
   .composer-text-input.has-text-preview textarea { color:CanvasText; -webkit-text-fill-color:CanvasText; caret-color:CanvasText; }
   .composer-text-preview { display:none; }
 }
+
+.composer-settings-row.has-settings-fields { margin-bottom:var(--item-gap); flex-wrap:wrap; justify-content:space-between; align-items:center; }
+.composer-settings-row.has-settings-fields .session-settings-controls { margin-bottom:0; }
+.composer-settings-fields { min-width:0; max-width:100%; border:0; padding:0; margin:0; }
+.composer-settings-fields select { max-width:100%; min-height:44px; }
