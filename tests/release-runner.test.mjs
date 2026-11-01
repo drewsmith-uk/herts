@@ -126,6 +126,7 @@ test('workflow artifacts support repeated job attempts without name conflicts', 
   const uploads = jobs.browser.steps.filter(step => step.uses?.startsWith('actions/upload-artifact@'));
   const names = uploads.flatMap(step => [1, 2].flatMap(shard => [1, 2].map(attempt =>
     step.with.name.replace('${{ matrix.shard }}', shard).replace('${{ github.run_attempt }}', attempt))));
-  assert.equal(new Set(names).size, 8);
+  assert.ok(uploads.length >= 2);
+  assert.equal(new Set(names).size, names.length);
   assert.ok(names.every(name => !name.includes('${{')));
 });

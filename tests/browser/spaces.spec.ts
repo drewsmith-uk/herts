@@ -66,10 +66,35 @@ test('a duplicate offline space can be renamed without losing its pending tasks'
   const s=await state(request);expect(s.spaces.find((v:any)=>v.id===local).name).toBe('Concurrent space recovered');expect(s.tasks.find((t:any)=>t.title==='Keep this pending task').spaceId).toBe(local);
 });
 
-test('cross-device moves conflict instead of pulling a task back silently',async({page,context,browser,request})=>{
-  await page.setViewportSize({width:390,height:844});await addSpace(page,'Concurrent move work');const work=await idFor(page,'Concurrent move work');await page.goto('/#/tasks/inbox');await capture(page,'Concurrent move task');await expect(page.locator('.save-state')).toContainText('Changes synced');await page.getByRole('link',{name:'Concurrent move task',exact:true}).click();const url=page.url();
-  const second=await browser.newContext();const other=await second.newPage();
-  try{await other.goto(url);await expect((await detailsField(other, 'Task space'))).toHaveValue(originalSpaceId);await expect(other.locator('.save-state')).toContainText('Changes synced');await second.setOffline(true);await (await detailsField(other, 'Task list')).selectOption('waiting');await other.getByRole('button', { name: 'Move', exact: true }).click();await (await detailsField(page, 'Task space')).selectOption(work);await page.getByRole('button', { name: 'Move', exact: true }).click();await expect(page.locator('.save-state')).toContainText('Changes synced');await second.setOffline(false);await expect(other.getByText('A change needs your choice',{exact:true})).toBeVisible();await closePageActions(other);await other.getByRole('button',{name:'Use synced version',exact:true}).click();await expect((await detailsField(other, 'Task space'))).toHaveValue(work);await expect((await detailsField(other, 'Task list'))).toHaveValue('inbox');}finally{await second.close();await context.setOffline(false);}
+test('cross-device moves conflict instead of pulling a task back silently', async ({ page, context, browser, request }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await addSpace(page, 'Concurrent move work');
+  const work = await idFor(page, 'Concurrent move work');
+  await page.goto('/#/tasks/inbox');
+  await capture(page, 'Concurrent move task');
+  await expect(page.locator('.save-state')).toContainText('Changes synced');
+  await page.getByRole('link', { name: 'Concurrent move task', exact: true }).click();
+  const url = page.url(), taskId = url.split('/').pop();
+  const second = await browser.newContext(), other = await second.newPage();
+  try {
+    await other.goto(url);
+    await expect((await detailsField(other, 'Task space'))).toHaveValue(originalSpaceId);
+    await expect(other.locator('.save-state')).toContainText('Changes synced');
+    await second.setOffline(true);
+    await (await detailsField(other, 'Task list')).selectOption('waiting');
+    await other.getByRole('button', { name: 'Move', exact: true }).click();
+    await expect(other.getByRole('dialog', { name: 'Move to list', exact: true })).toHaveCount(0);
+    await (await detailsField(page, 'Task space')).selectOption(work);
+    await page.getByRole('button', { name: 'Move', exact: true }).click();
+    await expect.poll(async () => (await state(request)).tasks.find((task: any) => task.id === taskId)?.spaceId).toBe(work);
+    await expect(page.locator('.save-state')).toContainText('Changes synced');
+    await second.setOffline(false);
+    await expect(other.getByText('A change needs your choice', { exact: true })).toBeVisible();
+    await closePageActions(other);
+    await other.getByRole('button', { name: 'Use synced version', exact: true }).click();
+    await expect((await detailsField(other, 'Task space'))).toHaveValue(work);
+    await expect((await detailsField(other, 'Task list'))).toHaveValue('inbox');
+  } finally { await second.close(); await context.setOffline(false); }
 });
 
 test('version-two device migration retains capture audio, context drafts and exact pending payloads',async({page,request})=>{
@@ -197,4 +222,34 @@ for (const width of [320, 1280]) test(`a rejected conversion can be discarded wi
   expect(tasks.filter((task: any) => task.title === `Recovered conversion ${width}`)).toHaveLength(1);
   expect(tasks.find((task: any) => task.title === `Recovered conversion ${width}`)).toMatchObject({ spaceId: originalSpaceId, status: 'next' });
   expect(tasks.some((task: any) => task.title === 'Keep later work available after this rejected task creation request')).toBe(false);
+});
+
+test('voice shortcut waits for task data before choosing the default space', async ({ page, request }) => {
+  const work = crypto.randomUUID(), headers = { 'x-tasks-request': '1' };
+  await request.post('/api/v1/spaces/sync', { headers, data: { id: crypto.randomUUID(), spaceId: work, kind: 'create', name: 'Delayed voice default', at: Date.now() } });
+  const before = await state(request);
+  await request.post('/api/v1/spaces/sync', { headers, data: { id: crypto.randomUUID(), spaceId: work, kind: 'default', baseDefaultSpaceId: before.defaultSpaceId, at: Date.now() } });
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  let reads = 0;
+  await page.route('**/api/v1/state', async route => {
+    if (++reads === 1) {
+      const response = await route.fetch(), data = await response.json();
+      data.pluginData.tasks.records = {};
+      await route.fulfill({ response, json: data });
+    } else { await held; await route.continue(); }
+  });
+  try {
+    await page.goto('/#/tasks/inbox/record');
+    await expect(page.getByRole('status', { name: 'Opening draft', exact: true })).toBeVisible();
+    await expect(page).toHaveURL(/#\/tasks\/inbox\/record$/);
+    await expect(page.getByRole('button', { name: 'Stop recording and transcribe', exact: true })).toHaveCount(0);
+    release();
+    await expect(spaceTab(page, work)).toHaveAttribute('aria-current', 'page');
+    await expect(page.getByRole('button', { name: 'Stop recording and transcribe', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Cancel dictation', exact: true }).click();
+    await page.reload();
+    await expect(page.getByRole('button', { name: 'Dictate', exact: true })).toBeEnabled();
+    await expect(page.getByRole('button', { name: 'Stop recording and transcribe', exact: true })).toHaveCount(0);
+  } finally { release(); await page.unrouteAll({ behavior: 'wait' }); }
 });

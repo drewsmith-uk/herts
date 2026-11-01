@@ -1,4 +1,11 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
+
+async function setCleanupDefault(page: Page, value: string) {
+  const saved = page.waitForResponse(response => response.url().endsWith('/api/v1/plugins/reading/commands') && response.request().method() === 'POST' && response.request().postDataJSON().input.urlCleanup === value);
+  await page.getByLabel('URL cleanup', { exact: true }).selectOption(value);
+  expect((await saved).ok()).toBe(true);
+  await expect(page.locator('.save-state')).toContainText('Changes synced');
+}
 
 for (const mode of ['off', 'tracking', 'all']) test(`shared Reading links use ${mode} cleanup for saving and sending`, async ({ page, request }) => {
   const original = `https://example.com/cleanup-${mode}?id=1&utm_source=feed#part`;
@@ -22,16 +29,14 @@ for (const mode of ['off', 'tracking', 'all']) test(`shared Reading links use ${
 
 test('settings initialize new drafts and overrides survive offline saving', async ({ page, request, context }) => {
   await page.goto('/#/settings/plugins');
-  await page.getByLabel('URL cleanup', { exact: true }).selectOption('all');
-  await expect(page.locator('.save-state')).toContainText('Changes synced');
+  await setCleanupDefault(page, 'all');
   await page.goto('/#/reading/add');
   const choice = page.getByLabel('URL cleanup', { exact: true });
   await expect(choice).toHaveValue('all');
   await page.getByLabel('Message Hermes', { exact: true }).fill('https://example.com/offline-cleanup?id=1&utm_source=x#part');
   await choice.selectOption('tracking');
   await page.goto('/#/settings/plugins');
-  await page.getByLabel('URL cleanup', { exact: true }).selectOption('off');
-  await expect(page.locator('.save-state')).toContainText('Changes synced');
+  await setCleanupDefault(page, 'off');
   await page.goto('/#/reading/add');
   await expect(choice).toHaveValue('tracking');
   await context.setOffline(true);
@@ -100,4 +105,33 @@ for (const mode of ['tracking', 'all']) test(`Markdown formatting survives ${mod
   expect(state.actions.filter((a: any) => a.taskId === item.contextId).map((a: any) => a.text)).toEqual([message(clean)]);
   await expect(page.locator('.message.from-user strong')).toHaveText(clean);
   await expect(page.locator('.message.from-user code')).toHaveText(clean);
+});
+
+test('cleanup preview preserves editable text, focus, and mode changes', async ({ page }) => {
+  await page.goto('/#/reading/add');
+  const input = page.getByLabel('Message Hermes', { exact: true });
+  const choice = page.getByLabel('URL cleanup', { exact: true });
+  const preview = page.locator('.composer-text-preview');
+  const original = 'Read **https://example.com/article?id=1&utm_source=feed#part**';
+  await input.fill(original);
+  await expect(preview).toHaveCount(0);
+  await choice.selectOption('tracking');
+  await expect(preview.locator('.text-removal')).toHaveText('&utm_source=feed');
+  await expect(input).toHaveValue(original);
+  await choice.selectOption('all');
+  await expect(preview.locator('.text-removal')).toHaveText('?id=1&utm_source=feed');
+  await choice.selectOption('off');
+  await expect(preview).toHaveCount(0);
+  await expect(input).toHaveValue(original);
+  await choice.selectOption('tracking');
+  await input.fill('https://example.com/article');
+  await input.press('End');
+  await input.pressSequentially('?utm_source=x');
+  await expect(input).toBeFocused();
+  await expect(input).toHaveValue('https://example.com/article?utm_source=x');
+  await expect(preview.locator('.text-removal')).toHaveText('?utm_source=x');
+  await input.press('ControlOrMeta+A');
+  await input.press('Backspace');
+  await expect(preview).toHaveCount(0);
+  await expect(input).toBeFocused();
 });

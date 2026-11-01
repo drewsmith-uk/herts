@@ -81,22 +81,38 @@ export function normalizeUrl(raw: string): string {
 }
 export type UrlCleanup = 'off' | 'tracking' | 'all';
 const trackingKeys = new Set(['fbclid', 'gclid', 'dclid', 'gbraid', 'wbraid', 'msclkid', 'mc_cid', 'mc_eid']);
-export function cleanUrl(raw: string, mode: UrlCleanup): string {
+export interface RemovalRange { start: number; end: number }
+function urlRemovalRanges(raw: string, mode: UrlCleanup): RemovalRange[] {
     normalizeUrl(raw);
-    if (mode === 'off') return raw;
+    if (mode === 'off') return [];
     const hash = raw.indexOf('#'), end = hash < 0 ? raw.length : hash;
     const query = raw.indexOf('?');
-    if (query < 0 || query > end) return raw;
+    if (query < 0 || query > end) return [];
     const parts = raw.slice(query + 1, end).split('&');
-    const kept = mode === 'all' ? [] : parts.filter(part => {
+    const remove = parts.map(part => {
         const key = [...new URLSearchParams(part).keys()][0]?.toLowerCase() || '';
-        return !key.startsWith('utm_') && !trackingKeys.has(key);
+        return mode === 'all' || key.startsWith('utm_') || trackingKeys.has(key);
     });
-    if (kept.length === parts.length) return raw;
-    return raw.slice(0, query) + (kept.length ? '?' + kept.join('&') : '') + raw.slice(end);
+    if (!remove.some(Boolean)) return [];
+    if (remove.every(Boolean)) return [{ start: query, end }];
+    const firstKept = remove.indexOf(false), ranges: RemovalRange[] = [];
+    let offset = query + 1;
+    parts.forEach((part, index) => {
+        if (remove[index]) ranges.push({ start: offset - (index > firstKept ? 1 : 0), end: offset + part.length + (index < firstKept ? 1 : 0) });
+        offset += part.length + 1;
+    });
+    return ranges;
+}
+function omitRanges(text: string, ranges: RemovalRange[]): string {
+    let offset = 0, clean = '';
+    for (const range of ranges) { clean += text.slice(offset, range.start); offset = range.end; }
+    return clean + text.slice(offset);
+}
+export function cleanUrl(raw: string, mode: UrlCleanup): string {
+    return omitRanges(raw, urlRemovalRanges(raw, mode));
 }
 const markdown = unified().use(remarkParse).use(remarkGfm);
-function mapUrls(text: string, transform: (url: string) => string): string {
+function mapUrls(text: string, transform: (url: string, offset: number) => string): string {
     if (!/https?:\/\//i.test(text)) return text;
     // Keep Markdown delimiters outside URL replacements.
     const boundaries = new Set<number>([0, text.length]);
@@ -114,18 +130,27 @@ function mapUrls(text: string, transform: (url: string) => string): string {
     }
     visit(markdown.parse(text));
     const offsets = [...boundaries].sort((a, b) => a - b);
-    return offsets.slice(1).map((end, index) => mapUrlText(text.slice(offsets[index], end), transform)).join('');
+    return offsets.slice(1).map((end, index) => mapUrlText(text.slice(offsets[index], end), transform, offsets[index])).join('');
 }
-function mapUrlText(text: string, transform: (url: string) => string): string {
-    return text.replace(/https?:\/\/[^\s<>"\u201c\u201d]+/gi, match => {
+function mapUrlText(text: string, transform: (url: string, offset: number) => string, offset: number): string {
+    return text.replace(/https?:\/\/[^\s<>"\u201c\u201d]+/gi, (match, index: number) => {
         let candidate = match.replace(/[.,;!?]+$/, '');
         while (candidate.endsWith(')') && (candidate.match(/\)/g)?.length || 0) > (candidate.match(/\(/g)?.length || 0)) candidate = candidate.slice(0, -1);
-        try { normalizeUrl(candidate); return transform(candidate) + match.slice(candidate.length); }
+        try { normalizeUrl(candidate); return transform(candidate, offset + index) + match.slice(candidate.length); }
         catch { return match; }
     });
 }
+export function sharedTextRemovalRanges(text: string, mode: UrlCleanup): RemovalRange[] {
+    if (mode === 'off') return [];
+    const ranges: RemovalRange[] = [];
+    mapUrls(text, (url, offset) => {
+        for (const range of urlRemovalRanges(url, mode)) ranges.push({ start: offset + range.start, end: offset + range.end });
+        return url;
+    });
+    return ranges;
+}
 export function cleanSharedText(text: string, mode: UrlCleanup): string {
-    return mode === 'off' ? text : mapUrls(text, url => cleanUrl(url, mode));
+    return omitRanges(text, sharedTextRemovalRanges(text, mode));
 }
 export function sharedUrls(...parts: string[]): string[] {
     const urls = new Set<string>();

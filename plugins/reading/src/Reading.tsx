@@ -6,7 +6,7 @@ import { DndContext, DragOverlay, closestCenter, type DragEndEvent } from '@dnd-
 import { useHoldSensors, holdListeners, useDragClickGuard } from '@herts/plugin-api/client';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { emptyReading, normalizeUrl, sharedUrls, cleanUrl, cleanSharedText, type UrlCleanup, type ReadingItem, type Article } from './model';
+import { emptyReading, normalizeUrl, sharedUrls, cleanUrl, cleanSharedText, sharedTextRemovalRanges, type UrlCleanup, type ReadingItem, type Article } from './model';
 import { useApp, addReading, readingChange, changeReadingWithUndo, db, sync, publish, getArticle } from './data';
 import { ConversationPanel } from '@herts/plugin-api/client';
 import { ConversationHeader } from '@herts/plugin-api/client';
@@ -86,7 +86,15 @@ export function ReadingCapture({ sharedContent, id }: { sharedContent?: import('
     }
     const leave = async (sent: boolean) => { await entry.complete(); if (shared) history.replaceState(null, '', '/'); navigate(sent ? `/reading-item/${entry.id}` : '/reading'); };
     return <><a href="#/reading" className="back-link">Reading list</a><PageHeader title="Add to Reading"/>
-      {entry.id ? <MessageComposer context={entry.context} persist={entry.persist} transformDraft={draft => cleanup === 'off' ? draft : { ...draft, text: cleanSharedText(draft.text, cleanup) }} prepare={prepare} owner={entry.owner} saveLabel="Save only" onSaved={() => leave(false)} onSent={() => leave(true)} fields={draft => {
+      {entry.id ? <MessageComposer context={entry.context} persist={entry.persist} textPreview={text => {
+        const ranges = sharedTextRemovalRanges(text, cleanup);
+        if (!ranges.length) return null;
+        let offset = 0;
+        const parts: ReactNode[] = [];
+        for (const range of ranges) { parts.push(text.slice(offset, range.start), <span className="text-removal" key={range.start}>{text.slice(range.start, range.end)}</span>); offset = range.end; }
+        parts.push(text.slice(offset));
+        return parts;
+      }} textPreviewHint="Grey text will be removed when saved or sent." transformDraft={draft => cleanup === 'off' ? draft : { ...draft, text: cleanSharedText(draft.text, cleanup) }} prepare={prepare} owner={entry.owner} saveLabel="Save only" onSaved={() => leave(false)} onSent={() => leave(true)} fields={draft => {
         const urls = sharedUrls(draft.text);
         return <><FormField label="URL cleanup" htmlFor="reading-capture-cleanup"><CleanupSelect id="reading-capture-cleanup" value={cleanup} onChange={urlCleanup => void entry.updateFields({ urlCleanup })}/></FormField>{cleanup === 'all' && <p>May break some links.</p>}{urls.length > 1 && <fieldset className="entry-links"><legend>Which link belongs in Reading?</legend>{urls.map(url => <label className="share-choice" key={url}><input type="radio" name="reading-link" checked={entry.fields.url === url} onChange={() => void entry.updateFields({ url })}/><span>{url}</span></label>)}</fieldset>}</>;
       }}/> : <ComposerPlaceholder/>}{entry.error && <StatusMessage>{entry.error}</StatusMessage>}
