@@ -7,6 +7,46 @@ import { pinnedPlugin, pinnedReady, seedPin, savedPins, notices, dismissPins } f
 test.beforeEach(async ({ request, context }) => { await pinnedPlugin(request, 'enable'); await context.grantPermissions(['notifications']); });
 test.afterEach(async ({ request }) => { await pinnedPlugin(request, 'disable'); });
 
+for (const recovery of ['timer', 'focus', 'visibility'] as const) test(`recovers notification readiness through ${recovery} without leaving the conversation`, async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: recovery === 'focus' ? 1280 : 390, height: 844 });
+  await pinnedReady(page);
+  await page.addInitScript(() => {
+    const original = ServiceWorker.prototype.postMessage;
+    (window as any).notificationCommands = [];
+    (window as any).holdNotificationChecks = true;
+    ServiceWorker.prototype.postMessage = function(data: any, transfer: any) {
+      if (data?.type === 'PLUGIN_NOTIFICATIONS') {
+        (window as any).notificationCommands.push(data.command);
+        if (data.command === 'check' && (window as any).holdNotificationChecks) return;
+      }
+      return original.call(this, data, transfer);
+    };
+  });
+  await page.goto('/#/conversation/existing');
+  await page.reload();
+  const draft = page.getByRole('textbox', { name: /^Message / });
+  await draft.fill('Keep this draft through notification recovery.');
+  const pin = await pageAction(page, 'button', 'Pin notification');
+  await expect(pin).toBeDisabled();
+  await expect(page.getByRole('link', { name: /Open Pinned:.*not confirmed/ })).toBeVisible();
+  await page.evaluate(recovery => {
+    (window as any).holdNotificationChecks = false;
+    if (recovery === 'focus') {
+      for (let i = 0; i < 5; i++) window.dispatchEvent(new Event('focus'));
+    }
+    if (recovery === 'visibility') document.dispatchEvent(new Event('visibilitychange'));
+  }, recovery);
+  await expect(pin).toBeEnabled();
+  await expect(page.getByRole('link', { name: /^Open Pinned:/ })).toHaveCount(0);
+  await expect(draft).toHaveValue('Keep this draft through notification recovery.');
+  await expect(page).toHaveURL(/#\/conversation\/existing$/);
+  const commands = await page.evaluate(() => (window as any).notificationCommands as string[]);
+  expect(commands.filter(command => command === 'check')).toHaveLength(2);
+  expect(commands.filter(command => ['set', 'remove', 'retry'].includes(command))).toEqual([]);
+  expect(await savedPins(page)).toHaveLength(0);
+  await page.screenshot({ path: testInfo.outputPath('recovered-pin.png') });
+});
+
 test('pins from a conversation, survives offline dismissal, and preserves an unsent draft', async ({ page, context, request }) => {
   await pinnedReady(page); await page.goto('/#/conversation/existing');
   const draft = page.getByRole('textbox', { name: /^Message / });
