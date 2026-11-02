@@ -25,12 +25,11 @@ self.addEventListener('push',event=>{event.waitUntil((async()=>{
 async function confirmTest(data){if(data.kind!=='test')return;try{await fetch(`/api/v1/notifications/tests/${encodeURIComponent(data.id)}/shown`,{method:'POST',headers:{'Content-Type':'application/json','X-Herts-Request':'1'},body:'{}',credentials:'same-origin',signal:AbortSignal.timeout(10000)});}catch{/* The notification can arrive while Tailscale is disconnected. */}}
 self.addEventListener('notificationclick',event=>{
  if(event.notification.data?.kind==='device-plugin'){
-  event.waitUntil(pluginNotificationQueue(async()=>{
+  event.waitUntil((async()=>{
    const data=event.notification.data,record=await readPluginNotification(data);
    if(!record){event.notification.close();return;}
-   await openNotification({...data,route:record.route});
-   await displayPluginNotification(data,record);
-  }));
+   await Promise.all([openNotification({...data,route:record.route}),pluginNotificationQueue(()=>displayPluginNotification(data,record,false,event.notification.tag))]);
+  })());
  }else{event.notification.close();event.waitUntil(openNotification(event.notification.data));}
 });
 async function openNotification(data){
@@ -95,9 +94,30 @@ self.addEventListener('install',event=>event.waitUntil((async()=>{
 // Device notifications use the same plugin namespace and reset generation as local records.
 let pluginNotificationWork = Promise.resolve();
 function pluginNotificationQueue(work) {
- const result = pluginNotificationWork.then(() => self.navigator?.locks ? self.navigator.locks.request('herts-device-notifications', work) : work());
+ const result = pluginNotificationWork.then(async () => {
+  if (!self.navigator?.locks) return work();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new Error('Notifications are busy. Close other Herts windows, then select Check again.')), 4000);
+  try {
+   return await self.navigator.locks.request('herts-device-notifications', { signal: controller.signal }, () => {
+    clearTimeout(timer);
+    return work();
+   });
+  } finally { clearTimeout(timer); }
+ });
  pluginNotificationWork = result.catch(() => {});
  return result;
+}
+function notificationBrowserCall(work, late) {
+ return new Promise((resolve, reject) => {
+  let expired = false;
+  const timer = setTimeout(() => { expired = true; reject(new Error('The browser did not respond to the notification request.')); }, 4000);
+  Promise.resolve().then(work).then(value => {
+   clearTimeout(timer);
+   if (expired) { if (late) void Promise.resolve().then(late).catch(() => {}); }
+   else resolve(value);
+  }, error => { clearTimeout(timer); if (!expired) reject(error); });
+ });
 }
 function validPluginNotificationRoute(value) {
  return typeof value === 'string' && /^\/[a-z][a-z0-9-]*(?:\/[^?#\\\s]*)?$/.test(value)
@@ -147,7 +167,7 @@ async function readPluginNotification(data) {
  });
 }
 async function matchingPluginNotifications(data) {
- return (await self.registration.getNotifications()).filter(notification => {
+ return (await notificationBrowserCall(() => self.registration.getNotifications())).filter(notification => {
   const saved = notification.data;
   return saved?.kind === 'device-plugin' && saved.pluginId === data.pluginId
    && saved.generation === data.generation && saved.key === data.key;
@@ -158,11 +178,11 @@ async function closePluginNotification(data, revision) {
  for (const notification of notifications) if (!revision || notification.data?.revision === revision) notification.close();
 }
 async function pluginNotificationsChanged() {
- for (const client of await self.clients.matchAll({ type: 'window', includeUncontrolled: true })) {
+ for (const client of await notificationBrowserCall(() => self.clients.matchAll({ type: 'window', includeUncontrolled: true }))) {
   if (new URL(client.url).origin === self.location.origin) client.postMessage({ type: 'PLUGIN_NOTIFICATIONS_CHANGED' });
  }
 }
-async function displayPluginNotification(data, record, onlyMissing = false, dismissedTag, replace = false) {
+async function displayPluginNotification(data, record, onlyMissing = false, dismissedTag) {
  let error;
  try {
   const current = await readPluginNotification(data);
@@ -171,11 +191,14 @@ async function displayPluginNotification(data, record, onlyMissing = false, dism
    const all = await matchingPluginNotifications(data);
    const present = all.filter(notification => notification.tag !== dismissedTag);
    if (onlyMissing && present.some(notification => notification.data?.revision === record.revision)) break;
-   const tag = (!replace && attempt === 0 && present[0]?.tag) || `${pluginNotificationTag(data)}:${crypto.randomUUID()}`;
-   await self.registration.showNotification(record.title, {
+   const tag = `${pluginNotificationTag(data)}:${crypto.randomUUID()}`;
+   await notificationBrowserCall(() => self.registration.showNotification(record.title, {
     body: record.body || '', icon: '/icon-192.png', tag,
     silent: true, renotify: false, requireInteraction: true,
     data: { kind: 'device-plugin', pluginId: data.pluginId, generation: data.generation, key: data.key, revision: record.revision },
+   }), async () => {
+    // Close only this delayed display. A later operation can use the same saved revision.
+    for (const notification of await notificationBrowserCall(() => self.registration.getNotifications({ tag }))) notification.close();
    });
    for (const notification of all) if (notification.tag !== tag) notification.close();
    // The browser can acknowledge display without retaining the notification.
@@ -210,16 +233,16 @@ async function reconcilePluginNotifications(redisplay = false) {
   });
  });
  const desired = new Set(records.map(({ data }) => pluginNotificationTag(data)));
- for (const notification of await self.registration.getNotifications()) {
+ for (const notification of await notificationBrowserCall(() => self.registration.getNotifications())) {
   if (notification.data?.kind === 'device-plugin' && !desired.has(pluginNotificationTag(notification.data))) notification.close();
  }
- for (const { data, record } of records) if (record.restoreOnDismiss) await displayPluginNotification(data, record, !redisplay, undefined, redisplay);
+ for (const { data, record } of records) if (record.restoreOnDismiss) await displayPluginNotification(data, record, !redisplay);
 }
 async function handlePluginNotification(data) {
  if (data.version !== 1) throw new Error('Update Herts to use device notifications.');
  if (data.command === 'reconcile') return reconcilePluginNotifications(data.redisplay === true);
  if (!/^[a-z][a-z0-9-]{0,63}$/.test(data.pluginId) || !Number.isSafeInteger(data.generation)) throw new Error('Invalid plugin identity.');
- const result = await pluginNotificationStorage('readwrite', async store => {
+ const result = await pluginNotificationStorage(data.command === 'check' ? 'readonly' : 'readwrite', async store => {
   if (!notificationPlugin(await store.catalogue(), data, true)) throw new Error('This plugin changed. Reload before changing notifications.');
   if (data.command === 'check') return;
   if (data.command === 'set') {
@@ -241,17 +264,21 @@ async function handlePluginNotification(data) {
   if (data.command === 'retry') return store.get(pluginNotificationKey(data));
   throw new Error('Unknown notification operation.');
  });
+ if (data.command === 'check') return;
  if (data.command === 'remove') await closePluginNotification(data);
- if (result) await displayPluginNotification(data, result, false, undefined, data.command === 'retry');
+ if (result) await displayPluginNotification(data, result);
  await pluginNotificationsChanged();
  return result ? readPluginNotification(data) : undefined;
 }
 self.addEventListener('message', event => {
  if (event.data?.type !== 'PLUGIN_NOTIFICATIONS') return;
  if (!event.source?.url || new URL(event.source.url).origin !== self.location.origin) return;
- event.waitUntil(pluginNotificationQueue(async () => {
+ const respond = async () => {
   try { event.ports[0]?.postMessage({ version: 1, result: await handlePluginNotification(event.data) }); }
   catch (error) { event.ports[0]?.postMessage({ version: 1, error: error.message || 'The notification operation failed.' }); }
+ };
+ event.waitUntil((event.data.command === 'check' ? respond() : pluginNotificationQueue(respond)).catch(error => {
+  event.ports[0]?.postMessage({ version: 1, error: error.message || 'The notification operation failed.' });
  }));
 });
 self.addEventListener('notificationclose', event => {

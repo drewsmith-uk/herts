@@ -19,7 +19,7 @@ async function fixture() {
       }),
     },
   };
-  const context = createContext({ self, URL, setTimeout, clearTimeout, crypto: { randomUUID }, Notification: { permission: 'granted' } });
+  const context = createContext({ self, URL, AbortController, setTimeout, clearTimeout, crypto: { randomUUID }, Notification: { permission: 'granted' } });
   runInContext(await readFile('public/sw.js', 'utf8'), context);
   context.pluginNotificationStorage = async (_mode: string, work: Function) => work({
     catalogue: async () => catalogue,
@@ -45,6 +45,103 @@ async function fixture() {
 }
 
 describe('durable plugin notifications', () => {
+  it('cancels a blocked lock request without leaving a notification write queued', async () => {
+    vi.useFakeTimers();
+    try {
+      const f = await fixture();
+      const request = vi.fn((_name: string, { signal }: { signal: AbortSignal }, _work: Function) => new Promise((_, reject) => {
+        signal.addEventListener('abort', () => reject(signal.reason));
+      }));
+      (f.self as any).navigator = { locks: { request } };
+      const pending = f.pin(); await vi.advanceTimersByTimeAsync(4000);
+      expect((await pending).error).toContain('Close other Herts windows');
+      expect(f.records.size).toBe(0);
+      expect((await f.command('check')).error).toBeUndefined();
+      expect(request).toHaveBeenCalledOnce();
+      delete (f.self as any).navigator;
+      expect((await f.pin()).error).toBeUndefined();
+      expect(f.records.size).toBe(1);
+    } finally { vi.useRealTimers(); }
+  });
+  it('checks readiness while display is blocked without publishing a storage change', async () => {
+    const f = await fixture();
+    let release!: () => void, entered!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const original = f.self.registration.showNotification.getMockImplementation()!;
+    f.self.registration.showNotification.mockImplementationOnce(async (...args) => {
+      entered(); await new Promise<void>(resolve => { release = resolve; }); await original(...args);
+    });
+    const pending = f.pin(); await started;
+    try {
+      expect(await f.command('check')).toEqual({ version: 1, result: undefined });
+      expect(f.self.clients.matchAll).not.toHaveBeenCalled();
+      expect(f.records.size).toBe(1);
+    } finally { release(); await pending; }
+  });
+  it('releases the queue after a stalled browser read and preserves the saved pin', async () => {
+    vi.useFakeTimers();
+    try {
+      const f = await fixture(); const saved = (await f.pin()).result;
+      f.self.registration.getNotifications.mockImplementationOnce(() => new Promise(() => {}));
+      const pending = f.command('reconcile');
+      await vi.advanceTimersByTimeAsync(4000);
+      expect((await pending).error).toContain('browser did not respond');
+      expect([...f.records.values()]).toEqual([saved]);
+      expect((await f.command('remove', { key: f.input.key })).error).toBeUndefined();
+      expect(f.records.size).toBe(0); expect(f.visible.size).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+  it('bounds a stalled display and closes its late result after unpinning', async () => {
+    vi.useFakeTimers();
+    try {
+      const f = await fixture();
+      let release!: () => void;
+      const original = f.self.registration.showNotification.getMockImplementation()!;
+      f.self.registration.showNotification.mockImplementationOnce(async (...args) => {
+        await new Promise<void>(resolve => { release = resolve; }); await original(...args);
+      });
+      const pending = f.pin();
+      await vi.advanceTimersByTimeAsync(4000);
+      expect((await pending).result.displayError).toContain('Select Retry');
+      expect(f.records.size).toBe(1);
+      await f.command('remove', { key: f.input.key });
+      release(); await vi.advanceTimersByTimeAsync(0);
+      expect(f.visible.size).toBe(0); expect(f.records.size).toBe(0);
+      expect(f.self.registration.showNotification).toHaveBeenCalledOnce();
+    } finally { vi.useRealTimers(); }
+  });
+  it('does not close a successful retry when an earlier display completes late', async () => {
+    vi.useFakeTimers();
+    try {
+      const f = await fixture();
+      let release!: () => void;
+      const original = f.self.registration.showNotification.getMockImplementation()!;
+      f.self.registration.showNotification.mockImplementationOnce(async (...args) => {
+        await new Promise<void>(resolve => { release = resolve; }); await original(...args);
+      });
+      const pending = f.pin(); await vi.advanceTimersByTimeAsync(4000); await pending;
+      await f.command('retry', { key: f.input.key });
+      const restored = [...f.visible.values()][0];
+      release(); await vi.advanceTimersByTimeAsync(0);
+      expect([...f.visible.values()]).toEqual([restored]);
+      expect([...f.records.values()][0].displayError).toBeUndefined();
+      expect(f.self.registration.showNotification).toHaveBeenCalledTimes(2);
+    } finally { vi.useRealTimers(); }
+  });
+  it('keeps notification operations available while a clicked window cannot open', async () => {
+    const f = await fixture(); await f.pin();
+    let release!: () => void, entered!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    f.self.clients.openWindow.mockImplementationOnce(async () => {
+      entered(); await new Promise<void>(resolve => { release = resolve; }); return {};
+    });
+    const pending = f.fire('notificationclick', { notification: [...f.visible.values()][0] });
+    await started;
+    try {
+      expect((await f.command('remove', { key: f.input.key })).error).toBeUndefined();
+      expect(f.records.size).toBe(0); expect(f.visible.size).toBe(0);
+    } finally { release(); await pending; }
+  });
   it('restores repeated dismissals silently from saved state without duplicating notifications', async () => {
     const f = await fixture(); expect((await f.pin()).error).toBeUndefined();
     await f.dismiss(); await f.dismiss();
@@ -164,7 +261,8 @@ describe('durable plugin notifications', () => {
     const notification = [...f.visible.values()][0];
     await f.fire('notificationclick', { notification });
     expect(f.self.clients.openWindow).toHaveBeenCalledWith('/#/conversation/synthetic');
-    expect(f.visible.size).toBe(1); expect(notification.close).not.toHaveBeenCalled();
+    f.visible.delete(notification.tag);
+    expect(f.visible.size).toBe(1); expect(f.records.size).toBe(1);
     const close = vi.fn(); f.visible.set('other', { tag: 'other', data: { kind: 'reminder' }, close });
     await f.command('remove', { key: f.input.key }); expect(close).not.toHaveBeenCalled();
     await f.fire('notificationclose', { notification }); expect(f.visible.size).toBe(1);

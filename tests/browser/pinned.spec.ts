@@ -7,6 +7,43 @@ import { pinnedPlugin, pinnedReady, seedPin, savedPins, notices, dismissPins } f
 test.beforeEach(async ({ request, context }) => { await pinnedPlugin(request, 'enable'); await context.grantPermissions(['notifications']); });
 test.afterEach(async ({ request }) => { await pinnedPlugin(request, 'disable'); });
 
+for (const width of [390, 1280]) test(`Check again recovers while notification navigation is blocked at ${width}px`, async ({ page, context }, testInfo) => {
+  await page.setViewportSize({ width, height: 844 });
+  await pinnedReady(page);
+  const saved = await seedPin(page);
+  const worker = context.serviceWorkers().find(worker => worker.url().endsWith('/sw.js'))!;
+  await worker.evaluate(async () => {
+    const scope = self as any;
+    const notification = (await scope.registration.getNotifications()).find((n: any) => n.data?.kind === 'device-plugin');
+    scope.openNotification = () => new Promise<void>(resolve => { scope.releaseNavigation = resolve; });
+    const event = new Event('notificationclick');
+    Object.defineProperties(event, { notification: { value: notification }, waitUntil: { value: () => {} } });
+    scope.dispatchEvent(event);
+  });
+  await expect.poll(() => worker.evaluate(() => !!(self as any).releaseNavigation)).toBe(true);
+  await page.addInitScript(() => {
+    const original = ServiceWorker.prototype.postMessage;
+    (window as any).holdNotificationChecks = true;
+    ServiceWorker.prototype.postMessage = function(data: any, transfer: any) {
+      if (data?.type === 'PLUGIN_NOTIFICATIONS' && data.command === 'check' && (window as any).holdNotificationChecks) return;
+      return original.call(this, data, transfer);
+    };
+  });
+  try {
+    await page.reload();
+    await expect(page.getByRole('alert')).toContainText('The notification operation was not confirmed.');
+    await page.evaluate(() => { (window as any).holdNotificationChecks = false; });
+    await page.getByRole('button', { name: 'Check again', exact: true }).click();
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    expect((await savedPins(page)).map((row: any) => row.key)).toEqual([saved.key]);
+    await page.screenshot({ path: testInfo.outputPath('check-again-recovered.png') });
+    await page.getByRole('button', { name: `Unpin: ${saved.title}`, exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'No pinned notifications' })).toBeVisible();
+    expect(await savedPins(page)).toEqual([]);
+    expect(await notices(page)).toEqual([]);
+  } finally { await worker.evaluate(() => (self as any).releaseNavigation?.()); }
+});
+
 for (const recovery of ['timer', 'focus', 'visibility'] as const) test(`recovers notification readiness through ${recovery} without leaving the conversation`, async ({ page }, testInfo) => {
   await page.setViewportSize({ width: recovery === 'focus' ? 1280 : 390, height: 844 });
   await pinnedReady(page);
