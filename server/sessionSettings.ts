@@ -32,16 +32,18 @@ export function sessionValues(info: any, stored = false): SessionValues {
     ...(typeof info.cwd === 'string' && info.cwd ? { cwd: info.cwd } : {}) };
 }
 
+interface Catalogue { at: number; models: ModelOption[]; profile: SessionValues }
+
 export class SessionSettings {
   observed = new Map<string, { values: SessionValues; wire?: string; epoch: string; runtime: string; at: number }>();
   private readings = new Map<string, { storedId: string; linkId: string; profile: string; values: SessionValues; modelName?: string; wire?: string }>();
   private readVersions = new Map<string, number>();
-  private catalogues = new Map<string, { at: number; models: ModelOption[]; profile: SessionValues }>();
-  private loads = new Map<string, Promise<{ models: ModelOption[]; profile: SessionValues }>>();
+  private catalogues = new Map<string, Catalogue>();
+  private loads = new Map<string, Promise<Catalogue>>();
   private get catalogue() { return this.catalogues.get(this.gateway.profile); }
-  private set catalogue(v: { at: number; models: ModelOption[]; profile: SessionValues } | undefined) { if (v) this.catalogues.set(this.gateway.profile, v); }
+  private set catalogue(v: Catalogue | undefined) { if (v) this.catalogues.set(this.gateway.profile, v); }
   private get loading() { return this.loads.get(this.gateway.profile); }
-  private set loading(v: Promise<{ models: ModelOption[]; profile: SessionValues }> | undefined) { if (v) this.loads.set(this.gateway.profile, v); else this.loads.delete(this.gateway.profile); }
+  private set loading(v: Promise<Catalogue> | undefined) { if (v) this.loads.set(this.gateway.profile, v); else this.loads.delete(this.gateway.profile); }
   constructor(readonly store: Store, readonly gateway: Gateway) {}
   observe(id: string, info: any, binding: Binding) {
     if (!info || (info.lazy && !info.desktop_protocol) || info.profile_name !== (this.store.context(id)?.profile || this.gateway.profile) || !info.model || !info.provider) return;
@@ -100,7 +102,7 @@ export class SessionSettings {
     if (profile && this.gateway.withProfile && profile !== this.gateway.profile) return this.gateway.withProfile(profile, () => this.view(id, force));
     const context = id ? this.store.context(id) : undefined, state = this.store.sessionSettings();
     let current: SessionValues = {}, source: SettingsView['source'] = context?.link ? 'unknown' : 'profile', wireEffort: string | undefined, error = '';
-    let catalogue: { models: ModelOption[]; profile: SessionValues } | undefined = this.catalogue;
+    let catalogue = this.catalogue;
     const version = id ? (this.readVersions.get(id) || 0) + 1 : 0;
     if (id) this.readVersions.set(id, version);
     try { catalogue = await this.catalogueRead(force); } catch (e) { error = (e as Error).message; }
@@ -177,6 +179,7 @@ export class SessionSettings {
         : sources.model && sources.effort ? 'saved' : 'unknown';
     }
     return { defaults: state.defaults, pending: id ? this.record(id) : blank(), current, modelName, sources, profile: catalogue?.profile || {}, source, wireEffort,
+      ...(catalogue && { catalogue: { profile: this.gateway.profile, updatedAt: catalogue.at } }),
       models: catalogue?.models || [], available: !error && !!catalogue, ...(error ? { error } : {}), uncertain: !!id && this.uncertain(id).length > 0 };
   }
   async directories(path?: string) {

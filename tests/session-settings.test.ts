@@ -94,6 +94,15 @@ describe('settings staged until Send', () => {
     expect(writes(gateway)).toEqual([]);
     expect(gateway.calls.some(c => ['session.info', 'session.settings.read', 'session.activate'].includes(c.method))).toBe(false);
   });
+  it('identifies the same profile catalogue for defaults and new drafts', async () => {
+    const { actions, gateway } = fixture();
+    const defaults = await actions.settings.view();
+    expect(defaults.catalogue).toEqual({ profile: gateway.profile, updatedAt: expect.any(Number) });
+    const draft = await actions.settings.view(randomUUID());
+    expect(draft.catalogue).toEqual(defaults.catalogue);
+    expect(draft.models).toEqual(defaults.models);
+    expect(gateway.calls.filter(call => call.method === 'model.options')).toHaveLength(1);
+  });
   it.each(['id', 'profile'])('rejects a stored response with the wrong %s', async key => {
     const { gateway, actions, id } = fixture(), original = gateway.http.bind(gateway);
     gateway.http = async path => ({ ...await original(path), [key]: 'other' });
