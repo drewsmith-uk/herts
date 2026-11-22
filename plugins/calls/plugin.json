@@ -1,0 +1,10 @@
+{
+  "id": "calls",
+  "name": "Calls",
+  "description": "Talk to Hermes through GPT-Live.",
+  "version": "0.1.3",
+  "apiVersion": 1,
+  "schemaVersion": 1,
+  "client": "client.js",
+  "server": "server.mjs"
+}

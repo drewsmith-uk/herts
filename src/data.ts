@@ -285,7 +285,9 @@ export async function readConversationActivity(contextId: string, signal: AbortS
         try {
             const { observation, revision, generation } = beginActivityRead();
             const path = location.hash.slice(1).split('?')[0];
-            const pluginId = state.plugins.entries.find(entry => entry.enabled && entry.manifest.routes?.some(prefix => path === prefix || path.startsWith(prefix + '/')))?.manifest.id;
+            const pluginId = state.plugins.entries.find(entry => entry.enabled &&
+                [`/plugins/${entry.manifest.id}`, ...(entry.manifest.routes || [])]
+                    .some(prefix => path === prefix || path.startsWith(prefix + '/')))?.manifest.id;
             const data = await activityApi(`/contexts/${encodeURIComponent(contextId)}/activity${pluginId ? `?pluginId=${encodeURIComponent(pluginId)}` : ''}`, undefined, 'GET', 10000, signal);
             if (data.contextId !== contextId) throw new Error('The conversation identity changed.');
             if (signal.aborted || revision < lastBindingsRefresh || revision < (activityRevisions.get(contextId) || 0)) return;

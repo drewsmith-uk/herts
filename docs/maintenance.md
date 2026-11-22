@@ -58,6 +58,16 @@ The plugin transition migrates the database and browser queues while retaining t
 
 Herts keeps the historical IndexedDB name `hermes-tasks` and SQLite filename `tasks.sqlite`. It also keeps browser storage keys, cache keys, API routes, and the legacy request header. The PWA ID remains `/`. The service worker URL remains `/sw.js`. The visible app name can change without reinstalling, clearing data, changing its URL, or replacing notification keys.
 
+## Release source
+
+Use the current `main` commit unless the user selects another deployment base.
+Record the source commit and tested browser build.
+Compare the release with the running installation before deployment.
+Verify Git history before you classify source changes as unpublished.
+Test the browser with the exact plugin packages that you will install.
+Compare installed package hashes with the tested hashes after deployment.
+Preserve existing plugin settings and data when you update packages.
+
 ## Troubleshooting
 
 | Symptom | Check |

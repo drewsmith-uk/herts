@@ -22,6 +22,7 @@ export interface Binding { profile?: string; runtimeId: string; storedId: string
 // taskId is the legacy wire/storage field for the canonical context ID. New
 // requests use contextId; the server resolves legacy task IDs before dispatch.
 export interface Action {
+  voice?: import('./voice.js').VoiceSend;
   id: string; taskId: string; contextId?: string; kind: 'send' | 'continue' | 'approve' | 'deny' | 'stop' | 'clarify';
   state: ActionState; phase: string; text: string; uploadIds: string[]; createdAt: number; updatedAt: number;
   receipt: 'pending' | 'accepted' | 'rejected' | 'unknown'; cancelled?: boolean; error?: string; errorCode?: number; binding?: Binding;
@@ -43,7 +44,7 @@ export const hasSavedMessage = (action: Action) => action.kind === 'send' && !ac
 export function redactSavedMessage(action: Action): Action {
   if (!action.savedMessageDeletedAt) return action;
   const { answers: _answers, ...receipt } = action;
-  return { ...receipt, text: '', uploadIds: [] };
+  return { ...receipt, text: '', uploadIds: [], ...(action.voice ? { voice: { ...action.voice, context: '' } } : {}) };
 }
 export interface Upload { owner?:string; id: string; name: string; type: string; size: number; hash: string; complete: boolean }
 export class Conflict extends Error { statusCode = 409; constructor(public reason: string) { super(reason); } }

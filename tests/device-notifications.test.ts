@@ -35,7 +35,7 @@ async function fixture() {
   };
   const command = async (command: string, input: any = {}) => {
     let response: any;
-    await fire('message', { source: { url: 'https://fixture.example/#/plugins/sample' }, data: { type: 'PLUGIN_NOTIFICATIONS', version: 1, pluginId: 'sample', generation: 0, hash: 'fixture', command, ...input }, ports: [{ postMessage: (value: unknown) => { response = value; } }] });
+    await fire('message', { source: { id: 'owner-window', url: 'https://fixture.example/#/plugins/sample' }, data: { type: 'PLUGIN_NOTIFICATIONS', version: 1, pluginId: 'sample', generation: 0, hash: 'fixture', command, ...input }, ports: [{ postMessage: (value: unknown) => { response = value; } }] });
     return response;
   };
   const input = { key: 'conversation', title: 'Review synthetic notes', route: '/conversation/synthetic', body: 'Saved reminder', restoreOnDismiss: true, metadata: { reference: 'synthetic' } };
@@ -73,7 +73,7 @@ describe('durable plugin notifications', () => {
     });
     const pending = f.pin(); await started;
     try {
-      expect(await f.command('check')).toEqual({ version: 1, result: undefined });
+      expect(await f.command('check')).toEqual({ version: 1, result: { windowOwnership: true } });
       expect(f.self.clients.matchAll).not.toHaveBeenCalled();
       expect(f.records.size).toBe(1);
     } finally { release(); await pending; }
@@ -141,6 +141,20 @@ describe('durable plugin notifications', () => {
       expect((await f.command('remove', { key: f.input.key })).error).toBeUndefined();
       expect(f.records.size).toBe(0); expect(f.visible.size).toBe(0);
     } finally { release(); await pending; }
+  });
+  it('binds a call notice to its sender and does not restore it after dismissal', async () => {
+    const f = await fixture();
+    const owner = { id: 'owner-window', url: 'https://fixture.example/', postMessage: vi.fn() };
+    f.self.clients.matchAll.mockResolvedValue([owner] as never[]);
+    const result = await f.command('set', { expectedRevision: null, input: { ...f.input, title: 'Call in progress',
+      restoreOnDismiss: false, ownerWindow: true, ownerClientId: 'forged', inactiveTitle: 'Check call status' } });
+    expect(result.result.ownerClientId).toBe('owner-window');
+    expect([...f.visible.values()][0].title).toBe('Call in progress');
+    f.self.clients.matchAll.mockResolvedValue([]);
+    await f.command('reconcile');
+    expect([...f.visible.values()][0].title).toBe('Check call status');
+    await f.dismiss(); await f.command('reconcile', { redisplay: true });
+    expect(f.visible.size).toBe(0);
   });
   it('restores repeated dismissals silently from saved state without duplicating notifications', async () => {
     const f = await fixture(); expect((await f.pin()).error).toBeUndefined();

@@ -27,6 +27,7 @@ jobs:
           tar -cf release-build.tar .runtime/release-dist \
             plugins/{tasks,reading,bots}/{client.js,server.mjs,THIRD_PARTY_NOTICES.txt} \
             plugins/pinned/{client.js,THIRD_PARTY_NOTICES.txt} \
+            plugins/calls/{client.js,server.mjs,THIRD_PARTY_NOTICES.txt} \
             examples/notes/{client.js,server.mjs,THIRD_PARTY_NOTICES.txt}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

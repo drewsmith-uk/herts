@@ -46,6 +46,7 @@ rows.set('spaces-retry', { id: 'spaces-retry', title: 'Space retry conversation'
 rows.set('spaces-conversation', {id:'spaces-conversation',title:'Shared spaces conversation',source:'telegram',started_at:Date.now()/1000,messages:[{id:1,role:'assistant',content:'This conversation is shared across task spaces.'}]});
 for (const id of ['settings-390', 'settings-1280', 'settings-shared', 'settings-confirm', 'settings-offline', 'settings-recovery-apply', 'settings-recovery-discard']) rows.set(id, { id, title: id, source: 'telegram', started_at: Date.now()/1000, settings: { ...profileSettings, model: 'existing-model', reasoning_effort: 'high', cwd: '/projects/existing' }, messages: [{ id: 1, role: 'assistant', content: 'A saved [article](https://example.com/settings-shared).' }] });
 rows.get('settings-confirm').messages = structuredClone(rows.get('long-history').messages);
+rows.set('calls-fixture', { id: 'calls-fixture', title: 'Review the synthetic project timetable and accessibility arrangements with the regional team', source: 'desktop', started_at: Date.now()/1000, messages: [{id:1,role:'user',content:'Review https://example.com/' + 'synthetic-project-details/'.repeat(12)}, {id:2,role:'assistant',content:'The synthetic notes cover travel, access requirements, and meeting times. '.repeat(12)}] });
 const runtimes = new Map<string, any>();
 const liveTranscriptSteps = new Map<string, { next: () => void; finish: () => void }>();
 let hermesUnavailable = false;
@@ -59,6 +60,12 @@ const server = createServer({ keepAliveTimeout: 0 }, async (req, res) => {
   if (url.pathname === '/call-details') return res.end(JSON.stringify(callDetails));
   if (req.headers['x-hermes-session-token'] !== 'fixture-token') { res.statusCode = 403; return res.end('{}'); }
   if (hermesUnavailable) { res.statusCode = 503; return res.end('{}'); }
+  if (url.pathname === '/api/audio/voice-live/status') return res.end(JSON.stringify({ok:true,available:true,mode:'gpt-live',model:'gpt-live-1',voice:'marin'}));
+  if (url.pathname === '/api/audio/voice-live/session') {
+    const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk));
+    callDetails.push({method:'voice-live.session',params:JSON.parse(Buffer.concat(chunks).toString())});
+    return res.end(JSON.stringify({ok:true,session:{id:'live_fixture'},transport:{type:'webrtc',sdp:'synthetic-answer\r\n'}}));
+  }
   if (botBackend.ownsHttp(url)) {
     const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk));
     try { return res.end(JSON.stringify(await botBackend.http(url.pathname + url.search, chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : undefined, req.method))); }
@@ -227,7 +234,7 @@ webpush.sendNotification=async(_subscription,payload)=>{
 };
 const fixtureRoot=await mkdtemp('/tmp/herts-browser-');
 const pluginsDir=fixtureRoot+'/plugins';await mkdir(pluginsDir);
-for(const id of ['tasks','reading','bots','pinned'])await cp('plugins/'+id,pluginsDir+'/'+id,{recursive:true});
+for(const id of ['tasks','reading','bots','pinned','calls'])await cp('plugins/'+id,pluginsDir+'/'+id,{recursive:true});
 const { app, articles, store, plugins, gateway } = await createApp({ staticDir: process.env.HERTS_TEST_DIST_DIR, dataDir: fixtureRoot+'/data', pluginsDir, origin: 'http://127.0.0.1:8790', identity: 'fixture', dev: true, hermesBase: 'http://127.0.0.1:8791', hermesToken: 'fixture-token' });
 app.post('/__test/prompt-protocol', async req => {
   modernPrompts = (req.body as { modern: boolean }).modern;
@@ -312,7 +319,7 @@ app.post('/__test/conversation-message', async req => {
   if (!hermesUnavailable) gateway.metadata = undefined;
   return { ok: true };
 });
-await plugins.activate('tasks');await plugins.activate('reading');plugins.reorder(['tasks','conversations','reading','bots','pinned']);
+await plugins.activate('tasks');await plugins.activate('reading');plugins.reorder(['tasks','conversations','reading','bots','pinned','calls']);
 // Simulate a client on a previous release without intercepting browser traffic
 // while real service workers install and take control. Their cached index stays new.
 app.get('/', async (req, reply) => {

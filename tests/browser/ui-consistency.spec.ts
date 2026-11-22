@@ -5,6 +5,137 @@ import { test, expect } from '@playwright/test';
 import { pinnedPlugin, pinnedReady, seedPin } from './pinned-helpers';
 import { builtinThemes, themeStorageKey } from '../../shared/themeValues';
 import { detailsField, saveTitle } from './composer-helpers';
+import { callsPlugin, openCalls, syntheticCall } from './calls-helpers';
+
+for (const [width, height] of [[320, 844], [390, 844], [768, 844], [1280, 844], [390, 480]]) {
+  test(`Calls follows the shared conversation layout at ${width}x${height}`, async ({ page, request, context }) => {
+    await callsPlugin(request, 'enable');
+    try {
+      await syntheticCall(context); await page.setViewportSize({ width, height });
+      const linked = await openCalls(page, request);
+      await page.goto('/#/conversation/calls-fixture');
+      await expect(page.locator('[data-history-message]').first()).toBeVisible();
+      await page.screenshot({ path: `output/calls/reference-${width}x${height}.png` });
+      await page.goto(`/#/plugins/calls/${linked.id}`);
+      await expect(page.locator('[data-history-message]').first()).toBeVisible();
+      await expect(page.locator('html')).toHaveAttribute('data-theme', 'press');
+      const bar = page.locator('.calls-screen > .session-bar');
+      const checkCallRow = async (buttonName: string) => {
+        await expect(page.locator('.session-bar')).toHaveCount(1);
+        const button = bar.getByRole('button', { name: buttonName, exact: true });
+        const control = (await button.boundingBox())!, status = (await bar.getByRole('status').boundingBox())!;
+        expect(control.height).toBeGreaterThanOrEqual(44);
+        expect(status.y).toBeGreaterThanOrEqual(control.y);
+        expect(status.y + status.height).toBeLessThanOrEqual(control.y + control.height);
+        expect((await bar.boundingBox())!.height).toBeLessThanOrEqual(62);
+        const header = (await page.locator('.conversation-page-header').boundingBox())!;
+        expect((await bar.boundingBox())!.y).toBeCloseTo(header.y + header.height, 0);
+        await expect(button).toBeInViewport();
+      };
+      await checkCallRow('Start call');
+      const readyBounds = (await bar.boundingBox())!;
+      await page.screenshot({ path: `output/calls/ready-${width}x${height}.png` });
+      await page.evaluate(() => { (window as any).callFixture.holdSession = true; });
+      await page.getByRole('button', { name: 'Start call', exact: true }).click();
+      await expect(bar.getByRole('status')).toHaveText('Starting call');
+      await checkCallRow('End call');
+      await page.screenshot({ path: `output/calls/connecting-${width}x${height}.png` });
+      await expect.poll(() => page.evaluate(() => (window as any).callFixture.ready)).toBe(true);
+      await page.evaluate(() => { const f = (window as any).callFixture; f.holdSession = false; f.event({ type: 'session.started' }); });
+      const mute = page.getByRole('button', { name: 'Mute', exact: true }), end = page.getByRole('button', { name: 'End call', exact: true });
+      await expect(mute).toBeVisible();
+      await checkCallRow('End call');
+      expect(await bar.boundingBox()).toEqual(readyBounds);
+      const muteBounds = (await mute.boundingBox())!, endBounds = (await end.boundingBox())!;
+      expect(muteBounds.y).toBe(endBounds.y); expect(muteBounds.height).toBeGreaterThanOrEqual(44);
+      const statusBounds = (await page.locator('.session-bar [role="status"]').boundingBox())!;
+      expect(statusBounds.y).toBeGreaterThanOrEqual(muteBounds.y);
+      expect(statusBounds.y + statusBounds.height).toBeLessThanOrEqual(muteBounds.y + muteBounds.height);
+      for (const selector of ['.session-bar', '.conversation-scroll', '.composer']) {
+        const bounds = (await page.locator(selector).boundingBox())!;
+        expect(bounds.x).toBeGreaterThanOrEqual(0); expect(bounds.x + bounds.width).toBeLessThanOrEqual(width + 1);
+        expect(bounds.y + bounds.height).toBeLessThanOrEqual(height + 1);
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await mute.focus(); await expect(mute).toBeFocused();
+      await page.screenshot({ path: `output/calls/active-${width}x${height}.png` });
+      await page.getByRole('button', { name: 'Actions', exact: true }).click();
+      const pageActions = page.getByRole('dialog', { name: 'Page actions', exact: true });
+      await expect(pageActions.getByRole('button', { name: 'Rename conversation', exact: true })).toBeVisible();
+      await expect(pageActions.getByRole('button', { name: 'Make a task', exact: true })).toBeVisible();
+      await expect(pageActions.getByRole('button', { name: 'Hide conversation', exact: true })).toBeVisible();
+      await expect(pageActions.locator('h1')).toHaveCount(0);
+      const menuBounds = (await pageActions.boundingBox())!;
+      expect(menuBounds.x).toBeGreaterThanOrEqual(0);
+      expect(menuBounds.x + menuBounds.width).toBeLessThanOrEqual(width + 1);
+      await page.screenshot({ path: `output/calls/actions-${width}x${height}.png` });
+      await page.keyboard.press('Escape');
+      await expect(pageActions).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'Actions', exact: true })).toBeFocused();
+      await page.evaluate(() => {
+        const f = (window as any).callFixture;
+        for (const delta of ['Can', ' you', ' suggest', ' exercises', ' for Thursday?']) f.event({ type: 'session.input_transcript.delta', delta });
+        f.event({ type: 'session.output_transcript.delta', delta: 'Here are some gentle exercises, with the details you requested. '.repeat(8) });
+      });
+      await page.getByRole('button', { name: 'Transcript' }).click();
+      await expect(page.getByRole('dialog')).toBeVisible();
+      await page.screenshot({ path: `output/calls/details-${width}x${height}.png` });
+      await page.keyboard.press('Escape'); await expect(page.getByRole('dialog')).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'Transcript' })).toBeFocused();
+      await page.evaluate(() => { location.hash = '/conversations'; });
+      await expect(page.getByRole('link', { name: 'Return to call', exact: true })).toHaveAttribute('href', `#${'/plugins/calls/' + linked.id}`);
+      await page.screenshot({ path: `output/calls/away-${width}x${height}.png` });
+      await page.getByRole('link', { name: 'Return to call', exact: true }).click();
+      await page.evaluate(() => { (window as any).callFixture.autoClose = false; });
+      await end.click();
+      await expect(bar.getByRole('status')).toHaveText('Ending call');
+      await checkCallRow('End call');
+      await expect(end).toBeDisabled();
+      await page.screenshot({ path: `output/calls/closing-${width}x${height}.png` });
+      await page.evaluate(() => { const f = (window as any).callFixture; f.autoClose = true; f.event({ type: 'session.closed' }); });
+      await expect(bar.getByRole('status')).toHaveText('Call ended');
+      await checkCallRow('Call again');
+      expect(await bar.boundingBox()).toEqual(readyBounds);
+      await page.screenshot({ path: `output/calls/ended-${width}x${height}.png` });
+      await page.getByRole('button', { name: 'Call again', exact: true }).click();
+      await expect(mute).toBeVisible();
+      await page.evaluate(() => (window as any).callFixture.hidden());
+      await expect(bar.getByRole('status')).toContainText('Call ended');
+      await expect(page.getByText('App in background', { exact: true })).toBeVisible();
+      await checkCallRow('Call again');
+      await page.screenshot({ path: `output/calls/background-${width}x${height}.png` });
+      await page.evaluate(() => {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      await page.route('**/plugins/calls/queries/status', route => route.fulfill({ json: {
+        available: true, mode: 'gpt-live', model: 'gpt-live-configuration-with-a-long-model-name-for-the-synthetic-accessibility-review',
+        voice: 'voice-configuration-with-a-long-synthetic-name',
+      } }));
+      await page.goto('/#/settings/plugins');
+      await expect(page.getByRole('button', { name: 'Connection sounds', exact: true })).toBeVisible();
+      await page.getByRole('button', { name: 'Connection sounds', exact: true }).scrollIntoViewIfNeeded();
+      for (const value of await page.locator('.setting-value').all()) {
+        const bounds = (await value.boundingBox())!;
+        expect(bounds.x).toBeGreaterThanOrEqual(0);
+        expect(bounds.x + bounds.width).toBeLessThanOrEqual(width + 1);
+      }
+      await page.screenshot({ path: `output/calls/settings-${width}x${height}.png` });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await page.goto(`/#/plugins/calls/${linked.id}`);
+      await page.getByRole('button', { name: 'Call again' }).click();
+      await expect(page.getByRole('button', { name: 'Mute', exact: true })).toBeVisible();
+      await page.evaluate(() => { (window as any).callFixture.autoClose = false; document.dispatchEvent(new Event('freeze')); });
+      await expect(page.getByRole('status').filter({ hasText: 'Closure unconfirmed' })).toBeVisible();
+      await expect(page.getByText('App in background')).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Call again' })).toBeInViewport();
+      await expect(page.locator('.composer')).toBeInViewport();
+      await checkCallRow('Call again');
+      await expect(page.getByRole('link', { name: 'Review conversation', exact: true })).toHaveAttribute('href', '#/conversation/calls-fixture');
+      await page.screenshot({ path: `output/calls/recovery-${width}x${height}.png` });
+    } finally { await callsPlugin(request, 'disable'); }
+  });
+}
 
 for (const [width, height] of [[320, 844], [390, 844], [768, 844], [1280, 844], [390, 480]]) {
   test(`Press saved message pages retain drafts and controls at ${width}x${height}`, async ({ page, request }) => {

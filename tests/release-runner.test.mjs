@@ -61,7 +61,7 @@ test('the CLI preserves a failed command exit code and stops preparation', () =>
 test('requires browser, plugin, and licence outputs, including Notes', () => {
   const fixture = mkdtempSync(resolve(tmpdir(), 'herts-release-build-'));
   try {
-    for (const plugin of ['tasks', 'reading', 'bots', 'pinned', 'notes']) {
+    for (const plugin of ['tasks', 'reading', 'bots', 'pinned', 'calls', 'notes']) {
       const path = plugin === 'notes' ? 'examples/notes' : `plugins/${plugin}`;
       mkdirSync(resolve(fixture, path), { recursive: true });
       writeFileSync(resolve(fixture, path, 'plugin.json'), JSON.stringify({ client: 'client.js', ...(plugin === 'pinned' ? {} : { server: 'server.mjs' }) }));

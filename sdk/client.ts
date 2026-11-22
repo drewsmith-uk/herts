@@ -42,3 +42,9 @@ export { ActionRow, ActionRowLink, SettingsGroup } from '../src/ui';
 export { RenameAction } from '../src/RenameAction';
 
 export { DragHandle, DragPreview } from '../src/ui';
+
+export { SessionBar } from '../src/ui';
+export { voiceLiveGreeting } from '../shared/voice';
+export const voiceLiveClientVersion = 1;
+
+export { ConversationView } from '../src/Conversations';

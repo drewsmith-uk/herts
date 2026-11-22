@@ -79,5 +79,9 @@
   "SettingsGroup",
   "RenameAction",
   "DragHandle",
-  "DragPreview"
+  "DragPreview",
+  "SessionBar",
+  "voiceLiveGreeting",
+  "voiceLiveClientVersion",
+  "ConversationView"
 ]

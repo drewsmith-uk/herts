@@ -16,6 +16,18 @@ async function fixture() {
 const headers = { host: 'tasks.example', 'tailscale-user-login': 'owner@example.com', origin: 'https://tasks.example', 'x-herts-request': '1', 'x-herts-plugin-api': '1' };
 const saved = (taskId: string, patch: Partial<Action> = {}): Action => ({ id: randomUUID(), taskId, kind: 'send', state: 'failed', phase: 'failed', text: 'Keep this message', uploadIds: [], receipt: 'rejected', sendStage: 'preparing', createdAt: 1, updatedAt: 1, ...patch });
 
+it('removes spoken context from a discarded submission while retaining delegation identity', async () => {
+  const { app, store } = await fixture(), taskId = randomUUID();
+  store.saveContext({ id: taskId, title: 'Synthetic voice recovery', link: null, aliases: [] });
+  const voice = { callId: randomUUID(), delegationId: 'fixture', context: 'Private synthetic spoken context' };
+  const action = saved(taskId, { voice }); store.saveAction(action);
+  const response = await app.inject({ method: 'POST', url: `/api/v1/actions/${action.id}/discard-saved-message`, headers, payload: {} });
+  expect(response.statusCode).toBe(200);
+  expect(store.action(action.id)?.voice).toEqual({ ...voice, context: '' });
+  store.saveAction({ ...action, voice });
+  expect(store.action(action.id)?.voice?.context).toBe('');
+});
+
 it('deletes only the saved copy, retains deduplication and prevents late updates from restoring it', async () => {
   const { app, store, gateway } = await fixture(), taskId = randomUUID();
   store.saveContext({ id: taskId, title: 'A conversation', link: null, aliases: [] });

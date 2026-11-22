@@ -102,7 +102,7 @@ export class Store extends LegacyFeatures {
   }
   getMeta<T = any>(key: string): T | undefined { const r = this.db.prepare('SELECT value FROM meta WHERE key=?').get(key) as any; return r ? JSON.parse(r.value) : undefined; }
   scrubDeletedMessages() {
-    for (const action of this.actions()) if (action.savedMessageDeletedAt && (action.text || action.uploadIds.length || action.answers)) this.saveAction(action);
+    for (const action of this.actions()) if (action.savedMessageDeletedAt && (action.text || action.uploadIds.length || action.answers || action.voice?.context)) this.saveAction(action);
   }
   sameSavedMessage(action: Action, text: string, uploadIds: string[]) {
     const deleted = this.db.prepare('SELECT message_hash FROM deleted_message_receipts WHERE action_id=?').get(action.id) as { message_hash: string } | undefined;

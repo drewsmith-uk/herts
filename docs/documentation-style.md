@@ -54,6 +54,12 @@ They do not exempt surrounding prose from the writing rules.
 | fixture | Isolated synthetic data or services used by a test. |
 | PWA | Progressive web app; an app installed through a browser. |
 | pin | Save a conversation or task title as a device notification. Also, the saved notification record. |
+| call | A voice session linked to a Hermes conversation. |
+| GPT-Live | The OpenAI model that handles speech during a call. |
+| delegation | A request from the voice session for Hermes to perform work. |
+| SDP | Session Description Protocol; text used to establish a media connection. |
+| WebRTC | Browser technology for real-time audio and data connections. |
+| transcript | The text representation of speech from a call. |
 | service worker | A browser script that can run without an open app window. |
 | restoration | Showing a saved notification again after dismissal. |
 | UI | User interface. |

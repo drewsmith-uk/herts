@@ -64,3 +64,9 @@ See [the authoring guide](plugin-api.md) to build your own plugin, and [the Note
 
 The optional Pinned plugin keeps conversation titles in device notifications.
 See [Pinned notifications](pinned.md) for installation, removal, and browser limits.
+
+## Calls prototype
+
+The optional [Calls prototype](calls.md) adds foreground GPT-Live conversations through Hermes.
+It starts disabled and requires compatible Herts server and browser support.
+Its automated validation uses synthetic services and media.

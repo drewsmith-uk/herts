@@ -1,4 +1,5 @@
 import { Bots } from './bots.js';
+import { VoiceLive } from './voiceLive.js';
 import { parseConversationRef } from '../shared/conversations.js';
 import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
@@ -27,9 +28,10 @@ import { TitleEdits } from './titleEdits.js';
 
 const uuid = z.string().uuid();
 const historyOrder = z.enum(['oldest', 'latest']).default('oldest');
-const actionSchema = z.object({ id: uuid, taskId: uuid.optional(), contextId: uuid.optional(), kind: z.enum(['send','continue','approve','deny','stop','clarify']), text: z.string().optional(), answers: z.record(z.string().max(200), z.string().max(20000)).optional(), uploadIds: z.array(uuid).max(20).optional(), targetId: uuid.optional(), generation: uuid.optional(), approvalId: z.string().max(200).optional(), settingsRevision: z.number().int().nonnegative().optional(), defaultsRevision: z.number().int().nonnegative().optional(), settingsConfirmation: uuid.optional() }).strict().superRefine((v, ctx) => {
+const actionSchema = z.object({ id: uuid, taskId: uuid.optional(), contextId: uuid.optional(), kind: z.enum(['send','continue','approve','deny','stop','clarify']), text: z.string().optional(), answers: z.record(z.string().max(200), z.string().max(20000)).optional(), uploadIds: z.array(uuid).max(20).optional(), targetId: uuid.optional(), generation: uuid.optional(), approvalId: z.string().max(200).optional(), settingsRevision: z.number().int().nonnegative().optional(), defaultsRevision: z.number().int().nonnegative().optional(), settingsConfirmation: uuid.optional(), voice: z.object({ callId: uuid, delegationId: z.string().min(1).max(200), context: z.string().max(6000) }).strict().optional() }).strict().superRefine((v, ctx) => {
   if ((!v.taskId && !v.contextId) || (v.taskId && v.contextId)) ctx.addIssue({ code: 'custom', message: 'Provide one conversation or task reference.' });
   if (v.kind === 'send' && !v.text?.trim() && !v.uploadIds?.length) ctx.addIssue({ code: 'custom', message: 'Write a message or attach a file.' });
+  if (v.voice && v.kind !== 'send') ctx.addIssue({ code: 'custom', message: 'Voice metadata requires a message submission.' });
   if (v.kind === 'clarify' && !v.text?.trim() && !Object.keys(v.answers || {}).length) ctx.addIssue({ code: 'custom', message: 'An answer is required.' });
 });
 export interface Config { archiveActions?: boolean; incrementalSync?: boolean; staticDir?: string; pluginsDir?: string; dataDir: string; origin: string; identity: string; dev?: boolean; hermesBase: string; hermesToken: string; excluded?: string[]; hermesProfile?: string; hermesNative?: import('./nativeGateway.js').NativeGatewayOptions }
@@ -59,7 +61,7 @@ export async function createApp(config: Config) {
   if (archiveActions) store.archive.start(contextId => actions.polling.has(contextId) ||
     [...actions.dispatching].some(id => store.action(id)?.taskId === contextId));
   const titleEdits = new TitleEdits(store, gateway);
-  plugins.hermes = new Bots(store, gateway, actions);
+  plugins.hermes = Object.assign(new Bots(store, gateway, actions), { voiceLive: new VoiceLive(store, gateway) });
   await plugins.initialise(store.legacyInstallation);
   const notifications = new Notifications(store,config.origin.startsWith('https:') ? config.origin : undefined,plugins);
   const app = Fastify({ logger: false, bodyLimit: 36 * 1024 * 1024, trustProxy: false });
@@ -117,7 +119,8 @@ export async function createApp(config: Config) {
       settings: { defaults: settings.defaults, conversation: settings.conversations[context.id] || null },
       ...((compact && incrementalSync) || compactActivity(req) ? { activity: store.activity.details(context.id, cursor, limit) } : { actions: store.actions(context.id) }),
       binding: store.binding(context.id), ...connection(),
-      ...(pluginId && plugins.enabled(pluginId) ? { plugins: plugins.catalogue(), pluginData: { [pluginId]: plugins.storage.data(pluginId) } } : {}) };
+      ...(pluginId ? { plugins: plugins.catalogue(),
+        pluginData: plugins.enabled(pluginId) ? { [pluginId]: plugins.storage.data(pluginId) } : {} } : {}) };
   });
 
   app.get('/manifest.webmanifest',async(_req,reply)=>{const manifest=JSON.parse(await readFile(resolve('public/manifest.webmanifest'),'utf8'));manifest.description='Private Hermes conversations with optional plugins';manifest.shortcuts=plugins.catalogue().entries.filter(e=>plugins.enabled(e.manifest.id)).flatMap(e=>(e.manifest.shortcuts||[]));return reply.type('application/manifest+json').header('Cache-Control','no-cache').send(manifest);});

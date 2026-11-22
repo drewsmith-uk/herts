@@ -159,3 +159,5 @@ export function PluginUnavailable({ id }: {
 
 export function ConversationBadges({conversation}:{conversation:Conversation}){const plugins=usePlugins();return <>{plugins.map(p=>{const Badge=p.definition.ConversationBadge;return Badge?<Boundary key={p.id} id={p.id} fallback={null}><Badge conversation={conversation}/></Boundary>:null;})}</>;}
 export function PluginIcon({id,icon:Icon,size}:{id:string;icon:ComponentType<{size?:number}>;size:number}){return <Boundary id={id} fallback={<span aria-hidden="true">◇</span>}><Icon size={size}/></Boundary>;}
+
+export function PluginGlobalStatus() { const plugins = usePlugins(); return <>{plugins.map(p => { const Status = p.definition.GlobalStatus; return Status ? <PluginContent key={p.id} plugin={p}><Status /></PluginContent> : null; })}</>; }

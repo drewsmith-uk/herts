@@ -95,3 +95,5 @@ export interface ServerPlugin {
     } | undefined;
 }
 export type ActivateServer = (api: ServerServices) => ServerPlugin | Promise<ServerPlugin>;
+
+export type { VoiceLiveStatus, VoiceLiveSession, VoiceLiveServices, VoiceSend } from '../shared/voice.js';
