@@ -95,6 +95,38 @@ describe('Calls lifecycle and delegation', () => {
     expect(f.submit).toHaveBeenCalledTimes(1);
     expect(f.sent.filter(e => e.type === 'session.close')).toHaveLength(1);
   });
+  it('dispatches a new call request once after a previous call submission rejects', async () => {
+    const f = fixture();
+    let reject!: (error: Error) => void;
+    const pending = new Promise<Action>((_, fail) => { reject = fail; });
+    f.submit.mockImplementationOnce(() => pending);
+    await f.controller.start(context);
+    f.request('first');
+    await settled();
+    f.controller.end();
+    f.event({ type: 'session.closed' });
+    await f.controller.start(context);
+    f.request('second');
+    expect(f.controller.record!.requests[0].state).toBe('queued');
+    reject(new Error('Lost reply'));
+    await settled();
+    expect(f.submit).toHaveBeenCalledTimes(2);
+    expect(f.controller.record!.requests[0]).toMatchObject({ id: 'second', state: 'accepted' });
+    expect(f.controller.record!.error).toBeUndefined();
+  });
+  it('keeps a locally rejected request for copying and accepts later speech', async () => {
+    const f = fixture();
+    const message = 'Conversation settings changed. Review them before sending.';
+    f.submit.mockRejectedValueOnce(Object.assign(new Error(message), { submissionOutcome: 'unsent' }));
+    await f.controller.start(context);
+    f.request('first', 'Save this text.');
+    await settled();
+    expect(f.controller.record!.requests[0]).toMatchObject({ state: 'unsent', text: 'Save this text.', failureReason: message });
+    f.request('second', 'Check tomorrow instead.');
+    await settled();
+    expect(f.submit).toHaveBeenCalledTimes(2);
+    expect(f.controller.record!.requests[1].state).toBe('accepted');
+  });
   it('blocks the queue after a lost submission receipt', async () => {
     const f = fixture({ submit: async () => { throw new Error('lost'); } });
     await f.controller.start(context); f.request(); await settled(); f.request('second'); await settled();

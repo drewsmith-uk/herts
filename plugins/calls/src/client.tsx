@@ -59,7 +59,7 @@ function Transcript({ record, close }: { record?: CallRecord; close(): void }) {
       following.current = node.scrollHeight - node.scrollTop - node.clientHeight < 32;
     }}>
       {unsent.length > 0 && <section aria-label="Unsent requests"><h3>Unsent requests</h3>
-        {unsent.map(request => <div key={request.id}><p className="call-transcript">{request.text || 'No transcript available'}</p><Button disabled={!request.text} onClick={() => {
+        {unsent.map(request => <div key={request.id}><p className="call-transcript">{request.text || 'No transcript available'}</p>{request.failureReason && <p>{request.failureReason}</p>}<Button disabled={!request.text} onClick={() => {
           void navigator.clipboard.writeText(request.text).catch(() => setError('Copy failed. Select and copy the request text.'));
         }}>Copy request</Button></div>)}
       </section>}

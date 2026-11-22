@@ -51,6 +51,27 @@ test('hiding during microphone permission stops a late stream without creating a
   expect(await page.evaluate(() => (window as any).callFixture.peers)).toBe(0);
 });
 
+test('a rejected spoken request retains its text and recovery reason', async ({ page, request }) => {
+  await openCalls(page, request);
+  await page.getByRole('button', { name: 'Start call', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Mute', exact: true })).toBeVisible();
+  const reason = 'Conversation settings changed. Review them before sending.';
+  await page.route('**/api/v1/actions', route => route.fulfill({ status: 409, json: { error: reason } }), { times: 1 });
+  await page.evaluate(() => {
+    const fixture = (window as any).callFixture;
+    fixture.event({ type: 'session.input_transcript.delta', delta: 'Keep this spoken request.' });
+    fixture.event({ type: 'session.delegation.created', delegation: { id: 'rejected-request' } });
+  });
+  await expect(page.getByRole('alert')).toContainText(reason);
+  await page.getByRole('button', { name: 'Transcript' }).click();
+  const unsent = page.getByRole('region', { name: 'Unsent requests' });
+  await expect(unsent).toContainText('Keep this spoken request.');
+  await expect(unsent).toContainText(reason);
+  await expect(unsent.getByRole('button', { name: 'Copy request' })).toBeEnabled();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'End call', exact: true }).click();
+});
+
 test('simulated call delegates once, preserves a draft, and keeps work separate from hangup', async ({ page, request }) => {
   await openCalls(page, request);
   const draft = page.getByRole('textbox', { name: 'Message Hermes', exact: true });

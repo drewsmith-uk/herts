@@ -6,6 +6,7 @@ export interface Request {
   id: string; actionId: string; text: string; context: string;
   state: 'queued' | 'sending' | 'accepted' | 'finished' | 'unsent' | 'unknown';
   progress?: string;
+  failureReason?: string;
   transcriptIndex?: number;
 }
 export type EndReason = 'user' | 'background' | 'connection' | 'timeout' | 'update' | 'disposed' | 'recovery';
@@ -261,10 +262,18 @@ export class CallController {
       if (this.record !== record || record.state !== 'active') { request.state = 'unsent'; this.change(); return; }
       const action = await this.deps.submit(record, request);
       if (this.record === record) this.observe([action, ...this.actions.filter(a => a.id !== action.id)]);
-    } catch {
-      request.state = 'unknown'; this.unsent();
-      record.error = 'The spoken request was not confirmed. Check the conversation before sending again.';
-      if (this.record === record) this.change();
+    } catch (error) {
+      if (this.record !== record || request.state !== 'sending') return;
+      if (error instanceof Error && 'submissionOutcome' in error && error.submissionOutcome === 'unsent') {
+        request.state = 'unsent';
+        request.failureReason = error.message;
+        record.error = error.message;
+      } else {
+        request.state = 'unknown';
+        this.unsent();
+        record.error = 'The spoken request was not confirmed. Check the conversation before sending again.';
+      }
+      this.change();
     } finally { this.dispatching = false; void this.pump(); }
   }
 
