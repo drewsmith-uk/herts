@@ -72,6 +72,16 @@ describe('private API and upload recovery', () => {
     expect((await app.inject({ url: `/api/v1/contexts/${randomUUID()}/activity`, headers })).statusCode).toBe(404);
     expect(rpc).not.toHaveBeenCalled(); expect(http).not.toHaveBeenCalled();
   });
+  it('returns the current catalogue when a conversation plugin becomes disabled', async () => {
+    const { app, store, plugins } = await fixture(), id = randomUUID();
+    store.saveContext({ id, title: 'Synthetic plugin conversation', link: null, aliases: [] });
+    const url = `/api/v1/contexts/${id}/activity?pluginId=tasks`;
+    expect((await app.inject(url)).json().pluginData.tasks).toBeDefined();
+    await plugins.disable('tasks');
+    const response = (await app.inject(url)).json();
+    expect(response.plugins.entries).toContainEqual(expect.objectContaining({ manifest: expect.objectContaining({ id: 'tasks' }), enabled: false }));
+    expect(response.pluginData).toEqual({});
+  });
   it('reconnects an unsent legacy context only through an authenticated, current, same-origin request', async () => {
     const { app, store, gateway } = await fixture(false), contextId = randomUUID();
     store.saveContext({ id: contextId, title: 'Saved reading', link: { key: 'missing', storedId: 'missing', title: 'Saved reading', source: 'desktop' }, aliases: ['missing'] });
@@ -355,7 +365,8 @@ describe('private API and upload recovery', () => {
   });
   it('hides linked conversations before pagination and search, with an explicit option to include them', async () => {
     const { app, gateway, store } = await fixture();
-    const conversations: Conversation[] = Array.from({ length: 110 }, (_, i) => ({ id: `latest-${i}`, key: `root-${i}`, aliases: [`legacy-${i}`], title: i === 0 ? 'Needle linked only' : `Needle ${i}`, preview: '', source: 'desktop', updatedAt: Date.now() - i }));
+    const now = Date.now();
+    const conversations: Conversation[] = Array.from({ length: 110 }, (_, i) => ({ id: `latest-${i}`, key: `root-${i}`, aliases: [`legacy-${i}`], title: i === 0 ? 'Needle linked only' : `Needle ${i}`, preview: '', source: 'desktop', updatedAt: now - i }));
     const linkedIds: string[] = [];
     for (let i = 0; i < 55; i++) {
       const taskId = randomUUID(); linkedIds.push(taskId);

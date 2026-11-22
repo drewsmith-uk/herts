@@ -46,6 +46,21 @@ async function runningFixture() {
   f.engine.close();
   return { ...f, input };
 }
+it('preserves voice context and rejects a second identifier for the same delegation', async () => {
+  const { store, gateway, engine, taskId } = fixture();
+  store.saveContext({ ...store.context(taskId)!, link: { key: 'stored', storedId: 'stored', title: 'Synthetic call', source: 'cli' }, aliases: ['stored'] });
+  const input = { id: randomUUID(), contextId: taskId, kind: 'send' as const, text: 'Summarise the synthetic notes',
+    voice: { callId: randomUUID(), delegationId: 'delegation-fixture', context: 'User: Summarise the synthetic notes' } };
+  engine.start(input);
+  await expect.poll(() => store.action(input.id)?.receipt).toBe('accepted');
+  expect(gateway.calls.find(call => call.method === 'prompt.submit')?.params).toMatchObject({
+    text: input.text, surface: 'voice-live', voice_context: input.voice.context,
+  });
+  expect(store.action(input.id)?.voice).toEqual(input.voice);
+  engine.start(input);
+  expect(() => engine.start({ ...input, id: randomUUID() })).toThrow('already has a submission');
+  expect(gateway.calls.filter(call => call.method === 'prompt.submit')).toHaveLength(1);
+});
 async function failedCreationFixture() {
   const f = fixture(), rpc = f.gateway.rpc.bind(f.gateway);
   let created = false;

@@ -249,3 +249,13 @@ body:has(.update-toast) .undo-toast { bottom: 220px; }
 .composer-settings-row.has-settings-fields .session-settings-controls { margin-bottom:0; }
 .composer-settings-fields { min-width:0; max-width:100%; border:0; padding:0; margin:0; }
 .composer-settings-fields select { max-width:100%; min-height:44px; }
+
+.session-bar { display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px; flex-shrink:0; padding-block:8px; border-bottom:var(--border-width) solid var(--color-border); }
+.session-bar-copy { flex:1 1 auto; min-width:0; font-size:var(--text-secondary); }
+.session-bar-title { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:500; }
+.session-bar-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.page-content:has(> .session-bar) { padding-top:0; }
+
+.page-content:not(:has(.conversation-panel)) > .session-bar { margin-bottom:var(--item-gap); }
+
+.setting-value { max-width:min(45vw, 28rem); overflow-wrap:anywhere; }

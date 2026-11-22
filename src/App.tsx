@@ -8,7 +8,7 @@ import { useRef, useState } from 'react';
 import { MessageSquare, Settings, RefreshCw, LoaderCircle, Plug, Link2 } from 'lucide-react';
 import { useApp, refresh } from './data';
 import { useRoute, decodeRouteParameter } from './useRoute';
-import { PluginLoader, PluginIcon, matchPluginRoute, pluginError, pluginHook, PluginContent, PluginConflicts, PluginUnavailable, usePlugins } from './plugins';
+import { PluginLoader, PluginIcon, matchPluginRoute, pluginError, pluginHook, PluginContent, PluginConflicts, PluginGlobalStatus, PluginUnavailable, usePlugins } from './plugins';
 import { Conversations, ConversationView, NewConversation } from './Conversations';
 import { NotificationLanding } from './NotificationLanding';
 import { PluginSettings } from './PluginSettings';
@@ -63,7 +63,7 @@ function Shell() {
     const activeId = plugin?.id || (['conversations', 'conversation', 'draft', 'new'].includes(screen) ? 'conversations' : '');
     const Sidebar = sidebar;
     const layout = <div className="app-shell"><aside className="sidebar"><a href="#/" className="brand"><span className="brand-mark"><MessageSquare size={22}/></span>Herts</a><nav aria-label="Main navigation">{tabs.map(t => <a key={t.id} href={`#${t.path}`} className={`nav-item ${activeId === t.id ? 'active' : ''}`}><PluginIcon id={t.id} icon={t.Icon} size={19}/><span>{t.title}</span></a>)}</nav>{Sidebar && plugin && <PluginContent plugin={plugin}><div className="sidebar-rule"/><Sidebar {...props}/></PluginContent>}<div className="sidebar-bottom"><a aria-describedby="connection-status-label" href="#/settings" className={`nav-item ${screen === 'settings' ? 'active' : ''}`} aria-current={screen === 'settings' ? 'page' : undefined}><span className="navigation-icon"><Settings size={19}/><ConnectionBadge/></span><span>Settings</span></a></div></aside>
-    <main><div className="page-content">{state.error && <div className="error-banner" role="alert">{state.error}</div>}{state.lifecycleNotice && <div className="error-banner" role="status">{state.lifecycleNotice}</div>}<PluginConflicts />{page}</div></main>
+    <main><div className="page-content">{state.error && <div className="error-banner" role="alert">{state.error}</div>}{state.lifecycleNotice && <div className="error-banner" role="status">{state.lifecycleNotice}</div>}<PluginConflicts /><PluginGlobalStatus />{page}</div></main>
     <ConnectionAnnouncement/><ShellNavigation tabs={tabs} activeId={activeId} path={path}/></div>;
     const Provider = plugin?.definition.Provider;
     return Provider && plugin ? <PluginContent plugin={plugin}><Provider>{layout}</Provider></PluginContent> : layout;

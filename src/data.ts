@@ -285,7 +285,9 @@ export async function readConversationActivity(contextId: string, signal: AbortS
         try {
             const { observation, revision, generation } = beginActivityRead();
             const path = location.hash.slice(1).split('?')[0];
-            const pluginId = state.plugins.entries.find(entry => entry.enabled && entry.manifest.routes?.some(prefix => path === prefix || path.startsWith(prefix + '/')))?.manifest.id;
+            const pluginId = state.plugins.entries.find(entry => entry.enabled &&
+                [`/plugins/${entry.manifest.id}`, ...(entry.manifest.routes || [])]
+                    .some(prefix => path === prefix || path.startsWith(prefix + '/')))?.manifest.id;
             const data = await activityApi(`/contexts/${encodeURIComponent(contextId)}/activity${pluginId ? `?pluginId=${encodeURIComponent(pluginId)}` : ''}`, undefined, 'GET', 10000, signal);
             if (data.contextId !== contextId) throw new Error('The conversation identity changed.');
             if (signal.aborted || revision < lastBindingsRefresh || revision < (activityRevisions.get(contextId) || 0)) return;
@@ -907,7 +909,7 @@ export async function uploadFile(id: string, progress?: (n: number) => void) {
         progress?.(Math.round(r.offset / f.blob.size * 100));
     }
 }
-export async function submit(input: any): Promise<Action> {
+async function prepareSubmission(input: any) {
     const contextId = input.contextId || input.taskId;
     await assertDraftAvailable(contextId);
     const preview = state.snapshot.sessionSettings || emptySettings();
@@ -945,9 +947,26 @@ export async function submit(input: any): Promise<Action> {
             throw new Error('A submitted request is still unconfirmed. Check its status before sending another.');
         await db.submissions.add({ id: input.id, input, at: Date.now(), confirmed: false, baseline });
     });
-    await rebuild();
+    try {
+        await rebuild();
+    } catch (error) {
+        await db.submissions.delete(input.id);
+        throw error;
+    }
+    return input;
+}
+export async function submit(input: any): Promise<Action> {
+    try {
+        input = await prepareSubmission(input);
+    } catch (cause) {
+        const error = cause instanceof Error ? cause : new Error(String(cause));
+        throw Object.assign(error, { submissionOutcome: 'unsent' });
+    }
+    const contextId = input.contextId || input.taskId;
+    let receivedAction = false;
     try {
         const result = await activityApi('/actions', input);
+        receivedAction = true;
         if (result.activity) { await activityCache.touch(contextId); await acceptActivityDetails(result.activity); }
         // The receipt can arrive while a state refresh is already in flight. Show it
         // immediately and retain newer event state if it beat the HTTP response.
@@ -963,8 +982,11 @@ export async function submit(input: any): Promise<Action> {
         return action;
     }
     catch (error) {
-        if (error instanceof ApiError && error.status >= 400 && error.status < 500)
+        if (!receivedAction && error instanceof ApiError && error.status >= 400 && error.status < 500) {
             await db.submissions.delete(input.id);
+            if ([400, 403, 409].includes(error.status) && error.data?.error && !error.data.uncertain)
+                Object.assign(error, { submissionOutcome: 'unsent' });
+        }
         await rebuild();
         throw error;
     }

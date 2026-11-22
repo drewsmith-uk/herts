@@ -5,10 +5,13 @@ export interface DeviceNotificationInput<T = unknown> {
   route: string;
   restoreOnDismiss: boolean;
   metadata: T;
+  ownerWindow?: boolean;
+  inactiveTitle?: string;
 }
 
 export interface DeviceNotification<T = unknown> extends DeviceNotificationInput<T> {
   revision: string;
+  ownerClientId?: string;
   createdAt: number;
   displayError?: string;
 }

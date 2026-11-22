@@ -28,7 +28,7 @@ self.addEventListener('notificationclick',event=>{
   event.waitUntil((async()=>{
    const data=event.notification.data,record=await readPluginNotification(data);
    if(!record){event.notification.close();return;}
-   await Promise.all([openNotification({...data,route:record.route}),pluginNotificationQueue(()=>displayPluginNotification(data,record,false,event.notification.tag))]);
+   await Promise.all([openNotification({...data,route:record.route,ownerClientId:record.ownerClientId}),pluginNotificationQueue(()=>displayPluginNotification(data,record,false,event.notification.tag))]);
   })());
  }else{event.notification.close();event.waitUntil(openNotification(event.notification.data));}
 });
@@ -36,7 +36,7 @@ async function openNotification(data){
  const url=data?.kind==='device-plugin'&&validPluginNotificationRoute(data.route)?`/#${data.route}`:data?.kind==='test'?'/#/settings':typeof data?.id==='string'&&data.id?`/?notice=${encodeURIComponent(data.id)}`:'/';
  let windows=[];
  try{windows=(await self.clients.matchAll({type:'window',includeUncontrolled:true})).filter(c=>c.frameType==='top-level'&&new URL(c.url).origin===self.location.origin);}catch{/* Window enumeration must not prevent launching the app. */}
- windows.sort((a,b)=>Number(b.focused)-Number(a.focused));
+ windows.sort((a,b)=>Number(b.id===data?.ownerClientId)-Number(a.id===data?.ownerClientId)||Number(b.focused)-Number(a.focused));
  for(const window of windows)try{
   // Let a responsive app replace the old screen before bringing it forward.
   // A suspended page may need focus to process the message: never wait for a
@@ -47,7 +47,7 @@ async function openNotification(data){
   finally{clearTimeout(preparationTimer);}
   const focused=await window.focus();
   if(!focused)continue;
-  if(await routed)return;
+  if(await routed || data?.ownerClientId)return;
   // An older app may not understand the message yet. Focus has already happened,
   // so a one-time page load can update it without using a stale client afterwards.
   if(await focused.navigate(url))return;
@@ -192,7 +192,9 @@ async function displayPluginNotification(data, record, onlyMissing = false, dism
    const present = all.filter(notification => notification.tag !== dismissedTag);
    if (onlyMissing && present.some(notification => notification.data?.revision === record.revision)) break;
    const tag = `${pluginNotificationTag(data)}:${crypto.randomUUID()}`;
-   await notificationBrowserCall(() => self.registration.showNotification(record.title, {
+   const ownerPresent = !record.ownerWindow || (await self.clients.matchAll({type:'window',includeUncontrolled:true})).some(client => client.id === record.ownerClientId);
+   const title = ownerPresent ? record.title : record.inactiveTitle || 'Open Herts to check status';
+   await notificationBrowserCall(() => self.registration.showNotification(title, {
     body: record.body || '', icon: '/icon-192.png', tag,
     silent: true, renotify: false, requireInteraction: true,
     data: { kind: 'device-plugin', pluginId: data.pluginId, generation: data.generation, key: data.key, revision: record.revision },
@@ -236,7 +238,10 @@ async function reconcilePluginNotifications(redisplay = false) {
  for (const notification of await notificationBrowserCall(() => self.registration.getNotifications())) {
   if (notification.data?.kind === 'device-plugin' && !desired.has(pluginNotificationTag(notification.data))) notification.close();
  }
- for (const { data, record } of records) if (record.restoreOnDismiss) await displayPluginNotification(data, record, !redisplay);
+ for (const { data, record } of records) {
+  if (record.restoreOnDismiss) await displayPluginNotification(data, record, !redisplay);
+  else if (record.ownerWindow && (await matchingPluginNotifications(data)).length) await displayPluginNotification(data, record);
+ }
 }
 async function handlePluginNotification(data) {
  if (data.version !== 1) throw new Error('Update Herts to use device notifications.');
@@ -244,18 +249,22 @@ async function handlePluginNotification(data) {
  if (!/^[a-z][a-z0-9-]{0,63}$/.test(data.pluginId) || !Number.isSafeInteger(data.generation)) throw new Error('Invalid plugin identity.');
  const result = await pluginNotificationStorage(data.command === 'check' ? 'readonly' : 'readwrite', async store => {
   if (!notificationPlugin(await store.catalogue(), data, true)) throw new Error('This plugin changed. Reload before changing notifications.');
-  if (data.command === 'check') return;
+  if (data.command === 'check') return { windowOwnership: true };
   if (data.command === 'set') {
    const input = data.input;
    if (!input || typeof input.key !== 'string' || !input.key || input.key.length > 1000
     || typeof input.title !== 'string' || !input.title.trim() || input.title.length > 8192
     || input.body !== undefined && (typeof input.body !== 'string' || input.body.length > 8192)
     || typeof input.restoreOnDismiss !== 'boolean' || !validPluginNotificationRoute(input.route)
+    || input.ownerWindow !== undefined && typeof input.ownerWindow !== 'boolean'
+    || input.inactiveTitle !== undefined && (typeof input.inactiveTitle !== 'string' || input.inactiveTitle.length > 200)
+    || input.ownerWindow && typeof data.ownerClientId !== 'string'
     || JSON.stringify(input).length > 65536) throw new Error('Invalid device notification.');
    data.key = input.key;
    const previous = await store.get(pluginNotificationKey(data));
    if ((previous?.revision ?? null) !== data.expectedRevision) throw new Error('This notification changed. Reload its saved state before editing.');
-   const record = { ...input, revision: crypto.randomUUID(), createdAt: previous?.createdAt ?? Date.now() };
+   const {ownerClientId: ignoredOwner, ...fields} = input;
+   const record = { ...fields, ...(input.ownerWindow ? {ownerClientId:data.ownerClientId} : {}), revision: crypto.randomUUID(), createdAt: previous?.createdAt ?? Date.now() };
    await store.put(pluginNotificationKey(data), record);
    return record;
   }
@@ -264,7 +273,7 @@ async function handlePluginNotification(data) {
   if (data.command === 'retry') return store.get(pluginNotificationKey(data));
   throw new Error('Unknown notification operation.');
  });
- if (data.command === 'check') return;
+ if (data.command === 'check') return { windowOwnership: true };
  if (data.command === 'remove') await closePluginNotification(data);
  if (result) await displayPluginNotification(data, result);
  await pluginNotificationsChanged();
@@ -274,7 +283,7 @@ self.addEventListener('message', event => {
  if (event.data?.type !== 'PLUGIN_NOTIFICATIONS') return;
  if (!event.source?.url || new URL(event.source.url).origin !== self.location.origin) return;
  const respond = async () => {
-  try { event.ports[0]?.postMessage({ version: 1, result: await handlePluginNotification(event.data) }); }
+  try { event.ports[0]?.postMessage({ version: 1, result: await handlePluginNotification({...event.data,ownerClientId:event.source.id}) }); }
   catch (error) { event.ports[0]?.postMessage({ version: 1, error: error.message || 'The notification operation failed.' }); }
  };
  event.waitUntil((event.data.command === 'check' ? respond() : pluginNotificationQueue(respond)).catch(error => {

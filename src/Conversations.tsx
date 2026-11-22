@@ -2,7 +2,7 @@ import { ActionRow } from './ui';
 import { messagePreview } from '../shared/messagePreview';
 import { undoableAction } from './UndoToast';
 import { PageHeader, Button, ButtonLink, DialogFrame, ItemList, ItemRow, ItemMeta, EmptyState, StatusMessage, ListPlaceholder } from './ui';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { liveQuery } from 'dexie';
 import { Search, X, MessageSquare, LoaderCircle, Plus, Trash2, Eye, EyeOff } from 'lucide-react';
 import { db, useApp, api, setConversationHidden, contextForConversation, openConversation, createLocalConversation, deleteConversationDraft, saveConversationDraft, type Draft } from './data';
@@ -126,8 +126,8 @@ export function Conversations() {
     {busy && (visible.length ? <p role="status" className="loading">Refreshing conversations…</p> : <ListPlaceholder label="Loading conversations…"/>)}{!busy && !visible.length && !error && !actionError && <EmptyState icon={<MessageSquare size={30}/>} title={drafts.length ? 'No Hermes conversations found' : 'No conversations found'} description={query ? 'Try a different search.' : 'Your personal Hermes conversations will appear here.'}>{!showAll && <p>Turn on “Show all” to include linked and hidden conversations.</p>}</EmptyState>}{more && !busy && <button className="load-more" onClick={() => setOffset(offset + 50)}>Load more conversations</button>}
     {chooser && <div className="action-chooser" role="dialog" aria-label="Conversation actions">{swipes.map(p => <button key={p.id} onClick={() => void swipe(chooser, p)}>{pluginHook(p, () => p.definition.swipe!.label(chooser), 'Actions')}</button>)}<button onClick={() => setChooser(undefined)}>Cancel</button></div>}</>;
 }
-export function ConversationView({ id }: {
-    id: string;
+export function ConversationView({ id, actions, children, className = '', backHref = '#/conversations', backLabel = 'Conversations' }: {
+    id: string; actions?: ReactNode; children?: ReactNode; className?: string; backHref?: string; backLabel?: string;
 }) {
     const state = useApp(), [conversation, setConversation] = useState<Conversation>(), [error, setError] = useState(''), [attempt, setAttempt] = useState(0), [busy, setBusy] = useState(false);
     const resolvedContext = useRef<string | undefined>(undefined);
@@ -156,8 +156,8 @@ export function ConversationView({ id }: {
     finally {
         setBusy(false);
     } }
-    return <div className="conversation-detail"><ConversationHeader title={current.title} backHref="#/conversations" backLabel="Conversations" context={context} conversation={current} visibilityActions={<><ActionRow icon={hidden ? <Eye size={20}/> : <EyeOff size={20}/>} disabled={busy} onClick={() => void hide()}>{hidden ? 'Unhide conversation' : 'Hide conversation'}</ActionRow>{context && error && <p role="alert" className="inline-error">{error}</p>}</>}>{context && <ConversationTitle context={context}/>}</ConversationHeader>
-    <ConversationPanel fullTitle={current.title} context={context || { id, title: current.title, aliases: current.aliases, link: { ...current, storedId: id } }} readOnly={!context} showActions={false} showHeading={false}/>{!context && error && <p role="alert"><span>{error}</span> <button onClick={() => setAttempt(n => n + 1)}>Try again</button></p>}</div>;
+    return <div className={`conversation-detail ${className}`}><ConversationHeader actions={actions} title={current.title} backHref={backHref} backLabel={backLabel} context={context} conversation={current} visibilityActions={<><ActionRow icon={hidden ? <Eye size={20}/> : <EyeOff size={20}/>} disabled={busy} onClick={() => void hide()}>{hidden ? 'Unhide conversation' : 'Hide conversation'}</ActionRow>{context && error && <p role="alert" className="inline-error">{error}</p>}</>}>{context && <ConversationTitle context={context}/>}</ConversationHeader>
+    {children}<ConversationPanel fullTitle={current.title} context={context || { id, title: current.title, aliases: current.aliases, link: { ...current, storedId: id } }} readOnly={!context} showActions={false} showHeading={false}/>{!context && error && <p role="alert"><span>{error}</span> <button onClick={() => setAttempt(n => n + 1)}>Try again</button></p>}</div>;
 }
 export function NewConversation({ id, shared, initialId }: { id?: string; shared?: SharedContent; initialId?: string }) {
     const state = useApp(), [draftId] = useState(() => id || initialId || crypto.randomUUID());

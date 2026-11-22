@@ -10,7 +10,7 @@ import { SessionSettings } from './sessionSettings.js';
 import { obsoletePreviewWarning } from './promptRequests.js';
 import { RecoveryQueue } from './recoveryQueue.js';
 
-export interface ActionInput { id: string; taskId?: string; contextId?: string; kind: Action['kind']; text?: string; answers?: Record<string, string>; uploadIds?: string[]; targetId?: string; generation?: string; approvalId?: string; settingsRevision?: number; defaultsRevision?: number; settingsConfirmation?: string }
+export interface ActionInput { voice?: import('../shared/voice.js').VoiceSend; id: string; taskId?: string; contextId?: string; kind: Action['kind']; text?: string; answers?: Record<string, string>; uploadIds?: string[]; targetId?: string; generation?: string; approvalId?: string; settingsRevision?: number; defaultsRevision?: number; settingsConfirmation?: string }
 const activeStates = new Set(['preparing', 'running', 'awaiting_input', 'stopping']);
 const missingRuntime = (error: unknown): error is GatewayError => error instanceof GatewayError && !error.uncertain && (error.reason === 'not_found' || (!error.reason && error.code === 4001));
 const unavailableSessionMessage = 'The previous Hermes session is no longer available. Check the conversation history before sending another message.';
@@ -64,6 +64,11 @@ export class Actions {
   start(input: ActionInput): Action {
     const prior = this.store.receipt(input.id, input); if (prior) return this.store.action(input.id)!;
     const task = this.store.context(input.contextId || input.taskId || ''); if (!task) throw new Conflict('Sync this item before sending.');
+    if (input.voice) {
+      if (!task.link) throw new Conflict('Calls require a linked conversation.');
+      if (this.store.actions(task.id).some(action => action.voice?.callId === input.voice!.callId && action.voice?.delegationId === input.voice!.delegationId))
+        throw new Conflict('This spoken request already has a submission. Check the conversation before sending again.');
+    }
     const main = this.main(task.id), binding = this.store.binding(task.id);
     if (['send', 'continue'].includes(input.kind)) {
       if (main && activeStates.has(main.state)) throw new Conflict('Work is already active. Use its approval or stop controls.');
@@ -76,7 +81,7 @@ export class Actions {
     } else {
       if (!main || !binding || binding.unavailable || !this.gateway.online || binding.epoch !== this.gateway.epoch || input.generation !== binding.generation || input.targetId !== main.id) throw new Conflict('This control is stale. Refresh the conversation.');
     }
-    const action: Action = { id: input.id, taskId: task.id, contextId: task.id, kind: input.kind, text: input.text || '', ...(input.answers ? { answers: input.answers } : {}), uploadIds: input.uploadIds || [], createdAt: Date.now(), updatedAt: Date.now(), state: 'preparing', phase: 'saved', receipt: 'pending', targetId: input.targetId, approvalId: input.approvalId, ...(input.kind === 'send' ? { sendStage: 'preparing' as const } : {}) };
+    const action: Action = { id: input.id, taskId: task.id, contextId: task.id, kind: input.kind, ...(input.voice ? { voice: input.voice } : {}), text: input.text || '', ...(input.answers ? { answers: input.answers } : {}), uploadIds: input.uploadIds || [], createdAt: Date.now(), updatedAt: Date.now(), state: 'preparing', phase: 'saved', receipt: 'pending', targetId: input.targetId, approvalId: input.approvalId, ...(input.kind === 'send' ? { sendStage: 'preparing' as const } : {}) };
     this.store.db.transaction(() => {
       if (input.kind === 'send') action.settings = this.settings.freeze(task.id, input);
       if (!['send', 'continue'].includes(input.kind)) {
@@ -205,7 +210,7 @@ export class Actions {
         if (a.settings) { await this.checkSendable(b, false); this.checkSendNotCancelled(a.id); }
         Object.assign(a, this.store.action(a.id), { sendStage: 'submitting', terminal: undefined, turnStarted: false, awaitingTurn: false, liveText: '' });
         this.store.saveAction(a); dispatched = true;
-        const result = await this.step(a, 'submitting message', 'prompt.submit', { session_id: b.runtimeId, text });
+        const result = await this.step(a, 'submitting message', 'prompt.submit', { session_id: b.runtimeId, text, ...(a.voice ? { surface: 'voice-live', voice_context: a.voice.context } : {}) });
         const updated = this.store.action(a.id)!;
         if (result.admission_id) { updated.admissionId = result.admission_id; updated.remoteOutcome = result.outcome; }
         updated.receipt = 'accepted'; updated.sendStage = 'submitted'; updated.phase = result.status || 'accepted';

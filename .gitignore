@@ -31,6 +31,7 @@ plugins/*
 !plugins/reading/
 !plugins/bots/
 !plugins/pinned/
+!plugins/calls/
 plugins/*/client.js
 plugins/*/server.mjs
 examples/*/client.js

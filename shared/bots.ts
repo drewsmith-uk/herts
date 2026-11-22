@@ -22,6 +22,7 @@ export interface RemoteAction {
 /** Every remote effect is durably recorded before dispatch; completed steps are reusable. */
 export interface ActionEffects { id: string; check(): void; effect<T>(name: string, run: () => Promise<T>): Promise<T>; }
 export interface HermesServices {
+  voiceLive?: import('./voice.js').VoiceLiveServices;
   onChange?(listener: () => void): () => void;
   bots(): Promise<Bot[]>;
   describeBot(name: string): Promise<BotDetails>;

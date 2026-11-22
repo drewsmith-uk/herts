@@ -168,3 +168,10 @@ export function SettingsGroup({ title, children }: { title: string; children: Re
 export function ListPlaceholder({ label }: { label: string }) {
   return <div role="status" className="list-placeholder"><span>{label}</span><div aria-hidden="true">{[0, 1, 2].map(index => <div className="placeholder-row" key={index}><span/><span/></div>)}</div></div>;
 }
+
+export function SessionBar({ title, status, children }: { title?: string; status: ReactNode; children: ReactNode }) {
+  return <section className="session-bar" aria-label="Current call">
+    <div className="session-bar-copy">{title && <div className="session-bar-title" title={title}>{title}</div>}<div role="status">{status}</div></div>
+    <div className="session-bar-actions">{children}</div>
+  </section>;
+}

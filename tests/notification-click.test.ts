@@ -33,6 +33,16 @@ const target = '/?notice=snooze%3Atask%3Aoperation';
 afterEach(() => vi.useRealTimers());
 
 describe('foregrounding Herts from a notification', () => {
+  it('returns to the call owner without reloading it when acknowledgement is delayed', async () => {
+    vi.useFakeTimers();
+    const owner = windowClient({ id: 'call-owner' }), other = windowClient({ id: 'other', focused: true });
+    owner.postMessage.mockImplementation(() => {});
+    const { clients, click } = await fixture([other, owner]);
+    const work = click({ id: 'call', ownerClientId: 'call-owner' });
+    await vi.advanceTimersByTimeAsync(1500); await work;
+    expect(owner.focus).toHaveBeenCalledOnce(); expect(owner.navigate).not.toHaveBeenCalled();
+    expect(other.focus).not.toHaveBeenCalled(); expect(clients.openWindow).not.toHaveBeenCalled();
+  });
   it('prepares a background app before focusing it, without reloading or relaunching', async () => {
     const hidden = windowClient(), focused = windowClient(); hidden.focus.mockResolvedValue(focused);
     const { clients, click } = await fixture([hidden]); await click();

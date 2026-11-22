@@ -45,7 +45,7 @@ export function pluginNotifications<T = unknown>(pluginId: string) {
   }
   return {
     list,
-    async ready() { await run('check'); },
+    async ready() { return run<{ windowOwnership?: boolean }>('check'); },
     async requestPermission() {
       if (!('Notification' in window)) return 'unsupported' as const;
       return Notification.permission === 'default' ? Notification.requestPermission() : Notification.permission;

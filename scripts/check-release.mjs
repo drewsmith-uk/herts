@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFileSync, readdirSync, mkdirSync, writeFileSync, statSync, rmSync } from 'node:fs';
 
-const pluginRoots = ['plugins/tasks', 'plugins/reading', 'plugins/bots', 'plugins/pinned', 'examples/notes'];
+const pluginRoots = ['plugins/tasks', 'plugins/reading', 'plugins/bots', 'plugins/pinned','plugins/calls', 'examples/notes'];
 const dist = '.runtime/release-dist';
 const uiFirst = ['ui-consistency.spec.ts', 'bots-ui.spec.ts', 'bots.spec.ts'];
 const alphabetical = (a, b) => a < b ? -1 : a > b ? 1 : 0;
