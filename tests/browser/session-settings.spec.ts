@@ -10,6 +10,60 @@ async function open(page: Page) { await page.getByLabel(/^(Message Hermes|Add a 
 async function setDefaults(request: APIRequestContext, values = {}) { const revision = (await state(request)).snapshot.sessionSettings.defaults.revision; expect((await request.post('/api/v1/session-defaults', { headers: { 'x-herts-request': '1' }, data: { id: crypto.randomUUID(), revision, values } })).ok()).toBe(true); }
 test.afterEach(async ({ request }) => { await setDefaults(request); });
 
+test('Settings, shared Reading and new conversations use the latest model list for the profile', async ({ page, context, request }) => {
+  const before = await writes(request);
+  const reading = await context.newPage(), conversation = await context.newPage();
+  await reading.setViewportSize({ width: 390, height: 844 });
+  await page.setViewportSize({ width: 1280, height: 844 });
+  const picker = (tab: Page) => tab.getByLabel('Conversation model', { exact: true });
+  const provider = 'openai-codex', id = 'gpt-6.2-sol';
+  const option = { id, provider, providerName: 'ChatGPT/Codex', available: true, reasoning: true };
+  let release!: () => void;
+  const delayed = new Promise<void>(resolve => { release = resolve; });
+  let delayReading = false;
+  await context.route('**/api/v1/session-settings?*', async route => {
+    const tab = route.request().frame().page();
+    const response = await route.fetch(), view = await response.json();
+    const updatedAt = tab === conversation ? 2 : 1;
+    if (tab === reading && delayReading) await delayed;
+    await route.fulfill({ json: { ...view, catalogue: { profile: 'default', updatedAt },
+      models: updatedAt === 2 ? [...view.models, option] : view.models } });
+  });
+  await page.goto('/#/settings');
+  await page.getByRole('button', { name: 'Edit conversation defaults' }).click();
+  await picker(page).selectOption(model('chosen-model'));
+  await page.getByRole('searchbox', { name: 'Find a model', exact: true }).fill(id);
+  await expect(picker(page).getByRole('option', { name: id, exact: true })).toHaveCount(0);
+
+  const link = 'https://example.com/catalogue-review';
+  await reading.goto(`/share?text=${encodeURIComponent(link)}`);
+  await reading.getByRole('button', { name: 'Reading', exact: true }).click();
+  await open(reading);
+  const refreshReply = reading.waitForResponse(r => r.url().includes('/session-settings?') && r.url().includes('refresh=true'));
+  delayReading = true;
+  await reading.getByRole('button', { name: 'Refresh current settings' }).click();
+  try {
+    await conversation.goto('/#/new');
+    await open(conversation);
+    for (const tab of [conversation, page, reading]) {
+      const group = picker(tab).locator('optgroup[label="ChatGPT/Codex"]');
+      await expect(group.locator('option')).toHaveText([id]);
+    }
+    await expect(picker(page)).toHaveValue(model('chosen-model'));
+    await expect(page.getByRole('searchbox', { name: 'Find a model', exact: true })).toHaveValue(id);
+  } finally { release(); }
+  await refreshReply;
+  for (const tab of [reading, conversation, page]) {
+    await picker(tab).selectOption({ label: id });
+    await expect(picker(tab)).toHaveValue(JSON.stringify({ id, provider }));
+  }
+  await reading.screenshot({ path: 'test-results/catalogue-reading-390.png' });
+  await page.screenshot({ path: 'test-results/catalogue-settings-1280.png' });
+  await reading.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(reading.getByLabel('Message Hermes', { exact: true })).toHaveValue(link);
+  expect(await writes(request)).toEqual(before);
+});
+
 for (const width of [390, 1280]) test(`stages actual conversation settings without work until Send at ${width}px`, async ({ page, request }) => {
   await page.setViewportSize({ width, height: 844 });
   await setDefaults(request, { model: { provider: 'configured', id: 'chosen-model' }, effort: 'ultra' });

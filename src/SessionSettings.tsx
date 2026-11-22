@@ -1,6 +1,7 @@
 import {ModelPicker} from './ModelPicker';
 import { SettingsSection, DialogFrame, DialogHeading, FormField } from './ui';
 import { useEffect, useRef, useState } from 'react';
+import { liveQuery } from 'dexie';
 import { ChevronRight, Folder, RefreshCw, SlidersHorizontal, X } from 'lucide-react';
 import type { ConversationContext } from '../shared/conversations';
 import { effectiveSettings, emptySettings, efforts, hasSettings, type Effort, type SessionValues, type SettingsView } from '../shared/sessionSettings';
@@ -9,8 +10,32 @@ import { useUpdatePreparation, useUpdateWork } from './updateSafety';
 
 const labels: Record<Effort, string> = { none: 'Off', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max', ultra: 'Ultra' };
 const cachedView = (view: SettingsView): SettingsView => ({ ...view, source: (view.source === 'live' || view.source === 'current') ? 'saved' : view.source, sources: Object.fromEntries(Object.entries(view.sources || Object.fromEntries(Object.keys(view.current).map(key => [key, (view.source === 'live' || view.source === 'current') ? 'live' : 'saved']))).map(([key, source]) => [key, (source === 'live' || source === 'current') ? 'last-known' : source])) });
-function useSettingsView(contextId?: string) {
+type CachedModels = NonNullable<SettingsView['catalogue']> & Pick<SettingsView, 'models'>;
+const catalogueKey = (profile: string) => `settings-models:${profile}`;
+
+async function cacheSettingsView(key: string, view: SettingsView) {
+  await db.transaction('rw', db.kv, async () => {
+    if (view.catalogue) {
+      const key = catalogueKey(view.catalogue.profile);
+      const saved = (await db.kv.get(key))?.value as CachedModels | undefined;
+      if (!saved || saved.updatedAt < view.catalogue.updatedAt) {
+        await db.kv.put({ key, value: { ...view.catalogue, models: view.models } satisfies CachedModels });
+      }
+    }
+    await db.kv.put({ key, value: view });
+  });
+}
+
+function useSettingsView(context?: ConversationContext) {
+  const contextId = context?.id;
   const state = useApp(), [view, setView] = useState<SettingsView>(), [error, setError] = useState(''), [loading, setLoading] = useState(false);
+  const [catalogue, setCatalogue] = useState<CachedModels>();
+  const profile = view?.catalogue?.profile || context?.profile || state.gateway.profile;
+  useEffect(() => {
+    if (!profile) return;
+    const subscription = liveQuery(() => db.kv.get(catalogueKey(profile))).subscribe(row => setCatalogue(row?.value));
+    return () => subscription.unsubscribe();
+  }, [profile]);
   const alive = useRef(true), sequence = useRef(0);
   const refresh = async (force = false) => {
     if (!state.online) return;
@@ -18,7 +43,7 @@ function useSettingsView(contextId?: string) {
     try {
       const query = new URLSearchParams({ ...(contextId ? { contextId } : {}), ...(force ? { refresh: 'true' } : {}) });
       const data: SettingsView = await api(`/session-settings?${query}`, undefined, undefined, 20000);
-      if (alive.current && seq === sequence.current) { setView(data); setError(data.error || ''); await db.kv.put({ key: `settings-view:${contextId || 'defaults'}`, value: data }); }
+      if (alive.current && seq === sequence.current) { setView(data); setError(data.error || ''); await cacheSettingsView(`settings-view:${contextId || 'defaults'}`, data); }
       return alive.current && seq === sequence.current ? data : undefined;
     } catch (e) { if (alive.current && seq === sequence.current) { setError((e as Error).message); setView(old => old && cachedView(old)); } }
     finally { if (alive.current && seq === sequence.current) setLoading(false); }
@@ -31,15 +56,16 @@ function useSettingsView(contextId?: string) {
   const settings = state.snapshot.sessionSettings || emptySettings();
   const change = `${settings.defaults.revision}:${contextId ? settings.conversations[contextId]?.revision || 0 : ''}:${JSON.stringify(state.actions.filter(a => a.taskId === contextId && a.kind === 'send').slice(0, 1).map(a => [a.id, a.receipt, a.state === 'finished' || a.state === 'failed', a.settings]))}`;
   useEffect(() => { void refresh(); }, [contextId, state.online, state.gateway.online, change]);
-  const merged = view ? { ...(state.online && state.gateway.online ? view : cachedView(view)), defaults: settings.defaults, pending: contextId ? settings.conversations[contextId] || { revision: 0, values: {} } : view.pending } : undefined;
+  const models = catalogue && catalogue.profile === profile && catalogue.updatedAt >= (view?.catalogue?.updatedAt ?? 0) ? catalogue.models : view?.models;
+  const merged = view ? { ...(state.online && state.gateway.online ? view : cachedView(view)), models: models || [], defaults: settings.defaults, pending: contextId ? settings.conversations[contextId] || { revision: 0, values: {} } : view.pending } : undefined;
   return { view: merged, error, loading, refresh };
 }
 
 export function SessionSettingsControls({ context, onOpen, onClose, showStatus = true }: { showStatus?: boolean; context: ConversationContext; onOpen: () => void; onClose: () => void }) {
-  const state = useApp(), { view, error, loading, refresh } = useSettingsView(context.id), [editing, setEditing] = useState(false);
+  const state = useApp(), { view, error, loading, refresh } = useSettingsView(context), [editing, setEditing] = useState(false);
   const local = state.settingsPending?.find(p => p.contextId === context.id), values = view ? effectiveSettings(view, !context.link) : {};
   const pending = hasSettings(view?.pending.values), saving = state.actions.some(a => a.taskId === context.id && a.kind === 'send' && a.receipt === 'pending');
-  function open() { onOpen(); setEditing(true); }
+  function open() { onOpen(); setEditing(true); if (!loading) void refresh(); }
   const model = values.model?.id || view?.modelName || (loading ? 'Loading settings…' : 'Model unknown');
   const effort = `${values.effort ? labels[values.effort].toLowerCase() : 'effort unknown'}${values.fast === true ? ' · fast' : ''}`;
   const wireEffort = view?.wireEffort && !pending && view.wireEffort !== values.effort ? ` → ${view.wireEffort}` : '';
@@ -54,32 +80,33 @@ export function SessionSettingsControls({ context, onOpen, onClose, showStatus =
     </div>
     {local?.conflict && <p role="alert" className="inline-error">{local.conflict} <button type="button" className="text-button" onClick={() => void useSyncedSessionChoices(context.id)}>Use synced choices</button><button type="button" className="text-button" onClick={open}>Review choices</button></p>}
     {error && <p className="session-settings-note">{error} <button type="button" className="text-button" disabled={loading} onClick={() => void refresh(true)}>Refresh settings</button></p>}
-    {editing && view && <SettingsDialog context={context} initial={view} reload={() => refresh(true)} close={() => { setEditing(false); onClose(); }}/>}
+    {editing && view && <SettingsDialog context={context} latest={view} reload={() => refresh(true)} close={() => { setEditing(false); onClose(); }}/>}
   </div>;
 }
 
 export function NewConversationDefaults() {
   const state = useApp(), { view, error, loading, refresh } = useSettingsView(), [editing, setEditing] = useState(false);
   const defaults = state.snapshot.sessionSettings?.defaults.values || {}, local = state.settingsPending?.find(p => !p.contextId);
-  return <SettingsSection className="conversation-defaults" title={<button className="settings-defaults-trigger" aria-label="Edit conversation defaults" disabled={!view} onClick={() => setEditing(true)}><span>Conversation defaults<span className="settings-defaults-value">{defaults.model?.id || 'Hermes default'} · {defaults.effort ? labels[defaults.effort] : 'Default effort'}{defaults.fast !== undefined ? ` · Fast mode ${defaults.fast ? 'on' : 'off'}` : ''}</span></span><ChevronRight size={18}/></button>}>
+  function open() { setEditing(true); if (!loading) void refresh(); }
+  return <SettingsSection className="conversation-defaults" title={<button className="settings-defaults-trigger" aria-label="Edit conversation defaults" disabled={!view} onClick={open}><span>Conversation defaults<span className="settings-defaults-value">{defaults.model?.id || 'Hermes default'} · {defaults.effort ? labels[defaults.effort] : 'Default effort'}{defaults.fast !== undefined ? ` · Fast mode ${defaults.fast ? 'on' : 'off'}` : ''}</span></span><ChevronRight size={18}/></button>}>
     {local && <p className="subtle-note">Saved on this device until synced.</p>}
     {local?.conflict && <p role="alert" className="inline-error">{local.conflict} <button className="text-button" onClick={() => void useSyncedSessionChoices()}>Use synced defaults</button></p>}
     {error && <p className="inline-error">{error} <button className="text-button" disabled={loading} onClick={() => void refresh(true)}>Refresh settings</button></p>}
-    {editing && view && <SettingsDialog initial={view} reload={() => refresh(true)} close={() => setEditing(false)}/>}
+    {editing && view && <SettingsDialog latest={view} reload={() => refresh(true)} close={() => setEditing(false)}/>}
   </SettingsSection>;
 }
 
-function SettingsDialog({ context, initial, reload, close }: { context?: ConversationContext; initial: SettingsView; reload: () => Promise<SettingsView | undefined>; close: () => void }) {
-  const state = useApp(), [view, setView] = useState(initial);
-  const defaults = !context, [values, setValues] = useState<SessionValues>(structuredClone(defaults ? initial.defaults.values : initial.pending.values));
-  const [revision, setRevision] = useState(defaults ? initial.defaults.revision : initial.pending.revision);
+function SettingsDialog({ context, latest, reload, close }: { context?: ConversationContext; latest: SettingsView; reload: () => Promise<SettingsView | undefined>; close: () => void }) {
+  const state = useApp(), [view, setView] = useState(latest);
+  const defaults = !context, [values, setValues] = useState<SessionValues>(structuredClone(defaults ? latest.defaults.values : latest.pending.values));
+  const [revision, setRevision] = useState(defaults ? latest.defaults.revision : latest.pending.revision);
   const [reviewed, setReviewed] = useState(false);
   const [search, setSearch] = useState(''), [error, setError] = useState(''), [busy, setBusy] = useState(false), [browsing, setBrowsing] = useState(false);
   const [folder, setFolder] = useState<{ path: string; parent: string | null; directories: { name: string; path: string }[] }>();
   const work = useUpdateWork(); useUpdatePreparation({ blocked: () => 'Finish or cancel the conversation settings dialog before updating.' });
   const inherited = defaults ? view.profile : context.link ? view.current : { ...view.profile, ...view.defaults.values };
   const effective = { ...inherited, ...values }, choice = effective.model;
-  const selected = view.models.find(m => m.id === choice?.id && m.provider === choice?.provider);
+  const selected = latest.models.find(m => m.id === choice?.id && m.provider === choice?.provider);
   const unsupported = values.effort !== undefined && (selected?.reasoning !== true || (values.effort === 'none' && selected.canDisableReasoning === false))
     ? 'This model does not support that effort choice. Use its existing/default effort or choose another model.'
     : effective.fast === true && selected?.fast !== true ? 'Fast mode is unavailable for this model. Choose Off or a model that supports it.' : '';
@@ -115,7 +142,7 @@ function SettingsDialog({ context, initial, reload, close }: { context?: Convers
       <DialogHeading id="session-settings-title" close={close} busy={busy}>{defaults ? 'New conversation defaults' : 'Conversation settings'}</DialogHeading>
       <div className="form-dialog-body">
       {view.uncertain && <p role="alert" className="error-banner">An earlier settings change is unconfirmed. Refresh and review the current values. Applying reviewed choices allows them to be tried again only when you next press Send.</p>}
-      <ModelPicker models={view.models} value={values.model} onChange={value=>set('model',value)} search={search} setSearch={setSearch} disabled={busy} ariaLabel="Conversation model" inheritedLabel={`${inheritLabel('model')}${inherited.model?.id || (context?.link && view.modelName) ? ` (${inherited.model?.id || view.modelName})` : ' (model unknown)'}`}/>
+      <ModelPicker models={latest.models} value={values.model} onChange={value=>set('model',value)} search={search} setSearch={setSearch} disabled={busy} ariaLabel="Conversation model" inheritedLabel={`${inheritLabel('model')}${inherited.model?.id || (context?.link && view.modelName) ? ` (${inherited.model?.id || view.modelName})` : ' (model unknown)'}`}/>
       {values.model && <button type="button" className="text-button settings-inherit" disabled={busy} onClick={() => set('model', undefined)}>{inheritLabel('model')}</button>}
       <div className="session-settings-grid"><FormField label="Reasoning effort"><select aria-label="Reasoning effort" value={values.effort ?? ''} disabled={busy} onChange={e => set('effort', e.target.value ? e.target.value as Effort : undefined)}>
         <option value="">{inheritLabel('effort')}{inherited.effort ? ` (${labels[inherited.effort]})` : ' (effort unknown)'}</option>

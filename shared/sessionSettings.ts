@@ -11,6 +11,7 @@ export interface ModelOption { provider: string; providerName: string; id: strin
 export type SettingsSource = 'live' | 'current' | 'saved' | 'last-known';
 export interface SettingsView {
   modelName?: string;
+  catalogue?: { profile: string; updatedAt: number };
   sources?: Partial<Record<SettingKey, SettingsSource>>;
   defaults: SettingsRecord; pending: SettingsRecord; current: SessionValues; profile: SessionValues;
   source: 'live' | 'current' | 'saved' | 'profile' | 'unknown'; wireEffort?: string;
