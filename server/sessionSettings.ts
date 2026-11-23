@@ -72,7 +72,7 @@ export class SessionSettings {
     if (this.loading) return this.loading;
     this.loading = (async () => {
       const profile = this.gateway.profile;
-      const options = await this.gateway.rpc('model.options', { profile, include_unconfigured: false, refresh: force });
+      const options = await this.gateway.rpc('model.options', { profile, include_unconfigured: false, refresh: true });
       if (!Array.isArray(options.providers)) throw new GatewayError('This Hermes version does not provide model settings.');
       const models: ModelOption[] = options.providers.flatMap((p: any) => typeof p.slug !== 'string' || !Array.isArray(p.models) ? [] : p.models.filter((m: unknown) => typeof m === 'string').map((id: string) => {
         const cap = p.capabilities?.[id] || {};

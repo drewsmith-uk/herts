@@ -160,7 +160,16 @@ wss.on('connection', ws => {
       if (duplicate) { ws.send(JSON.stringify({ jsonrpc: '2.0', id, error: { code: 4022, message: `Title '${p.title}' is already in use by session ${duplicate.id}` } })); return; }
       rows.get(r.stored).title = p.title; result = { title: p.title, pending: false };
     }
-    else if (method === 'model.options') result = { model: profileSettings.model, provider: profileSettings.provider, providers: [{ slug: 'configured', name: 'Configured provider', authenticated: true, models: ['profile-model', 'existing-model', 'chosen-model', 'confirm-model', 'simple-model'], capabilities: Object.fromEntries(['profile-model', 'existing-model', 'chosen-model', 'confirm-model', 'simple-model'].map(model => [model, { reasoning: model !== 'simple-model', fast: model !== 'simple-model', can_disable_reasoning: true }])) }] };
+    else if (method === 'model.options') {
+      const models = ['profile-model', 'existing-model', 'chosen-model', 'confirm-model', 'simple-model'];
+      const capabilities = Object.fromEntries(models.map(model => [model, {
+        reasoning: model !== 'simple-model', fast: model !== 'simple-model', can_disable_reasoning: true,
+      }]));
+      result = { model: profileSettings.model, provider: profileSettings.provider, providers: [
+        { slug: 'configured', name: 'Configured provider', authenticated: true, models, capabilities },
+      ] };
+      if (p.refresh) result.providers.push({ slug: 'openai-codex', name: 'ChatGPT/Codex', authenticated: true, models: ['gpt-6.2-sol'] });
+    }
     else if (method === 'config.get') result = p.key === 'reasoning' ? { value: profileSettings.reasoning_effort } : p.key === 'fast' ? { value: profileSettings.fast ? 'fast' : 'normal' } : { cwd: profileSettings.cwd };
     else if (method === 'config.set') {
       // Hermes tokenizes by whitespace; quotes remain part of model/provider names.

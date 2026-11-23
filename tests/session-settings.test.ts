@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import { Actions } from '../server/actions';
@@ -101,7 +101,28 @@ describe('settings staged until Send', () => {
     const draft = await actions.settings.view(randomUUID());
     expect(draft.catalogue).toEqual(defaults.catalogue);
     expect(draft.models).toEqual(defaults.models);
-    expect(gateway.calls.filter(call => call.method === 'model.options')).toHaveLength(1);
+    expect(gateway.calls.filter(call => call.method === 'model.options').map(call => call.params)).toEqual([
+      { profile: gateway.profile, include_unconfigured: false, refresh: true },
+    ]);
+  });
+  it('still offers a previously refreshed model when a later draft opens after catalogue expiry', async () => {
+    const { actions, gateway, id } = fixture(false);
+    const model = { id: 'gpt-6.2-sol', provider: 'openai-codex', available: true };
+    const rpc = gateway.rpc.bind(gateway);
+    gateway.rpc = async (method, params) => {
+      const reply = await rpc(method, params);
+      if (method === 'model.options' && params.refresh) {
+        reply.providers.push({ slug: model.provider, models: [model.id] });
+      }
+      return reply;
+    };
+    const refreshed = await actions.settings.view(undefined, true);
+    expect(refreshed.models).toContainEqual(expect.objectContaining(model));
+    const later = refreshed.catalogue!.updatedAt + 61_000;
+    using clock = vi.spyOn(Date, 'now').mockReturnValue(later);
+    const draft = await actions.settings.view(id);
+    expect(draft.catalogue?.updatedAt).toBe(later);
+    expect(draft.models).toContainEqual(expect.objectContaining(model));
   });
   it.each(['id', 'profile'])('rejects a stored response with the wrong %s', async key => {
     const { gateway, actions, id } = fixture(), original = gateway.http.bind(gateway);

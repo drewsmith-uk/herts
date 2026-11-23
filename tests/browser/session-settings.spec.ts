@@ -10,6 +10,20 @@ async function open(page: Page) { await page.getByLabel(/^(Message Hermes|Add a 
 async function setDefaults(request: APIRequestContext, values = {}) { const revision = (await state(request)).snapshot.sessionSettings.defaults.revision; expect((await request.post('/api/v1/session-defaults', { headers: { 'x-herts-request': '1' }, data: { id: crypto.randomUUID(), revision, values } })).ok()).toBe(true); }
 test.afterEach(async ({ request }) => { await setDefaults(request); });
 
+test('a shared Reading link offers the refreshed provider model on first open', async ({ page, request }) => {
+  const before = await writes(request);
+  const link = 'https://example.com/first-reading-share';
+  await page.goto(`/share?text=${encodeURIComponent(link)}`);
+  await page.getByRole('button', { name: 'Reading', exact: true }).click();
+  await open(page);
+  const picker = page.getByLabel('Conversation model', { exact: true });
+  await picker.selectOption({ label: 'gpt-6.2-sol' });
+  await expect(picker).toHaveValue(JSON.stringify({ id: 'gpt-6.2-sol', provider: 'openai-codex' }));
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.getByLabel('Message Hermes', { exact: true })).toHaveValue(link);
+  expect(await writes(request)).toEqual(before);
+});
+
 test('Settings, shared Reading and new conversations use the latest model list for the profile', async ({ page, context, request }) => {
   const before = await writes(request);
   const reading = await context.newPage(), conversation = await context.newPage();
@@ -27,7 +41,7 @@ test('Settings, shared Reading and new conversations use the latest model list f
     const updatedAt = tab === conversation ? 2 : 1;
     if (tab === reading && delayReading) await delayed;
     await route.fulfill({ json: { ...view, catalogue: { profile: 'default', updatedAt },
-      models: updatedAt === 2 ? [...view.models, option] : view.models } });
+      models: [...view.models.filter((m: { provider: string }) => m.provider !== provider), ...(updatedAt === 2 ? [option] : [])] } });
   });
   await page.goto('/#/settings');
   await page.getByRole('button', { name: 'Edit conversation defaults' }).click();
